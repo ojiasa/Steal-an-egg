@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v9.1 — FIX văng trời + stop không dừng
+-- STEAL MODULE v9.2 — Destroy Humanoid (bắt buộc để tele) + Fix văng/stop
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -45,9 +45,9 @@ local config = {
     CHAT_WAIT      = 2.0,
 
     -- ⭐ Anti-launch
-    ANTI_LAUNCH_TIME = 2.5,
-    ANTI_LAUNCH_Y    = 15,
-    ANTI_LAUNCH_MAG  = 250,
+    ANTI_LAUNCH_TIME = 3.0,
+    ANTI_LAUNCH_Y    = 10,
+    ANTI_LAUNCH_MAG  = 200,
 }
 
 local isRunning      = false
@@ -190,7 +190,6 @@ local function pickBestEgg()
         return nil
     end
 
-    -- Filter theo target maps (dùng dist thay vì name để chính xác)
     if not config.PRIORITY_INCOME then
         local filtered = {}
         for _, c in ipairs(candidates) do
@@ -336,50 +335,60 @@ local function resetAnimateScript()
     end)
 end
 
--- ⭐ FIX: KHÔNG destroy Humanoid, chỉ reset state
+-- ⭐ DESTROY Humanoid (bắt buộc để tele) — giữ nguyên v9 gốc
 local function replaceHumanoidDirect()
     local c = P.Character
     if not c then return false end
-    local hum = c:FindFirstChildOfClass("Humanoid")
-    if not hum then return false end
+    local old = c:FindFirstChildOfClass("Humanoid")
+    if not old then return false end
 
+    local savedHip = old.HipHeight or 2
+    local savedJump = old.JumpPower or 50
+    local savedMax = old.MaxHealth or 100
+    local savedHP = old.Health or 100
+    local savedRig = old.RigType or Enum.HumanoidRigType.R15
+    local savedSlope = old.MaxSlopeAngle or 89
+
+    pcall(function() old:Destroy() end)
+
+    local new = Instance.new("Humanoid")
+    new.Parent = c
     pcall(function()
-        hum.PlatformStand = false
-        hum.Sit = false
-        hum:SetStateEnabled(Enum.HumanoidStateType.Dying, false)
-        hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
-        hum:SetStateEnabled(Enum.HumanoidStateType.Physics, true)
-        hum.MaxHealth = 99999
-        hum.Health = 99999
-        hum.WalkSpeed = 60
-        if hum:GetState() ~= Enum.HumanoidStateType.Running
-            and hum:GetState() ~= Enum.HumanoidStateType.Freefall
-            and hum:GetState() ~= Enum.HumanoidStateType.Jumping
-            and hum:GetState() ~= Enum.HumanoidStateType.Landed then
-            hum:ChangeState(Enum.HumanoidStateType.Running)
-        end
+        new.HipHeight = savedHip
+        new.JumpPower = savedJump
+        new.MaxHealth = savedMax
+        new.Health = savedHP
+        new.WalkSpeed = 60
+        new.RigType = savedRig
+        new.MaxSlopeAngle = savedSlope
+        new.AutoRotate = true
+        new:SetStateEnabled(Enum.HumanoidStateType.Dying, false)
+        new:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+        new:SetStateEnabled(Enum.HumanoidStateType.Running, true)
+        new:SetStateEnabled(Enum.HumanoidStateType.RunningNoPhysics, true)
+        new:SetStateEnabled(Enum.HumanoidStateType.Landed, true)
+        new:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
+        new:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
     end)
-
-    -- Đảm bảo có Animator
     pcall(function()
-        if not hum:FindFirstChildOfClass("Animator") then
+        if not c:FindFirstChildOfClass("Animator") then
             local a = Instance.new("Animator")
-            a.Parent = hum
+            a.Parent = new
         end
     end)
-
-    -- Reset velocity ngay
-    local hrp = getHRP()
-    if hrp then pcall(function()
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        hrp.AssemblyAngularVelocity = Vector3.zero
-    end) end
-
+    task.spawn(restoreAnimations)
+    task.spawn(function()
+        task.wait(0.1)
+        resetAnimateScript()
+        task.wait(0.2)
+        local h = c:FindFirstChildOfClass("Humanoid")
+        if h then pcall(function() h:ChangeState(Enum.HumanoidStateType.Running) end) end
+    end)
     return true
 end
 
 local function teleToPos(targetPos)
-    if not isRunning then return end  -- ⭐ FIX stop
+    if not isRunning then return end
 
     local hrp = getHRP()
     if hrp then pcall(function()
@@ -388,11 +397,11 @@ local function teleToPos(targetPos)
         hrp.AssemblyAngularVelocity = Vector3.zero
     end) end
 
-    if not isRunning then return end  -- ⭐ FIX stop
+    if not isRunning then return end
     replaceHumanoidDirect()
 
     for i = 1, 6 do
-        if not isRunning then return end  -- ⭐ FIX stop
+        if not isRunning then return end
         local r2 = getHRP()
         if r2 then pcall(function()
             r2.CFrame = CFrame.new(targetPos)
@@ -426,17 +435,17 @@ local function firePromptOnce(prompt)
     return true
 end
 
--- ⭐ FIX VĂNG TRỜI: chống launch trong lúc chạy về home
+-- ⭐ FIX VĂNG TRỜI
 local function antiLaunch(duration)
     duration = duration or config.ANTI_LAUNCH_TIME
     local t0 = os.clock()
-    while os.clock() - t0 < duration and isRunning do
+    while os.clock() - t0 < duration do
         local hrp = getHRP()
         if hrp then
             pcall(function()
                 local v = hrp.AssemblyLinearVelocity
                 if v.Y > config.ANTI_LAUNCH_Y or v.Magnitude > config.ANTI_LAUNCH_MAG then
-                    hrp.AssemblyLinearVelocity = Vector3.new(v.X * 0.2, 0, v.Z * 0.2)
+                    hrp.AssemblyLinearVelocity = Vector3.new(v.X * 0.1, 0, v.Z * 0.1)
                     hrp.AssemblyAngularVelocity = Vector3.zero
                 end
             end)
@@ -496,7 +505,7 @@ local function goHomeFast()
     local lastPos = nil
     local stuckTime = os.clock()
 
-    while os.clock() - t0 < 30 and isRunning do  -- ⭐ FIX stop
+    while os.clock() - t0 < 30 and isRunning do
         local hum, r = getHum(), getHRP()
         if not hum or not r then break end
         keepHealth()
@@ -509,7 +518,7 @@ local function goHomeFast()
         end
 
         pcall(function()
-            -- ⭐ FIX văng trời: ép Y xuống nếu đang bay lên
+            -- ⭐ ÉP Y xuống nếu đang bay
             local v = r.AssemblyLinearVelocity
             if v.Y > config.ANTI_LAUNCH_Y then
                 r.AssemblyLinearVelocity = Vector3.new(v.X, 0, v.Z)
@@ -593,7 +602,7 @@ local function stealAtPos(eggPos, label)
         task.wait(0.1)
     end
 
-    -- ⭐ FIX: chờ prompt load (5 lần x 0.2s = 1s)
+    -- Chờ prompt load
     local prompt
     for i = 1, 5 do
         if not isRunning then return false end
@@ -681,7 +690,6 @@ local function mainLoop()
 
                             local targetPos = best.pos + Vector3.new(0, 3, 0)
 
-                            -- ⭐ RETRY loop
                             local success = false
                             for attempt = 1, config.MAX_RETRY do
                                 if not isRunning then break end
@@ -694,7 +702,7 @@ local function mainLoop()
                                 if not isRunning then break end
 
                                 if stealAtPos(best.pos, best.category) then
-                                    -- ⭐ FIX VĂNG TRỜI: bật antiLaunch song song
+                                    -- ⭐ FIX VĂNG: bật antiLaunch song song với goHomeFast
                                     task.spawn(antiLaunch, config.ANTI_LAUNCH_TIME)
                                     goHomeFast()
                                     task.wait(config.CHAT_WAIT)
@@ -766,14 +774,13 @@ function M.start()
     stolenPrompts = {}
     deliveryFailed = false
     isRunning = true
-    log("▶ START v9.1")
+    log("▶ START v9.2")
     task.spawn(mainLoop)
 end
 
 function M.stop()
     isRunning = false
     log("■ STOP")
-    -- ⭐ FIX: dọn state ngay
     task.spawn(function()
         task.wait(0.1)
         local hrp = getHRP()
