@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v9.2 — Destroy Humanoid (bắt buộc để tele) + Fix văng/stop
+-- STEAL MODULE v8 — Priority Income + Threshold 1M/s
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -30,24 +30,21 @@ local config = {
     TARGETS        = { { name = "Snow", pos = Vector3.new(1405.1, 68.0, -363.8) } },
     PREFER_FAR     = true,
 
+    -- ⭐ Priority Income
     PRIORITY_INCOME    = false,
-    PRIORITY_THRESHOLD = 1000000,
+    PRIORITY_THRESHOLD = 1000000,   -- 1M/s
 
+    -- Core
     SPEED          = 1500,
     SPEED_CAP      = 500,
     MAP_RADIUS     = 800,
     ARRIVE_DIST    = 10,
-    BAIT_TIMEOUT   = 20,
+    BAIT_TIMEOUT   = 15,
     KB_HEALTH_DROP = 0.5,
     MAX_FIRES      = 8,
     MAX_RETRY      = 3,
     STEAL_VERIFY_WAIT = 0.35,
     CHAT_WAIT      = 2.0,
-
-    -- ⭐ Anti-launch
-    ANTI_LAUNCH_TIME = 3.0,
-    ANTI_LAUNCH_Y    = 10,
-    ANTI_LAUNCH_MAG  = 200,
 }
 
 local isRunning      = false
@@ -62,6 +59,7 @@ end
 
 function M.onLog(cb) if type(cb) == "function" then table.insert(logCallbacks, cb) end end
 
+-- ══════════ HELPERS ══════════
 local function getHRP() local c = P.Character; return c and c:FindFirstChild("HumanoidRootPart") end
 local function getHum() local c = P.Character; return c and c:FindFirstChildOfClass("Humanoid") end
 
@@ -101,6 +99,7 @@ end
 
 -- ══════════ INCOME MODULES ══════════
 local AssetEarnings, EggState
+local incomeCache = {}
 
 pcall(function()
     local s = RS:WaitForChild("Shared", 5)
@@ -117,139 +116,181 @@ pcall(function()
     end
 end)
 
-local function calcIncome(eggData)
-    if not AssetEarnings then return 0 end
-    local input = {
-        Category = eggData.AssetCategory,
-        Scale = eggData.AssetScale or 1,
-        Mutations = eggData.Mutations or {},
-    }
-    local income = 0
-    local ok, val = pcall(AssetEarnings.LiveRatePerSecond, input)
-    if ok and type(val) == "number" and val > 0 then income = val end
-    if income == 0 then
-        ok, val = pcall(AssetEarnings.RatePerSecond, input)
-        if ok and type(val) == "number" and val > 0 then income = val end
-    end
-    return income
-end
-
-local function formatIncome(n)
-    if n >= 1e9 then return string.format("%.2fB", n / 1e9) end
-    if n >= 1e6 then return string.format("%.2fM", n / 1e6) end
-    if n >= 1e3 then return string.format("%.2fK", n / 1e3) end
-    return string.format("%.0f", n)
-end
-
-local function getEggCandidates()
-    local candidates = {}
-    if not EggState then return candidates end
+local function getEggIncomeByUid(uid)
+    if not AssetEarnings or not EggState or not uid then return 0 end
+    if incomeCache[uid] ~= nil then return incomeCache[uid] end
 
     local ok, fd = pcall(EggState.ReadFieldEggs)
     if not ok or type(fd) ~= "table" or type(fd.Records) ~= "table" then
-        return candidates
+        return 0
     end
 
-    for uid, eggData in pairs(fd.Records) do
-        local cf = eggData.BoundsCFrame
-        if cf then
-            local pos = cf.Position
-            if dist(pos, config.HOME_POS) > 150 then
-                local income = calcIncome(eggData)
-                local nearestMap, nearestDist = nil, 99999
-                for _, m in ipairs(ALL_MAPS) do
-                    local d = dist(pos, m.pos)
-                    if d < nearestDist then
-                        nearestMap = m
-                        nearestDist = d
-                    end
-                end
-                if nearestMap then
-                    table.insert(candidates, {
-                        uid = uid,
-                        pos = pos,
-                        income = income,
-                        map = nearestMap,
-                        category = eggData.AssetCategory,
-                        scale = eggData.AssetScale,
-                        mutation = eggData.BaseMutation,
-                    })
-                end
+    for _, eggData in pairs(fd.Records) do
+        if eggData.Uid == uid then
+            local input = {
+                Category = eggData.AssetCategory,
+                Scale = eggData.AssetScale or 1,
+                Mutations = eggData.Mutations or {},
+            }
+            local r
+            local ok2, val = pcall(AssetEarnings.LiveRatePerSecond, input)
+            if ok2 and type(val) == "number" and val > 0 then r = val end
+            if not r then
+                ok2, val = pcall(AssetEarnings.RatePerSecond, input)
+                if ok2 and type(val) == "number" and val > 0 then r = val end
             end
+            incomeCache[uid] = r or 0
+            return r or 0
         end
     end
-    return candidates
+    return 0
 end
 
-local function pickBestEgg()
-    if not isRunning then return nil end
+local function getEggUidFromPrompt(prompt)
+    local part = prompt.Parent
+    if part and part:IsA("Attachment") then part = part.Parent end
+    if not part or not part:IsA("BasePart") then return nil end
 
-    local candidates = getEggCandidates()
-    if #candidates == 0 then
-        log("⚠ Không có egg nào trên field")
-        return nil
+    local ppos = part.Position
+    local slots = W:FindFirstChild("AreaEggSlotsClient")
+    if not slots then return nil end
+
+    local closestSlot, closestDist = nil, 10
+    for _, slot in ipairs(slots:GetChildren()) do
+        local hitbox = slot:FindFirstChild("Hitbox")
+        if hitbox and hitbox:IsA("BasePart") then
+            local d = (hitbox.Position - ppos).Magnitude
+            if d < closestDist then
+                closestSlot, closestDist = slot, d
+            end
+        end
     end
+    return closestSlot and closestSlot.Name or nil
+end
 
-    if not config.PRIORITY_INCOME then
-        local filtered = {}
-        for _, c in ipairs(candidates) do
-            for _, tgt in ipairs(config.TARGETS) do
-                if dist(c.pos, tgt.pos) < 500 then
-                    table.insert(filtered, c)
-                    break
+-- ⭐⭐⭐ FIND EGG INCOME CAO NHẤT
+local function findHighestIncomeEgg()
+    local hrp = getHRP()
+    if not hrp then return nil, nil, nil, nil end
+
+    local best = nil
+    local bestIncome = config.PRIORITY_THRESHOLD or 0
+
+    for _, v in ipairs(W:GetDescendants()) do
+        if v:IsA("ProximityPrompt") and v.Enabled and not stolenPrompts[v] then
+            local isEgg = v.Name == "CarryAreaEgg"
+                or ((v.ObjectText or "") == "Egg"
+                    and (v.ActionText or ""):lower():find("steal", 1, true))
+            if isEgg then
+                local part = v.Parent
+                local ppos
+                if part and part:IsA("BasePart") then ppos = part.Position
+                elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
+                elseif part and part.Parent and part.Parent:IsA("BasePart") then
+                    ppos = part.Parent.Position end
+
+                if ppos and dist(ppos, config.HOME_POS) > 150 then
+                    local uid = getEggUidFromPrompt(v)
+                    if uid then
+                        local income = getEggIncomeByUid(uid)
+                        if income > bestIncome then
+                            local nearestMap, nearestDist = nil, 99999
+                            for _, m in ipairs(ALL_MAPS) do
+                                local d = dist(ppos, m.pos)
+                                if d < nearestDist then
+                                    nearestMap = m
+                                    nearestDist = d
+                                end
+                            end
+                            if nearestMap then
+                                bestIncome = income
+                                best = {
+                                    prompt = v,
+                                    pos = ppos,
+                                    map = nearestMap,
+                                    income = income,
+                                    uid = uid,
+                                }
+                            end
+                        end
+                    end
                 end
             end
         end
-        candidates = filtered
-        if #candidates == 0 then
-            log("⚠ Không có egg trong map target")
-            return nil
+    end
+
+    if best then
+        log(string.format("🎯 Best income: %s @ %s = $%.2f/s",
+            best.uid:sub(1, 20), best.map.name, best.income))
+        return best.prompt, best.pos, best.income, best.map
+    end
+    return nil, nil, nil, nil
+end
+
+-- ⭐⭐⭐ FIND EGG TRONG TARGET MAPS (multi-map)
+local function findEggInTargets()
+    local hrp = getHRP()
+    if not hrp then return nil, nil, nil, nil end
+
+    local candidates = {}
+
+    for _, v in ipairs(W:GetDescendants()) do
+        if v:IsA("ProximityPrompt") and v.Enabled and not stolenPrompts[v] then
+            local isEgg = v.Name == "CarryAreaEgg"
+                or ((v.ObjectText or "") == "Egg"
+                    and (v.ActionText or ""):lower():find("steal", 1, true))
+            if isEgg then
+                local part = v.Parent
+                local ppos
+                if part and part:IsA("BasePart") then ppos = part.Position
+                elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
+                elseif part and part.Parent and part.Parent:IsA("BasePart") then
+                    ppos = part.Parent.Position end
+                if ppos then
+                    for _, tgt in ipairs(config.TARGETS) do
+                        if dist(ppos, tgt.pos) < 500 then
+                            table.insert(candidates, {
+                                prompt = v,
+                                pos = ppos,
+                                map = tgt,
+                                dFromPlayer = dist(ppos, hrp.Position),
+                                dFromHome = dist(tgt.pos, config.HOME_POS),
+                            })
+                            break
+                        end
+                    end
+                end
+            end
         end
     end
 
+    if #candidates == 0 then return nil, nil, nil, nil end
+
+    -- ⭐ Sort theo mode
     if config.PRIORITY_INCOME then
-        local filtered = {}
         for _, c in ipairs(candidates) do
-            if c.income >= config.PRIORITY_THRESHOLD then
-                table.insert(filtered, c)
-            end
+            local uid = getEggUidFromPrompt(c.prompt)
+            c.income = uid and getEggIncomeByUid(uid) or 0
         end
-        candidates = filtered
-        if #candidates == 0 then
-            log("⚠ Không có egg >= $" .. formatIncome(config.PRIORITY_THRESHOLD) .. "/s")
-            return nil
-        end
-
-        table.sort(candidates, function(a, b) return a.income > b.income end)
-
-        log("💰 TOP 3 egg:")
-        for i = 1, math.min(3, #candidates) do
-            local c = candidates[i]
-            local mut = c.mutation and (" [" .. c.mutation .. "]") or ""
-            log(string.format("  [%d] %s%s @ %s = $%s/s",
-                i, c.category, mut, c.map.name, formatIncome(c.income)))
-        end
+        table.sort(candidates, function(a, b)
+            return a.income > b.income
+        end)
     elseif config.PREFER_FAR then
         table.sort(candidates, function(a, b)
-            return dist(a.map.pos, config.HOME_POS) > dist(b.map.pos, config.HOME_POS)
+            return a.dFromHome > b.dFromHome
         end)
     else
-        local hrp = getHRP()
-        if hrp then
-            table.sort(candidates, function(a, b)
-                return dist(a.pos, hrp.Position) < dist(b.pos, hrp.Position)
-            end)
-        end
+        table.sort(candidates, function(a, b)
+            return a.dFromPlayer < b.dFromPlayer
+        end)
     end
 
     local best = candidates[1]
-    log(string.format("🎯 CHỌN: %s @ %s = $%s/s",
-        best.category, best.map.name, formatIncome(best.income)))
-    return best
+    return best.prompt, best.pos, best.dFromPlayer, best.map
 end
 
-local function findPromptNear(pos, radius)
-    radius = radius or 20
+local function findPromptSteal(pos, radius)
+    radius = radius or config.MAP_RADIUS
     local best, bestDist = nil, radius
     for _, v in ipairs(W:GetDescendants()) do
         if v:IsA("ProximityPrompt") and v.Enabled and not stolenPrompts[v] then
@@ -273,7 +314,7 @@ local function findPromptNear(pos, radius)
     return best, bestDist
 end
 
--- ══════════ ANIMATION ══════════
+-- ══════════ ANIMATION (từ v60.3.2) ══════════
 local function restoreAnimations()
     local c = P.Character
     if not c then return end
@@ -335,22 +376,18 @@ local function resetAnimateScript()
     end)
 end
 
--- ⭐ DESTROY Humanoid (bắt buộc để tele) — giữ nguyên v9 gốc
 local function replaceHumanoidDirect()
     local c = P.Character
     if not c then return false end
     local old = c:FindFirstChildOfClass("Humanoid")
     if not old then return false end
-
     local savedHip = old.HipHeight or 2
     local savedJump = old.JumpPower or 50
     local savedMax = old.MaxHealth or 100
     local savedHP = old.Health or 100
     local savedRig = old.RigType or Enum.HumanoidRigType.R15
     local savedSlope = old.MaxSlopeAngle or 89
-
     pcall(function() old:Destroy() end)
-
     local new = Instance.new("Humanoid")
     new.Parent = c
     pcall(function()
@@ -387,21 +424,15 @@ local function replaceHumanoidDirect()
     return true
 end
 
-local function teleToPos(targetPos)
-    if not isRunning then return end
-
+local function teleToMap(targetPos)
     local hrp = getHRP()
     if hrp then pcall(function()
         hrp.CFrame = CFrame.new(targetPos)
         hrp.AssemblyLinearVelocity = Vector3.zero
         hrp.AssemblyAngularVelocity = Vector3.zero
     end) end
-
-    if not isRunning then return end
     replaceHumanoidDirect()
-
     for i = 1, 6 do
-        if not isRunning then return end
         local r2 = getHRP()
         if r2 then pcall(function()
             r2.CFrame = CFrame.new(targetPos)
@@ -435,35 +466,20 @@ local function firePromptOnce(prompt)
     return true
 end
 
--- ⭐ FIX VĂNG TRỜI
-local function antiLaunch(duration)
-    duration = duration or config.ANTI_LAUNCH_TIME
-    local t0 = os.clock()
-    while os.clock() - t0 < duration do
-        local hrp = getHRP()
-        if hrp then
-            pcall(function()
-                local v = hrp.AssemblyLinearVelocity
-                if v.Y > config.ANTI_LAUNCH_Y or v.Magnitude > config.ANTI_LAUNCH_MAG then
-                    hrp.AssemblyLinearVelocity = Vector3.new(v.X * 0.1, 0, v.Z * 0.1)
-                    hrp.AssemblyAngularVelocity = Vector3.zero
-                end
-            end)
-        end
-        task.wait()
-    end
-end
-
 -- ══════════ MOVEMENT ══════════
-local function velocityMoveTo(targetPos, timeout)
+local function velocityMoveTo(targetPos, timeout, manual)
     timeout = timeout or 20
     local hum, hrp = getHum(), getHRP()
     if not hum or not hrp then return false end
     keepHealth()
+    local function shouldStop()
+        if manual then return false end
+        return not isRunning
+    end
     local t0 = os.clock()
     local lastPos = hrp.Position
     local stuckTime = os.clock()
-    while isRunning and os.clock() - t0 < timeout do
+    while not shouldStop() and os.clock() - t0 < timeout do
         hum, hrp = getHum(), getHRP()
         if not hum or not hrp then break end
         keepHealth()
@@ -495,6 +511,7 @@ local function velocityMoveTo(targetPos, timeout)
         end
         task.wait(0.01)
     end
+    pcall(function() local r = getHRP(); if r then r.AssemblyLinearVelocity = Vector3.zero end end)
     return false
 end
 
@@ -504,26 +521,17 @@ local function goHomeFast()
     local t0 = startTime
     local lastPos = nil
     local stuckTime = os.clock()
-
-    while os.clock() - t0 < 30 and isRunning do
+    while os.clock() - t0 < 30 do
         local hum, r = getHum(), getHRP()
         if not hum or not r then break end
         keepHealth()
-
         local d = dist(r.Position, config.HOME_POS)
         if d < config.ARRIVE_DIST then
             pcall(function() r.AssemblyLinearVelocity = Vector3.zero end)
             log(string.format("✅ Về home (%.2fs)", os.clock() - startTime))
             return true
         end
-
         pcall(function()
-            -- ⭐ ÉP Y xuống nếu đang bay
-            local v = r.AssemblyLinearVelocity
-            if v.Y > config.ANTI_LAUNCH_Y then
-                r.AssemblyLinearVelocity = Vector3.new(v.X, 0, v.Z)
-            end
-
             local dir = config.HOME_POS - r.Position
             if dir.Magnitude > 0 then
                 local nrm = dir.Unit
@@ -535,7 +543,6 @@ local function goHomeFast()
                 end
             end
         end)
-
         if lastPos then
             local moved = dist(r.Position, lastPos)
             if moved < 0.5 then
@@ -553,37 +560,35 @@ local function goHomeFast()
     return false
 end
 
-local function waitForBossHit(timeout)
+local function baitBoss(timeout)
     timeout = timeout or config.BAIT_TIMEOUT
-    log("🎯 Chờ boss Forest đánh...")
+    log("🎯 Bait boss...")
     local t0 = os.clock()
-    local hum0 = getHum()
-    local hrp0 = getHRP()
+    local hum0, hrp0 = getHum(), getHRP()
     local startHealth = hum0 and hum0.Health or 100
     local startPos = hrp0 and hrp0.Position or Vector3.zero
-
     while isRunning and os.clock() - t0 < timeout do
         local hum, hrp = getHum(), getHRP()
         if not hum or not hrp then break end
         keepHealth()
-
         local vel = hrp.AssemblyLinearVelocity
         local speed = vel.Magnitude
         local state = hum:GetState()
-
         if state == Enum.HumanoidStateType.Physics and speed > 30 then
-            log(string.format("💥 PHYSICS (%.0f)", speed)); return true
+            log(string.format("💥 PHYSICS speed=%.1f", speed)); return true
         end
         if speed > 60 and vel.Y > 10 then
-            log(string.format("💥 VELOCITY (%.0f)", speed)); return true
+            log(string.format("💥 VELOCITY speed=%.1f", speed)); return true
         end
-        if hum.Health < startHealth - config.KB_HEALTH_DROP then
-            log("💥 HP"); return true
+        if startHealth and hum.Health < startHealth - config.KB_HEALTH_DROP then
+            log(string.format("💥 HEALTH")); return true
         end
-        if (hrp.Position - startPos).Magnitude > 15 and speed > 30 then
-            log("💥 SHIFT"); return true
+        if startPos then
+            local pd = (hrp.Position - startPos).Magnitude
+            if pd > 15 and speed > 30 then
+                log(string.format("💥 SHIFT")); return true
+            end
         end
-
         pcall(function() hum:MoveTo(hrp.Position) end)
         task.wait(0.01)
     end
@@ -591,49 +596,37 @@ local function waitForBossHit(timeout)
     return false
 end
 
-local function stealAtPos(eggPos, label)
+local function stealAtPos(targetPos, label)
     log("═══════")
     log("STEAL TẠI " .. label)
     task.wait(0.05)
-
     local hrp = getHRP()
-    if not hrp or dist(hrp.Position, eggPos) > 30 then
-        teleToPos(eggPos + Vector3.new(0, 3, 0))
-        task.wait(0.1)
+    if not hrp or dist(hrp.Position, targetPos) > 50 then
+        teleToMap(targetPos)
+        task.wait(0.05)
     end
-
-    -- Chờ prompt load
-    local prompt
-    for i = 1, 5 do
-        if not isRunning then return false end
-        prompt = findPromptNear(eggPos, 150)
-        if prompt then break end
-        task.wait(0.2)
-    end
-    if not prompt then
-        log("⚠ Không có prompt")
-        return false
-    end
-
+    local prompt = findPromptSteal(targetPos, 150)
+    if not prompt then log("⚠ Không có prompt"); return false end
     local slotsBefore, countBefore = getSlotSet()
-    log("📊 Slots: " .. countBefore)
-
+    log("📊 Global slots trước: " .. countBefore)
     for i = 1, config.MAX_FIRES do
         if not isRunning then return false end
         local h2 = getHRP()
         if h2 then
-            local p2 = findPromptNear(h2.Position, 150)
+            local p2 = findPromptSteal(h2.Position, 150)
             if p2 then firePromptOnce(p2) end
         end
         task.wait(config.STEAL_VERIFY_WAIT)
+        local _, countNow = getSlotSet()
         local stolen, slotName = hasStolenSlot(slotsBefore)
         if stolen then
-            log("🎒 SLOT MẤT: " .. slotName:sub(1, 20))
+            log("🎒 SLOT MẤT: " .. slotName)
+            log(string.format("📊 Slots: %d → %d", countBefore, countNow))
             log("✅ ĐÃ STEAL")
             return true
         end
     end
-    log("⚠ Fail fire")
+    log("⚠ Fire " .. config.MAX_FIRES .. " lần không giảm slot")
     return false
 end
 
@@ -645,11 +638,12 @@ local function mainLoop()
 
         if not velocityMoveTo(config.FOREST_POS, 30) then
             if not isRunning then break end
+            log("❌ Không tới Forest")
             task.wait(0.5)
         else
             log("✅ Tới Forest")
             local hrp = getHRP()
-            local prompt = hrp and findPromptNear(hrp.Position, config.MAP_RADIUS)
+            local prompt = hrp and findPromptSteal(hrp.Position, config.MAP_RADIUS)
 
             if prompt then
                 local part = prompt.Parent
@@ -663,71 +657,97 @@ local function mainLoop()
                         velocityMoveTo(ppos, 20)
                     end
 
-                    local forestBefore = getSlotSet()
+                    local forestBefore, forestCount = getSlotSet()
+                    log("📊 Forest global slots: " .. forestCount)
+
                     log("⚡ Steal Forest")
                     for i = 1, 5 do
                         if not isRunning then break end
                         local h2 = getHRP()
                         if h2 then
-                            local p2 = findPromptNear(h2.Position, 150)
+                            local p2 = findPromptSteal(h2.Position, 150)
                             if p2 then firePromptOnce(p2) end
                         end
                         task.wait(0.3)
-                        local stolen = hasStolenSlot(forestBefore)
-                        if stolen then log("🎒 Forest OK"); break end
+                        local stolen, slotName = hasStolenSlot(forestBefore)
+                        if stolen then
+                            log("🎒 Forest OK: " .. slotName)
+                            break
+                        end
                     end
                     stolenPrompts[prompt] = true
                     task.wait(0.1)
 
-                    log("PHASE 3: Chờ boss")
-                    if waitForBossHit(config.BAIT_TIMEOUT) then
-                        log("PHASE 4: Chọn egg & tele")
+                    log("PHASE 3: Bait boss Forest")
+                    local gotKnockback = baitBoss(config.BAIT_TIMEOUT)
 
-                        local best = pickBestEgg()
-                        if best then
+                    if gotKnockback then
+                        -- ⭐ KIỂM TRA MODE
+                        local eggPrompt, eggPos, eggDist, eggMap
+
+                        if config.PRIORITY_INCOME then
+                            log("💰 Mode: ƯU TIÊN TIỀN CAO (min $" ..
+                                (config.PRIORITY_THRESHOLD / 1e6) .. "M/s)")
+                            eggPrompt, eggPos, eggDist, eggMap = findHighestIncomeEgg()
+
+                            -- ⭐ Nếu không có egg nào > ngưỡng → DỪNG
+                            if not eggPos then
+                                log("⚠ Không có egg nào đạt ngưỡng $" ..
+                                    (config.PRIORITY_THRESHOLD / 1e6) .. "M/s → DỪNG")
+                                isRunning = false
+                                break
+                            end
+                        else
+                            log("PHASE 4: Tìm egg trong " .. #config.TARGETS .. " map")
+                            eggPrompt, eggPos, eggDist, eggMap = findEggInTargets()
+                        end
+
+                        if eggPos and eggMap then
                             log(string.format("🎯 Map: %s @ %.1f,%.1f,%.1f",
-                                best.map.name, best.pos.X, best.pos.Y, best.pos.Z))
+                                eggMap.name, eggPos.X, eggPos.Y, eggPos.Z))
 
-                            local targetPos = best.pos + Vector3.new(0, 3, 0)
-
+                            local targetPos = eggPos + Vector3.new(0, 3, 0)
                             local success = false
                             for attempt = 1, config.MAX_RETRY do
                                 if not isRunning then break end
-                                log(string.format("🔄 Attempt %d/%d", attempt, config.MAX_RETRY))
+                                log("═══════════════════════")
+                                log(string.format("🔄 ATTEMPT %d/%d", attempt, config.MAX_RETRY))
                                 deliveryFailed = false
 
-                                teleToPos(targetPos)
-                                task.wait(0.15)
+                                teleToMap(targetPos)
+                                task.wait(0.05)
 
-                                if not isRunning then break end
-
-                                if stealAtPos(best.pos, best.category) then
-                                    -- ⭐ FIX VĂNG: bật antiLaunch song song với goHomeFast
-                                    task.spawn(antiLaunch, config.ANTI_LAUNCH_TIME)
+                                local stolen = stealAtPos(eggPos, eggMap.name)
+                                if stolen then
                                     goHomeFast()
                                     task.wait(config.CHAT_WAIT)
                                     if deliveryFailed then
-                                        log("❌ Chat fail — retry")
-                                        task.wait(0.3)
+                                        log("❌ Chat báo fail — RETRY")
+                                        task.wait(0.2)
                                     else
-                                        log("🎉 SUCCESS")
+                                        log("🎉 THÀNH CÔNG")
                                         success = true
                                         break
                                     end
                                 else
                                     log("⚠ Steal fail — retry")
-                                    task.wait(0.3)
+                                    task.wait(0.2)
                                 end
                             end
 
-                            if not success then
+                            if success then
+                                deliveryFailed = false
+                                log("🎉 HOÀN THÀNH")
+                            else
                                 log("❌ Hết " .. config.MAX_RETRY .. " lần retry")
                             end
                         else
-                            log("⚠ Không có egg để steal")
+                            log("⚠ Không tìm thấy prompt target")
                         end
                     end
                 end
+            else
+                log("⚠ Không có prompt Forest")
             end
         end
 
@@ -736,6 +756,7 @@ local function mainLoop()
     end
 end
 
+-- ══════════ BYPASS ══════════
 local bypassInstalled = false
 local function installBypass()
     if bypassInstalled then return end
@@ -773,24 +794,13 @@ function M.start()
     installBypass()
     stolenPrompts = {}
     deliveryFailed = false
+    incomeCache = {}
     isRunning = true
-    log("▶ START v9.2")
+    log("▶ START — " .. #config.TARGETS .. " map(s)")
     task.spawn(mainLoop)
 end
 
-function M.stop()
-    isRunning = false
-    log("■ STOP")
-    task.spawn(function()
-        task.wait(0.1)
-        local hrp = getHRP()
-        if hrp then pcall(function()
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
-        end) end
-    end)
-end
-
+function M.stop() isRunning = false; log("■ STOP") end
 function M.isRunning() return isRunning end
 
 function M.setTargets(targetList)
@@ -803,26 +813,41 @@ end
 
 function M.setTarget(name, pos)
     config.TARGETS = { { name = name, pos = pos } }
+    log("🎯 Target: " .. name)
 end
 
+-- ⭐ Priority Income API
 function M.setPriorityIncome(enabled)
     config.PRIORITY_INCOME = enabled and true or false
-    log("💰 Ưu tiên: " .. (enabled and "BẬT" or "TẮT"))
+    log("💰 Ưu tiên tiền cao: " .. (enabled and "BẬT" or "TẮT"))
     return config.PRIORITY_INCOME
 end
 
-function M.isPriorityIncome() return config.PRIORITY_INCOME end
-function M.togglePriorityIncome() return M.setPriorityIncome(not config.PRIORITY_INCOME) end
+function M.isPriorityIncome()
+    return config.PRIORITY_INCOME
+end
+
+function M.togglePriorityIncome()
+    return M.setPriorityIncome(not config.PRIORITY_INCOME)
+end
 
 function M.setPriorityThreshold(amount)
     config.PRIORITY_THRESHOLD = amount or 1000000
-    log("💰 Ngưỡng: $" .. formatIncome(config.PRIORITY_THRESHOLD) .. "/s")
+    log("💰 Ngưỡng: $" .. (config.PRIORITY_THRESHOLD / 1e6) .. "M/s")
 end
 
-function M.getPriorityThreshold() return config.PRIORITY_THRESHOLD end
+function M.getPriorityThreshold()
+    return config.PRIORITY_THRESHOLD
+end
+
+function M.clearIncomeCache()
+    incomeCache = {}
+    log("🔄 Income cache cleared")
+end
+
 function M.getAllMaps() return ALL_MAPS end
-function M.setHome(p) if p then config.HOME_POS = p end end
-function M.setForest(p) if p then config.FOREST_POS = p end end
+function M.setHome(p) if p then config.HOME_POS = p; log("📍 Home") end end
+function M.setForest(p) if p then config.FOREST_POS = p; log("📍 Forest") end end
 function M.getConfig() return config end
 
 return M
