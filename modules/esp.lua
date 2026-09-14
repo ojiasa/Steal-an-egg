@@ -1,8 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- ESP MODULE v8 — KHÔNG spam SyncFieldEggs
--- - Đọc egg từ Workspace (không ảnh hưởng game state)
--- - Info từ ReadFieldEggs (read-only)
--- - Auto rebuild khi egg count đổi
+-- ESP MODULE v8.1 — Không spam SyncFieldEggs + auto update info
 -- ═══════════════════════════════════════════════════════════════
 
 local P  = game:GetService("Players").LocalPlayer
@@ -18,10 +15,11 @@ local HOME_POS   = Vector3.new(465.2, 67.1, -364.1)
 local filterMaps = nil
 local AssetEarnings
 
-local REFRESH_INTERVAL = 0.3      -- ⭐ Chậm hơn (0.2 → 0.3) giảm tải
+local REFRESH_INTERVAL = 0.3
 local DIST_INTERVAL    = 0.15
+local CACHE_TIME       = 1.0
 
--- ══════════ LOAD ══════════
+-- ══════════ LOAD MODULES ══════════
 pcall(function()
     local s = RS:WaitForChild("Shared", 5)
     local u = s and s:FindFirstChild("Util", 5)
@@ -39,6 +37,17 @@ local function formatMoney(n)
     if n >= 1e6  then return string.format("%.2fM", n/1e6) end
     if n >= 1e3  then return string.format("%.2fK", n/1e3) end
     return string.format("%.0f", n)
+end
+
+local function getPrefixAndColor(mutation)
+    if mutation == "Golden" then
+        return "🌟", Color3.fromRGB(255, 200, 50)
+    elseif mutation == "Silver" then
+        return "⭐", Color3.fromRGB(200, 200, 220)
+    elseif mutation == "Rainbow" then
+        return "🌈", Color3.fromRGB(255, 100, 200)
+    end
+    return "🥚", Color3.fromRGB(255, 220, 80)
 end
 
 local incomeCache = {}
@@ -59,7 +68,7 @@ local function getIncomeRate(category, scale, mutations)
     return r
 end
 
--- ⭐ Đọc egg từ Workspace (không đụng gì tới game state)
+-- ⭐ Đọc egg thật từ Workspace
 local function scanWorkspaceEggs()
     local result = {}
     local slots = W:FindFirstChild("AreaEggSlotsClient")
@@ -68,7 +77,6 @@ local function scanWorkspaceEggs()
     for _, slot in ipairs(slots:GetChildren()) do
         local hitbox = slot:FindFirstChild("Hitbox")
         if hitbox and hitbox:IsA("BasePart") then
-            -- Check có MeshPart (egg thật)
             local hasMesh = false
             for _, c in ipairs(slot:GetChildren()) do
                 if c:IsA("MeshPart") then
@@ -76,7 +84,6 @@ local function scanWorkspaceEggs()
                     break
                 end
             end
-
             if hasMesh then
                 result[slot.Name] = {
                     uid = slot.Name,
@@ -88,13 +95,12 @@ local function scanWorkspaceEggs()
     return result
 end
 
--- ⭐ Đọc info từ ReadFieldEggs (read-only, an toàn)
--- Cache 2s để không spam
+-- ⭐ Đọc info từ ReadFieldEggs (cache 1s)
 local readCache = { data = nil, time = 0 }
 
 local function getEggInfoMap()
     local now = os.clock()
-    if readCache.data and (now - readCache.time) < 2 then
+    if readCache.data and (now - readCache.time) < CACHE_TIME then
         return readCache.data
     end
 
@@ -105,8 +111,6 @@ local function getEggInfoMap()
         local mod = c:FindFirstChild("EggState")
         if not mod then return end
         local es = require(mod)
-
-        -- ⭐ Dùng ReadFieldEggs (không phải SyncFieldEggs)
         if not es.ReadFieldEggs then return end
         local fd = es.ReadFieldEggs()
         if type(fd) ~= "table" or type(fd.Records) ~= "table" then return end
@@ -135,7 +139,7 @@ local function buildInfo(uid, syncData)
     }
 end
 
--- ══════════ CREATE ══════════
+-- ══════════ CREATE ESP ══════════
 local function createESP(uid, pos, info)
     local attach = Instance.new("Part")
     attach.Name = "ESP_" .. uid:sub(1, 8)
@@ -148,32 +152,32 @@ local function createESP(uid, pos, info)
     attach.CFrame = CFrame.new(pos)
     attach.Parent = espFolder
 
-    local color = Color3.fromRGB(255, 220, 80)
-    local prefix = "🥚"
-    if info.mutation == "Golden" then color = Color3.fromRGB(255, 200, 50); prefix = "🌟"
-    elseif info.mutation == "Silver" then color = Color3.fromRGB(200, 200, 220); prefix = "⭐"
-    elseif info.mutation == "Rainbow" then color = Color3.fromRGB(255, 100, 200); prefix = "🌈" end
+    local prefix, color = getPrefixAndColor(info.mutation)
 
     local hl = Instance.new("Highlight")
-    hl.FillColor = color; hl.OutlineColor = color
-    hl.FillTransparency = 0.6; hl.OutlineTransparency = 0
+    hl.FillColor = color
+    hl.OutlineColor = color
+    hl.FillTransparency = 0.6
+    hl.OutlineTransparency = 0
     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    hl.Adornee = attach; hl.Parent = espFolder
+    hl.Adornee = attach
+    hl.Parent = espFolder
 
     local bb = Instance.new("BillboardGui")
     bb.Size = UDim2.new(0, 190, 0, 86)
     bb.StudsOffset = Vector3.new(0, 4, 0)
     bb.AlwaysOnTop = true
     bb.LightInfluence = 0
-    bb.Adornee = attach; bb.Parent = espFolder
+    bb.Adornee = attach
+    bb.Parent = espFolder
 
     local nameLbl = Instance.new("TextLabel")
     nameLbl.Size = UDim2.new(1, 0, 0, 16)
     nameLbl.BackgroundTransparency = 1
-    nameLbl.Text = prefix .. " " .. info.name
+    nameLbl.Text = prefix .. " " .. (info.name or "Egg")
     nameLbl.TextColor3 = color
     nameLbl.TextStrokeTransparency = 0
-    nameLbl.TextStrokeColor3 = Color3.new(0,0,0)
+    nameLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
     nameLbl.Font = Enum.Font.GothamBold
     nameLbl.TextSize = 13
     nameLbl.Parent = bb
@@ -185,7 +189,7 @@ local function createESP(uid, pos, info)
     mutLbl.Text = info.mutation and ("✨ " .. info.mutation) or ""
     mutLbl.TextColor3 = Color3.fromRGB(255, 200, 100)
     mutLbl.TextStrokeTransparency = 0
-    mutLbl.TextStrokeColor3 = Color3.new(0,0,0)
+    mutLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
     mutLbl.Font = Enum.Font.GothamBold
     mutLbl.TextSize = 10
     mutLbl.Parent = bb
@@ -195,9 +199,9 @@ local function createESP(uid, pos, info)
     rateLbl.Position = UDim2.new(0, 0, 0, 28)
     rateLbl.BackgroundTransparency = 1
     rateLbl.Text = info.rate and ("💵 $" .. formatMoney(info.rate) .. "/s") or "💵 ?"
-    rateLbl.TextColor3 = info.rate and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(150,150,150)
+    rateLbl.TextColor3 = info.rate and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(150, 150, 150)
     rateLbl.TextStrokeTransparency = 0
-    rateLbl.TextStrokeColor3 = Color3.new(0,0,0)
+    rateLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
     rateLbl.Font = Enum.Font.GothamBold
     rateLbl.TextSize = 13
     rateLbl.Parent = bb
@@ -209,7 +213,7 @@ local function createESP(uid, pos, info)
     infoLbl.Text = string.format("📍 %s | ⚖ %.2f", info.area or "?", info.scale or 0)
     infoLbl.TextColor3 = Color3.fromRGB(180, 220, 255)
     infoLbl.TextStrokeTransparency = 0
-    infoLbl.TextStrokeColor3 = Color3.new(0,0,0)
+    infoLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
     infoLbl.Font = Enum.Font.Code
     infoLbl.TextSize = 10
     infoLbl.Parent = bb
@@ -221,7 +225,7 @@ local function createESP(uid, pos, info)
     distLbl.Text = "..."
     distLbl.TextColor3 = Color3.fromRGB(150, 255, 150)
     distLbl.TextStrokeTransparency = 0
-    distLbl.TextStrokeColor3 = Color3.new(0,0,0)
+    distLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
     distLbl.Font = Enum.Font.Code
     distLbl.TextSize = 10
     distLbl.Parent = bb
@@ -231,7 +235,12 @@ local function createESP(uid, pos, info)
         highlight = hl,
         billboard = bb,
         distLabel = distLbl,
+        rateLabel = rateLbl,
+        nameLabel = nameLbl,
+        mutLabel = mutLbl,
+        infoLabel = infoLbl,
         lastDist = -999,
+        lastRate = info.rate,
     }
 end
 
@@ -240,6 +249,31 @@ local function destroyObj(obj)
     pcall(function() if obj.attach then obj.attach:Destroy() end end)
     pcall(function() if obj.highlight then obj.highlight:Destroy() end end)
     pcall(function() if obj.billboard then obj.billboard:Destroy() end end)
+end
+
+-- ══════════ UPDATE LABEL ══════════
+local function updateObjLabels(obj, info)
+    local prefix, color = getPrefixAndColor(info.mutation)
+
+    pcall(function()
+        if info.name and info.name ~= "Egg" then
+            obj.nameLabel.Text = prefix .. " " .. info.name
+            obj.nameLabel.TextColor3 = color
+            obj.highlight.FillColor = color
+            obj.highlight.OutlineColor = color
+        end
+        if info.mutation then
+            obj.mutLabel.Text = "✨ " .. info.mutation
+        end
+        if info.rate and not obj.lastRate then
+            obj.lastRate = info.rate
+            obj.rateLabel.Text = "💵 $" .. formatMoney(info.rate) .. "/s"
+            obj.rateLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+        end
+        if info.area then
+            obj.infoLabel.Text = string.format("📍 %s | ⚖ %.2f", info.area, info.scale or 0)
+        end
+    end)
 end
 
 -- ══════════ REFRESH ══════════
@@ -254,17 +288,12 @@ local function refresh()
         espObjects = {}
     end
 
-    -- ⭐ Chỉ đọc Workspace (nguồn chính)
     local realEggs = scanWorkspaceEggs()
-
-    -- ⭐ Info từ ReadFieldEggs (cached 2s)
     local infoMap = getEggInfoMap()
 
     local currentUids = {}
-    local count = 0
 
     for uid, realEgg in pairs(realEggs) do
-        count = count + 1
         local pos = realEgg.pos
         local atBase = dist(pos, HOME_POS) > 150
 
@@ -290,23 +319,39 @@ local function refresh()
                 local obj = espObjects[uid]
 
                 if not obj then
+                    -- Tạo mới
                     obj = createESP(uid, pos, info)
                     if obj then espObjects[uid] = obj end
                 else
                     if obj.attach and obj.attach.Parent then
+                        -- Update vị trí
                         pcall(function()
                             obj.attach.CFrame = CFrame.new(pos)
                         end)
+                        -- Update label (nếu có info mới)
+                        updateObjLabels(obj, info)
                     else
                         destroyObj(obj)
                         espObjects[uid] = nil
                     end
                 end
+            else
+                -- Không pass filter → xóa
+                if espObjects[uid] then
+                    destroyObj(espObjects[uid])
+                    espObjects[uid] = nil
+                end
+            end
+        else
+            -- Ở lobby → xóa
+            if espObjects[uid] then
+                destroyObj(espObjects[uid])
+                espObjects[uid] = nil
             end
         end
     end
 
-    -- Clear ESP cho egg không còn
+    -- Clear ESP cho egg biến mất
     for uid, obj in pairs(espObjects) do
         if not currentUids[uid] then
             destroyObj(obj)
@@ -315,10 +360,12 @@ local function refresh()
     end
 end
 
+-- ══════════ UPDATE DIST ══════════
 local function updateDist()
     local hrp = P.Character and P.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
     local myPos = hrp.Position
+
     for _, obj in pairs(espObjects) do
         if obj.attach and obj.attach.Parent then
             local d = dist(obj.attach.Position, myPos)
@@ -352,34 +399,47 @@ function M.enable()
     incomeCache = {}
     readCache = { data = nil, time = 0 }
     refresh()
-    print("[ESP] ✅ Enabled (workspace-only)")
+    print("[ESP] ✅ Enabled")
 end
 
 function M.disable()
     enabled = false
     forceClear()
-    if espFolder then espFolder:Destroy(); espFolder = nil end
+    if espFolder then
+        espFolder:Destroy()
+        espFolder = nil
+    end
     incomeCache = {}
     readCache = { data = nil, time = 0 }
     print("[ESP] ❌ Disabled")
 end
 
-function M.toggle() if enabled then M.disable() else M.enable() end; return enabled end
+function M.toggle()
+    if enabled then M.disable() else M.enable() end
+    return enabled
+end
+
 function M.isEnabled() return enabled end
 
 function M.setMapFilter(mapList)
     filterMaps = mapList
-    if enabled then forceClear(); refresh() end
+    if enabled then
+        forceClear()
+        refresh()
+    end
 end
 
-function M.setHome(pos) if pos then HOME_POS = pos end end
+function M.setHome(pos)
+    if pos then HOME_POS = pos end
+end
+
 function M.getCount()
     local n = 0
     for _ in pairs(espObjects) do n = n + 1 end
     return n
 end
 
--- ══════════ LOOPS ══════════
+-- ══════════ MAIN LOOPS ══════════
 task.spawn(function()
     while true do
         task.wait(REFRESH_INTERVAL)
