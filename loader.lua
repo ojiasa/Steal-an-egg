@@ -1,59 +1,76 @@
 -- ═══════════════════════════════════════════════════════════════
--- LOADER — Tải modules + expose API cho UI
+-- LOADER — Tải modules từ GitHub
+-- Repo: https://github.com/ojiasa/Steal-an-egg
 -- ═══════════════════════════════════════════════════════════════
 
-local BASE_URL = "https://raw.githubusercontent.com/USERNAME/REPO/main"
+local BASE_URL = "https://raw.githubusercontent.com/ojiasa/Steal-an-egg/main"
+
+-- ⭐ Fallback nếu raw.githubusercontent bị chặn
+local FALLBACK_URL = "https://cdn.jsdelivr.net/gh/ojiasa/Steal-an-egg@main"
 
 local function fetch(path)
-    local url = BASE_URL .. "/" .. path
-    local ok, src = pcall(function()
-        return game:HttpGet(url)
-    end)
-    if not ok or not src then
-        warn("[Loader] Không tải được: " .. path)
-        return nil
+    -- Thử raw github trước
+    local urls = {
+        BASE_URL .. "/" .. path,
+        FALLBACK_URL .. "/" .. path,   -- Fallback qua jsdelivr
+    }
+
+    for _, url in ipairs(urls) do
+        local ok, src = pcall(function()
+            return game:HttpGet(url)
+        end)
+        if ok and src and #src > 100 then
+            local fn, err = loadstring(src, "=" .. path)
+            if fn then
+                local success, result = pcall(fn)
+                if success then
+                    print("[Loader] ✅ Loaded: " .. path)
+                    return result
+                else
+                    warn("[Loader] Runtime error " .. path .. ": " .. tostring(result))
+                end
+            else
+                warn("[Loader] Syntax error " .. path .. ": " .. tostring(err))
+            end
+        end
     end
-    local fn, err = loadstring(src, "=" .. path)
-    if not fn then
-        warn("[Loader] Syntax error " .. path .. ": " .. tostring(err))
-        return nil
-    end
-    return fn()
+
+    warn("[Loader] ❌ Failed: " .. path)
+    return nil
 end
+
+print("[Loader] 📦 Đang tải modules...")
 
 -- ⭐ Load modules
 local StealModule = fetch("modules/steal.lua")
 local ESPModule   = fetch("modules/esp.lua")
 
-if not StealModule then warn("❌ Không load steal module") end
-if not ESPModule   then warn("❌ Không load ESP module") end
-
--- ⭐ EXPOSE API cho UI
-_G.MyScript = {
+-- ⭐ EXPOSE API
+_G.StealEgg = {
     -- Module refs
     Steal = StealModule,
     ESP   = ESPModule,
 
     -- ⭐ Steal API
-    Steal_Start = function()
+    Start = function()
         if StealModule then StealModule.start() end
     end,
-    Steal_Stop = function()
+    Stop = function()
         if StealModule then StealModule.stop() end
     end,
-    Steal_IsRunning = function()
+    IsRunning = function()
         return StealModule and StealModule.isRunning() or false
     end,
-    Steal_SetTarget = function(name, pos)
+    SetTarget = function(name, pos)
         if StealModule then StealModule.setTarget(name, pos) end
     end,
-    Steal_SetHome = function(pos)
+    SetHome = function(pos)
         if StealModule then StealModule.setHome(pos) end
     end,
-    Steal_SetForest = function(pos)
+    SetForest = function(pos)
         if StealModule then StealModule.setForest(pos) end
     end,
-    Steal_OnLog = function(callback)
+    OnLog = function(callback)
         if StealModule then StealModule.onLog(callback) end
     end,
 
@@ -65,7 +82,7 @@ _G.MyScript = {
         if ESPModule then ESPModule.disable() end
     end,
     ESP_Toggle = function()
-        if ESPModule then ESPModule.toggle() end
+        if ESPModule then return ESPModule.toggle() end
     end,
     ESP_IsEnabled = function()
         return ESPModule and ESPModule.isEnabled() or false
@@ -74,13 +91,13 @@ _G.MyScript = {
         if ESPModule then ESPModule.setFilter(minIncome, showLobby) end
     end,
 
-    -- ⭐ Thông tin
+    -- ⭐ Info
     Version = "1.0.0",
-    Authors = "you",
+    Repo    = "https://github.com/ojiasa/Steal-an-egg",
 }
 
-print("[Loader] ✅ Ready — _G.MyScript sẵn sàng")
-print("[Loader] Ví dụ dùng:")
-print("  _G.MyScript.Steal_Start()")
-print("  _G.MyScript.Steal_Stop()")
-print("  _G.MyScript.ESP_Toggle()")
+-- Alias để tương thích code cũ
+_G.MyScript = _G.StealEgg
+
+print("[Loader] ✅ Ready!")
+print("[Loader] Sử dụng: _G.StealEgg.Start() / .ESP_Toggle()")
