@@ -1,6 +1,6 @@
-
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE — auto steal logic (không UI)
+-- STEAL MODULE — Auto steal logic (không UI)
+-- Repo: https://github.com/ojiasa/Steal-an-egg
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -73,6 +73,7 @@ local function keepHealth()
     end
 end
 
+-- ══════════ SLOT SET ══════════
 local function getSlotSet()
     local set, count = {}, 0
     local folder = W:FindFirstChild("AreaEggSlotsClient")
@@ -94,7 +95,7 @@ local function hasStolenSlot(beforeSet)
     return false, nil
 end
 
--- ══════════ FIND ══════════
+-- ══════════ FIND PROMPTS ══════════
 local function findTargetEggPrompt()
     local best, bestPos, bestDist = nil, nil, 99999
     for _, v in ipairs(W:GetDescendants()) do
@@ -384,7 +385,7 @@ end
 local function goHomeFast()
     log("🏃 CHẠY VỀ HOME")
     local t0 = os.clock()
-    local lastPos, stuckTime
+    local lastPos, stuckTime = nil, os.clock()
 
     while os.clock() - t0 < 30 and isRunning do
         local hum, r = getHum(), getHRP()
@@ -410,6 +411,19 @@ local function goHomeFast()
                 end
             end
         end)
+
+        if lastPos then
+            local moved = dist(r.Position, lastPos)
+            if moved < 0.5 then
+                if os.clock() - stuckTime > 0.4 then
+                    pcall(function() hum.Jump = true end)
+                    stuckTime = os.clock()
+                end
+            else
+                stuckTime = os.clock()
+            end
+        end
+        lastPos = r.Position
         task.wait()
     end
     return false
@@ -586,6 +600,39 @@ local function mainLoop()
         task.wait(0.5)
     end
 end
+
+-- ══════════ INSTALL BYPASS ══════════
+local bypassInstalled = false
+local function installBypass()
+    if bypassInstalled then return end
+    bypassInstalled = true
+    pcall(function()
+        ProximityPromptSvc.PromptShown:Connect(function(prompt)
+            pcall(function() prompt.HoldDuration = 0 end)
+        end)
+    end)
+end
+
+-- ══════════ CHAT HOOK ══════════
+task.spawn(function()
+    pcall(function()
+        local chatEvents = RS:WaitForChild("DefaultChatSystemChatEvents", 5)
+        if not chatEvents then return end
+        local onMsg = chatEvents:WaitForChild("OnMessageDoneFiltering", 5)
+        if not onMsg then return end
+        onMsg.OnClientEvent:Connect(function(data)
+            if type(data) ~= "table" then return end
+            local msg = string.lower(tostring(data.Message or ""))
+            if msg:find("delivery failed", 1, true)
+                or msg:find("returned to its nest", 1, true)
+                or msg:find("egg was returned", 1, true)
+            then
+                deliveryFailed = true
+                log("❌ Chat: Delivery failed")
+            end
+        end)
+    end)
+end)
 
 -- ══════════ API ══════════
 function M.start()
