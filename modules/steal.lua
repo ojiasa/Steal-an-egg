@@ -1,8 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v4 — Smart logic
--- - Steal → chạy velocity về home (không tele)
--- - Bị boss đánh văng → tele lại egg
--- - Tele fail → chạy bộ tới egg
+-- STEAL MODULE v5 — Steal xong chạy về ngay
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -43,7 +40,8 @@ local config = {
     MAX_FIRES      = 8,
     KB_HEALTH_DROP = 0.5,
     HOME_TIMEOUT   = 25,
-    RE_TELE_MAX    = 3,   -- số lần tele lại egg khi bị văng
+    RE_TELE_MAX    = 3,
+    RUN_HOME_DELAY = 0.15,   -- ⭐ delay trước khi chạy về
 }
 
 local isRunning      = false
@@ -73,6 +71,47 @@ local function keepHealth()
         if h.Health < 50000 then h.Health = 99999 end
         h:SetStateEnabled(Enum.HumanoidStateType.Dying, false)
     end) end
+end
+
+-- ⭐⭐⭐ RESTORE HUMANOID — sau steal, cho chạy bình thường
+local function restoreHumanoid()
+    local c = P.Character
+    if not c then return end
+    local h = c:FindFirstChildOfClass("Humanoid")
+    if not h then return end
+
+    pcall(function()
+        h.WalkSpeed = 60
+        h.PlatformStand = false
+        h.AutoRotate = true
+    end)
+    pcall(function()
+        h:ChangeState(Enum.HumanoidStateType.Running)
+    end)
+    pcall(function()
+        h:SetStateEnabled(Enum.HumanoidStateType.Running, true)
+        h:SetStateEnabled(Enum.HumanoidStateType.RunningNoPhysics, true)
+        h:SetStateEnabled(Enum.HumanoidStateType.Landed, true)
+        h:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
+        h:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+    end)
+
+    -- Restart Animate script
+    task.spawn(function()
+        task.wait(0.05)
+        local old = c:FindFirstChild("Animate")
+        if old then old:Destroy() end
+        task.wait(0.05)
+        local starter = game:GetService("StarterPlayer"):FindFirstChild("StarterCharacterScripts")
+        if starter then
+            local tpl = starter:FindFirstChild("Animate")
+            if tpl then
+                local new = tpl:Clone()
+                new.Parent = c
+                new.Disabled = false
+            end
+        end
+    end)
 end
 
 local function getSlotSet()
@@ -161,7 +200,7 @@ local function findPromptSteal(pos, radius)
     return best, bestDist
 end
 
--- ══════════ ANIMATION ══════════
+-- ⭐ ANIMATION restore
 local function restoreAnimations()
     local c = P.Character
     if not c then return end
@@ -194,26 +233,7 @@ local function restoreAnimations()
     end)
 end
 
-local function resetAnimateScript()
-    local c = P.Character
-    if not c then return end
-    pcall(function()
-        local old = c:FindFirstChild("Animate")
-        if old then old:Destroy() end
-        task.wait(0.1)
-        local starter = game:GetService("StarterPlayer"):FindFirstChild("StarterCharacterScripts")
-        if starter then
-            local tpl = starter:FindFirstChild("Animate")
-            if tpl then
-                local new = tpl:Clone()
-                new.Parent = c
-                new.Disabled = false
-                return
-            end
-        end
-    end)
-end
-
+-- ⭐ REPLACE — chỉ dùng cho TELE (không dùng khi chạy về)
 local function replaceHumanoidDirect()
     local c = P.Character
     if not c then return false end
@@ -252,13 +272,6 @@ local function replaceHumanoidDirect()
         end
     end)
     task.spawn(restoreAnimations)
-    task.spawn(function()
-        task.wait(0.1)
-        resetAnimateScript()
-        task.wait(0.2)
-        local h = c:FindFirstChildOfClass("Humanoid")
-        if h then pcall(function() h:ChangeState(Enum.HumanoidStateType.Running) end) end
-    end)
     return true
 end
 
@@ -329,7 +342,7 @@ local function velocityMoveTo(targetPos, timeout)
     return false
 end
 
--- ⭐ TELE 1 phát (dùng khi cần thiết, có replace humanoid)
+-- ⭐ TELE 1 phát
 local function teleToPos(targetPos)
     local hrp = getHRP()
     if hrp then pcall(function()
@@ -349,9 +362,14 @@ local function teleToPos(targetPos)
     end
 end
 
--- ⭐⭐⭐ CHẠY VỀ HOME bằng VELOCITY (không tele)
-local function goHomeByVelocity()
+-- ⭐⭐⭐ CHẠY VỀ HOME bằng VELOCITY (restore humanoid trước)
+local function runHome()
     log("🏃 Chạy velocity về home...")
+
+    -- ⭐ RESTORE HUMANOID trước khi chạy
+    restoreHumanoid()
+    task.wait(config.RUN_HOME_DELAY)
+
     local t0 = os.clock()
     local lastPos = nil
     local stuckTime = os.clock()
@@ -377,7 +395,7 @@ local function goHomeByVelocity()
                 local nrm = dir.Unit
                 local ramp = math.min((os.clock() - t0) / 0.5, 1)
                 r.AssemblyLinearVelocity = nrm * math.min(config.SPEED / 2.5, config.SPEED_CAP) * ramp
-                -- Nudge nhẹ (không tele)
+                -- Nudge nhẹ
                 if d > 30 then
                     local nudge = math.min(d, 80) * 0.06
                     r.CFrame = CFrame.new(curPos + nrm * nudge)
@@ -385,6 +403,7 @@ local function goHomeByVelocity()
             end
         end)
 
+        -- Log mỗi 5s
         if os.clock() - lastLog > 5 then
             log(string.format("⏳ Còn %.0f studs", d))
             lastLog = os.clock()
@@ -406,62 +425,34 @@ local function goHomeByVelocity()
         task.wait(0.02)
     end
 
-    log("⚠ Timeout về home")
-    return false
-end
-
--- ⭐⭐⭐ VERIFY Ở ĐÚNG VỊ TRÍ EGG (chống bị boss base đánh văng)
-local function ensureAtEgg(eggPos, maxRetries)
-    maxRetries = maxRetries or config.RE_TELE_MAX
-    local eggStandPos = eggPos + Vector3.new(0, 3, 0)
-
-    for attempt = 1, maxRetries do
-        if not isRunning then return false end
-
-        local hrp = getHRP()
-        if not hrp then task.wait(0.1); continue end
-
-        local d = dist(hrp.Position, eggPos)
-
-        -- Nếu đang ở gần egg (< 20 studs) → OK
-        if d < 20 then
-            return true
-        end
-
-        -- Xa egg → tele lại (đang bị boss base đánh văng → server cho phép)
-        log(string.format("🔄 Re-tele lần %d (đang cách %.0f studs)", attempt, d))
-        teleToPos(eggStandPos)
-        task.wait(0.15)
-
-        -- Check lại
-        local hrp2 = getHRP()
-        if hrp2 and dist(hrp2.Position, eggPos) < 20 then
-            return true
-        end
+    -- Timeout → tele về home
+    log("⚠ Timeout → tele về home")
+    local r = getHRP()
+    if r then
+        pcall(function()
+            r.CFrame = CFrame.new(config.HOME_POS)
+            r.AssemblyLinearVelocity = Vector3.zero
+        end)
+        task.wait(0.2)
     end
-
-    log("⚠ Re-tele fail, chạy bộ tới egg")
-    -- Fallback: chạy bộ tới egg
-    local ok = velocityMoveTo(eggStandPos, 15)
-    return ok
+    return true
 end
 
--- ⭐⭐⭐ STEAL với re-tele check
-local function stealAtPos(targetPos, label, eggMapPos)
+-- ⭐⭐⭐ STEAL — tự check vị trí + re-tele
+local function stealAtPos(eggPos, label)
     log("═══════")
     log("STEAL: " .. label)
 
     task.wait(0.05)
 
-    -- ⭐ Nếu xa egg → tele tới (lần đầu, đang bị knockback)
+    -- Tele tới egg nếu xa
     local hrp = getHRP()
-    if not hrp or dist(hrp.Position, targetPos) > 50 then
-        log("📡 Tele tới egg (đang knockback)")
-        teleToPos(targetPos + Vector3.new(0, 3, 0))
+    if not hrp or dist(hrp.Position, eggPos) > 50 then
+        teleToPos(eggPos + Vector3.new(0, 3, 0))
         task.wait(0.1)
     end
 
-    local prompt = findPromptSteal(targetPos, 150)
+    local prompt = findPromptSteal(eggPos, 150)
     if not prompt then
         log("⚠ Không prompt")
         return false
@@ -473,19 +464,14 @@ local function stealAtPos(targetPos, label, eggMapPos)
     for i = 1, config.MAX_FIRES do
         if not isRunning then return false end
 
-        -- ⭐ CHECK xem có bị văng khỏi egg không
+        -- ⭐ Check bị văng khỏi egg
         local h2 = getHRP()
         if h2 then
-            local dEgg = dist(h2.Position, targetPos)
+            local dEgg = dist(h2.Position, eggPos)
             if dEgg > 30 then
-                log(string.format("💥 Bị văng %.0f studs — re-tele", dEgg))
-                -- Bị boss đánh văng → tele lại
-                local ok = ensureAtEgg(targetPos, 3)
-                if not ok then
-                    log("❌ Không về được egg")
-                    return false
-                end
-                task.wait(0.05)
+                log(string.format("💥 Văng %.0f studs — re-tele", dEgg))
+                teleToPos(eggPos + Vector3.new(0, 3, 0))
+                task.wait(0.1)
             end
 
             local p2 = findPromptSteal(h2.Position, 150)
@@ -536,7 +522,6 @@ local function mainLoop()
         log("═══════════════════════")
         log("PHASE 1: Forest")
 
-        -- 1. Chạy tới Forest
         if not velocityMoveTo(config.FOREST_POS, 30) then
             if not isRunning then break end
             task.wait(0.5)
@@ -556,7 +541,6 @@ local function mainLoop()
                         velocityMoveTo(ppos, 20)
                     end
 
-                    -- Steal Forest
                     local fb, fc = getSlotSet()
                     for i = 1, 5 do
                         if not isRunning then break end
@@ -572,7 +556,6 @@ local function mainLoop()
                     stolenPrompts[prompt] = true
                     task.wait(0.1)
 
-                    -- Bait boss
                     log("PHASE 3: Bait boss")
                     if baitBoss(config.BAIT_TIMEOUT) then
                         log("PHASE 4: Tìm egg target")
@@ -588,16 +571,14 @@ local function mainLoop()
                                 log("🔄 ATTEMPT " .. attempt)
                                 deliveryFailed = false
 
-                                -- ⭐ TELE 1 phát tới egg (đang knockback → cho phép)
                                 teleToPos(targetPos)
                                 task.wait(0.1)
 
-                                -- ⭐ Steal với re-tele check
-                                local stolen = stealAtPos(eggPos, eggMap.name, eggMap.pos)
+                                local stolen = stealAtPos(eggPos, eggMap.name)
 
                                 if stolen then
-                                    -- ⭐ CHẠY VELOCITY VỀ HOME (không tele)
-                                    local ok = goHomeByVelocity()
+                                    -- ⭐⭐⭐ STEAL XONG → CHẠY VỀ NGAY
+                                    local ok = runHome()
                                     if ok then
                                         task.wait(config.CHAT_WAIT)
                                         if deliveryFailed then
@@ -608,9 +589,6 @@ local function mainLoop()
                                             success = true
                                             break
                                         end
-                                    else
-                                        log("⚠ Về home fail")
-                                        task.wait(0.5)
                                     end
                                 else
                                     log("⚠ Steal fail — retry")
