@@ -45,7 +45,7 @@ _G.StealEgg = {
     ESP_IsEnabled = function() return ESP and ESP.isEnabled() or false end,
     ESP_SetMapFilter = function(list) if ESP then ESP.setMapFilter(list) end end,
 
-    Version = "2.5.0",
+    Version = "2.6.0",
 }
 local API = _G.StealEgg
 _G.MyScript = API
@@ -63,7 +63,6 @@ local function getParent()
 end
 local PARENT = getParent()
 
--- BẢNG MÀU & ĐỘ TRONG SUỐT (ĐÃ CHỈNH SIÊU MỜ KÍNH TRONG)
 local COLORS = {
     bg          = Color3.fromRGB(220, 225, 235),
     card        = Color3.fromRGB(255, 255, 255),
@@ -113,12 +112,12 @@ local istk = Instance.new("UIStroke", icon)
 istk.Color = COLORS.cardBorder
 istk.Thickness = 2
 
--- MainFrame Kích thước chuẩn 620x270, Độ trong suốt 0.8 (Tối đa mờ kính trong)
+-- MainFrame Kích thước 620x290 (Chiều cao tăng thêm 20px)
 local panel = Instance.new("Frame")
-panel.Size = UDim2.new(0, 620, 0, 270)
-panel.Position = UDim2.new(0.5, -310, 0.35, -135)
+panel.Size = UDim2.new(0, 620, 0, 290)
+panel.Position = UDim2.new(0.5, -310, 0.35, -145)
 panel.BackgroundColor3 = COLORS.bg
-panel.BackgroundTransparency = 0.80 -- Tăng lên 0.80 để làm mờ kính hoàn toàn, loại bỏ mảng trắng đục
+panel.BackgroundTransparency = 0.80
 panel.BorderSizePixel = 0
 panel.ClipsDescendants = false
 panel.Visible = false
@@ -130,17 +129,17 @@ local pstk = Instance.new("UIStroke", panel)
 pstk.Color = COLORS.cardBorder
 pstk.Thickness = 1.5
 
--- ImageLabel Nền (Hiện lên sắc nét, ImageTransparency = 0.15)
+-- Background Image
 local bgImg = Instance.new("ImageLabel", panel)
 bgImg.Size = UDim2.new(1, 0, 1, 0)
 bgImg.BackgroundTransparency = 1
 bgImg.ScaleType = Enum.ScaleType.Crop
 bgImg.Image = BACKGROUND_ID
-bgImg.ImageTransparency = 0.15 -- Giảm độ mờ ảnh nền để thấy rõ nét ở dưới
+bgImg.ImageTransparency = 0.15
 bgImg.ZIndex = 0
 Instance.new("UICorner", bgImg).CornerRadius = UDim.new(0, 12)
 
--- Top Icon
+-- Top Icon & Title
 local topIcon = Instance.new("ImageLabel", panel)
 topIcon.Size = UDim2.new(0, 36, 0, 36)
 topIcon.Position = UDim2.new(0, 8, 0, 4)
@@ -148,7 +147,6 @@ topIcon.BackgroundTransparency = 1
 topIcon.Image = ICON_ID
 topIcon.ZIndex = 2
 
--- Title Header
 local title = Instance.new("TextLabel", panel)
 title.Size = UDim2.new(1, -55, 0, 36)
 title.Position = UDim2.new(0, 48, 0, 4)
@@ -160,12 +158,12 @@ title.TextColor3 = COLORS.textBold
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.ZIndex = 2
 
--- Sidebar Cột trái (Chiều rộng 130px, BackgroundTransparency = 0.65)
+-- Sidebar
 local sidebar = Instance.new("Frame", panel)
 sidebar.Position = UDim2.new(0, 10, 0, 44)
 sidebar.Size = UDim2.new(0, 130, 1, -54)
 sidebar.BackgroundColor3 = COLORS.sidebar
-sidebar.BackgroundTransparency = 0.65 -- Mờ kính cho cột menu
+sidebar.BackgroundTransparency = 0.65
 sidebar.BorderSizePixel = 0
 sidebar.ZIndex = 2
 Instance.new("UICorner", sidebar).CornerRadius = UDim.new(0, 8)
@@ -206,7 +204,7 @@ local function mkTab(id, text)
     local b = Instance.new("TextButton", sidebar)
     b.Size = UDim2.new(1, 0, 0, 38)
     b.BackgroundColor3 = COLORS.card
-    b.BackgroundTransparency = 0.65 -- Mờ kính nút bấm
+    b.BackgroundTransparency = 0.65
     b.Text = text
     b.Font = Enum.Font.GothamBold
     b.TextSize = 12
@@ -226,12 +224,12 @@ end
 mkTab("main", "Main")
 mkTab("esp",  "ESP")
 
--- Tạo Ô Toggle Tính năng (Độ mờ 0.70)
+-- Tạo Ô Toggle Tính năng
 local function createToggleRow(parent, labelText, defaultState, hasTextBox, onToggle, onInputChanged)
     local container = Instance.new("Frame", parent)
     container.Size = UDim2.new(1, -6, 0, 36)
     container.BackgroundColor3 = COLORS.card
-    container.BackgroundTransparency = 0.70 -- Mờ kính nhẹ nhàng, không bị đục trắng
+    container.BackgroundTransparency = 0.70
     container.ZIndex = 3
     Instance.new("UICorner", container).CornerRadius = UDim.new(0, 6)
     local cStk = Instance.new("UIStroke", container)
@@ -312,7 +310,7 @@ local function createToggleRow(parent, labelText, defaultState, hasTextBox, onTo
     return container
 end
 
--- Dropdown Select Map (Xổ trực tiếp, mờ kính chuẩn)
+-- Dropdown Select Map (Tự động Responsive co giãn theo MainFrame)
 local function createMultiSelectDropdown(parent, labelText, options, callback)
     local container = Instance.new("Frame", parent)
     container.Size = UDim2.new(1, -6, 0, 36)
@@ -346,7 +344,10 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     dStk.Color = COLORS.cardBorder
     dStk.Thickness = 1
 
+    -- Bảng DropMenu đặt vào panel với vị trí và chiều rộng Scale theo Frame mẹ
     local dropMenu = Instance.new("Frame", panel)
+    dropMenu.Position = UDim2.new(0, 148 + 95, 0, 83)
+    dropMenu.Size = UDim2.new(1, -158 - 101, 0, 140)
     dropMenu.BackgroundColor3 = COLORS.card
     dropMenu.BackgroundTransparency = 0.15
     dropMenu.BorderSizePixel = 0
@@ -411,11 +412,6 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
 
     dropBtn.MouseButton1Click:Connect(function()
         dropMenu.Visible = not dropMenu.Visible
-        if dropMenu.Visible then
-            local absPos = dropBtn.AbsolutePosition - panel.AbsolutePosition
-            dropMenu.Position = UDim2.new(0, absPos.X, 0, absPos.Y + dropBtn.AbsoluteSize.Y + 3)
-            dropMenu.Size = UDim2.new(0, dropBtn.AbsoluteSize.X, 0, 130)
-        end
     end)
 
     return container
@@ -493,7 +489,7 @@ UserInputService.InputChanged:Connect(function(input)
     if resizing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         local delta = input.Position - startMousePos
         local newWidth = math.max(420, startSize.X.Offset + delta.X)
-        local newHeight = math.max(180, startSize.Y.Offset + delta.Y)
+        local newHeight = math.max(200, startSize.Y.Offset + delta.Y)
         panel.Size = UDim2.new(0, newWidth, 0, newHeight)
     end
 end)
@@ -519,7 +515,7 @@ icon.MouseButton1Click:Connect(function()
         panel.Size = UDim2.new(0, 100, 0, 60)
         panel.BackgroundTransparency = 1
         TweenService:Create(panel, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-            Size = UDim2.new(0, 620, 0, 270),
+            Size = UDim2.new(0, 620, 0, 290),
             BackgroundTransparency = 0.80
         }):Play()
     end
@@ -527,5 +523,5 @@ end)
 
 API.OnLog(function(msg) print("[StealEgg] " .. msg) end)
 
-print("[Main] ✅ Ready v2.5 - Ultra Transparent Glass Theme Loaded!")
+print("[Main] ✅ Ready v2.6 - Auto Resizing Select Map Dropdown & Height +20px Added!")
 
