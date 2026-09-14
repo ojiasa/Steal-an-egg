@@ -45,7 +45,7 @@ _G.StealEgg = {
     ESP_IsEnabled = function() return ESP and ESP.isEnabled() or false end,
     ESP_SetMapFilter = function(list) if ESP then ESP.setMapFilter(list) end end,
 
-    Version = "2.7.0",
+    Version = "2.8.0",
 }
 local API = _G.StealEgg
 _G.MyScript = API
@@ -63,7 +63,6 @@ local function getParent()
 end
 local PARENT = getParent()
 
--- BẢNG MÀU CHUẨN XÁM TRẮNG THEO ẢNH
 local COLORS = {
     bg          = Color3.fromRGB(215, 220, 228),
     card        = Color3.fromRGB(255, 255, 255),
@@ -98,7 +97,7 @@ sg.ResetOnSpawn = false
 sg.DisplayOrder = 999999
 sg.Parent = PARENT
 
--- Nút Icon mở UI tròn bên trái
+-- Nút Icon mở UI
 local icon = Instance.new("ImageButton")
 icon.Size = UDim2.new(0, 44, 0, 44)
 icon.Position = UDim2.new(0, 15, 0.4, 0)
@@ -113,10 +112,11 @@ local istk = Instance.new("UIStroke", icon)
 istk.Color = COLORS.cardBorder
 istk.Thickness = 2
 
--- Khung chính MainFrame (Kích thước 580x280 chuẩn ảnh 100%)
+-- MainFrame Kích thước To Vuông Vức (540 x 360) Chuẩn Ảnh Mẫu 100%
 local panel = Instance.new("Frame")
-panel.Size = UDim2.new(0, 580, 0, 280)
-panel.Position = UDim2.new(0.5, -290, 0.35, -140)
+panel.Size = UDim2.new(0, 540, 0, 360)
+panel.Position = UDim2.new(0.5, 0, 0.5, 0)
+panel.AnchorPoint = Vector2.new(0.5, 0.5)
 panel.BackgroundColor3 = COLORS.bg
 panel.BackgroundTransparency = 0.70
 panel.BorderSizePixel = 0
@@ -125,7 +125,7 @@ panel.Visible = false
 panel.Active = true
 panel.Draggable = true
 panel.Parent = sg
-Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 12)
+Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 14)
 local pstk = Instance.new("UIStroke", panel)
 pstk.Color = Color3.fromRGB(255, 255, 255)
 pstk.Thickness = 1.5
@@ -139,19 +139,19 @@ bgImg.ScaleType = Enum.ScaleType.Crop
 bgImg.Image = BACKGROUND_ID
 bgImg.ImageTransparency = 0.25
 bgImg.ZIndex = 0
-Instance.new("UICorner", bgImg).CornerRadius = UDim.new(0, 12)
+Instance.new("UICorner", bgImg).CornerRadius = UDim.new(0, 14)
 
 -- Top Icon & Title
 local topIcon = Instance.new("ImageLabel", panel)
 topIcon.Size = UDim2.new(0, 32, 0, 32)
-topIcon.Position = UDim2.new(0, 10, 0, 6)
+topIcon.Position = UDim2.new(0, 12, 0, 8)
 topIcon.BackgroundTransparency = 1
 topIcon.Image = ICON_ID
 topIcon.ZIndex = 2
 
 local title = Instance.new("TextLabel", panel)
 title.Size = UDim2.new(1, -55, 0, 32)
-title.Position = UDim2.new(0, 48, 0, 6)
+title.Position = UDim2.new(0, 50, 0, 8)
 title.BackgroundTransparency = 1
 title.Text = "STEAL AN EGG HUB"
 title.Font = Enum.Font.GothamBold
@@ -162,8 +162,8 @@ title.ZIndex = 2
 
 -- Sidebar Cột Trái
 local sidebar = Instance.new("Frame", panel)
-sidebar.Position = UDim2.new(0, 12, 0, 44)
-sidebar.Size = UDim2.new(0, 135, 1, -56)
+sidebar.Position = UDim2.new(0, 14, 0, 48)
+sidebar.Size = UDim2.new(0, 130, 1, -62)
 sidebar.BackgroundColor3 = COLORS.sidebar
 sidebar.BackgroundTransparency = 0.5
 sidebar.BorderSizePixel = 0
@@ -177,12 +177,12 @@ sidePad.PaddingRight = UDim.new(0, 6)
 sidePad.PaddingBottom = UDim.new(0, 6)
 
 local sideLayout = Instance.new("UIListLayout", sidebar)
-sideLayout.Padding = UDim.new(0, 6)
+sideLayout.Padding = UDim.new(0, 8)
 
 -- Content Area Cột Phải
 local content = Instance.new("Frame", panel)
-content.Position = UDim2.new(0, 157, 0, 44)
-content.Size = UDim2.new(1, -169, 1, -56)
+content.Position = UDim2.new(0, 154, 0, 48)
+content.Size = UDim2.new(1, -168, 1, -62)
 content.BackgroundTransparency = 1
 content.ZIndex = 2
 
@@ -204,7 +204,7 @@ end
 
 local function mkTab(id, text)
     local b = Instance.new("TextButton", sidebar)
-    b.Size = UDim2.new(1, 0, 0, 42)
+    b.Size = UDim2.new(1, 0, 0, 44)
     b.BackgroundColor3 = COLORS.card
     b.BackgroundTransparency = 0.5
     b.Text = text
@@ -230,7 +230,7 @@ mkTab("esp",  "ESP")
 -- Tạo Ô Toggle Tính Năng
 local function createToggleRow(parent, labelText, defaultState, hasTextBox, onToggle, onInputChanged)
     local container = Instance.new("Frame", parent)
-    container.Size = UDim2.new(1, -4, 0, 40)
+    container.Size = UDim2.new(1, -4, 0, 42)
     container.BackgroundColor3 = COLORS.card
     container.BackgroundTransparency = 0.55
     container.ZIndex = 3
@@ -314,10 +314,10 @@ local function createToggleRow(parent, labelText, defaultState, hasTextBox, onTo
     return container
 end
 
--- Dropdown Select Map chuẩn 100% tỷ lệ hình ảnh
+-- Dropdown Select Map
 local function createMultiSelectDropdown(parent, labelText, options, callback)
     local container = Instance.new("Frame", parent)
-    container.Size = UDim2.new(1, -4, 0, 40)
+    container.Size = UDim2.new(1, -4, 0, 42)
     container.BackgroundTransparency = 1
     container.ZIndex = 3
 
@@ -349,10 +349,10 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     dStk.Thickness = 1
     dStk.Transparency = 0.4
 
-    -- Bảng sổ xuống bám sát theo tỷ lệ panel
+    -- Bảng sổ xuống co giãn tỉ lệ chuẩn
     local dropMenu = Instance.new("Frame", panel)
-    dropMenu.Position = UDim2.new(0, 157 + 110, 0, 88)
-    dropMenu.Size = UDim2.new(1, -169 - 114, 0, 135)
+    dropMenu.Position = UDim2.new(0, 154 + 110, 0, 92)
+    dropMenu.Size = UDim2.new(1, -168 - 114, 0, 180)
     dropMenu.BackgroundColor3 = COLORS.card
     dropMenu.BackgroundTransparency = 0.15
     dropMenu.BorderSizePixel = 0
@@ -428,7 +428,7 @@ pageMain.Size = UDim2.new(1, 0, 1, 0)
 pageMain.BackgroundTransparency = 1
 pageMain.BorderSizePixel = 0
 pageMain.ScrollBarThickness = 2
-pageMain.CanvasSize = UDim2.new(0, 0, 0, 150)
+pageMain.CanvasSize = UDim2.new(0, 0, 0, 160)
 pageMain.ZIndex = 3
 pages.main = pageMain
 
@@ -459,7 +459,7 @@ pageESP.BackgroundTransparency = 1
 pageESP.Visible = false
 pageESP.BorderSizePixel = 0
 pageESP.ScrollBarThickness = 2
-pageESP.CanvasSize = UDim2.new(0, 0, 0, 50)
+pageESP.CanvasSize = UDim2.new(0, 0, 0, 60)
 pageESP.ZIndex = 3
 pages.esp = pageESP
 
@@ -494,7 +494,7 @@ UserInputService.InputChanged:Connect(function(input)
     if resizing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         local delta = input.Position - startMousePos
         local newWidth = math.max(420, startSize.X.Offset + delta.X)
-        local newHeight = math.max(200, startSize.Y.Offset + delta.Y)
+        local newHeight = math.max(250, startSize.Y.Offset + delta.Y)
         panel.Size = UDim2.new(0, newWidth, 0, newHeight)
     end
 end)
@@ -520,7 +520,7 @@ icon.MouseButton1Click:Connect(function()
         panel.Size = UDim2.new(0, 100, 0, 60)
         panel.BackgroundTransparency = 1
         TweenService:Create(panel, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-            Size = UDim2.new(0, 580, 0, 280),
+            Size = UDim2.new(0, 540, 0, 360),
             BackgroundTransparency = 0.70
         }):Play()
     end
@@ -528,5 +528,5 @@ end)
 
 API.OnLog(function(msg) print("[StealEgg] " .. msg) end)
 
-print("[Main] ✅ Ready v2.7 - Matched exact reference image!")
+print("[Main] ✅ Ready v2.8 - Resized UI to 540x360 Big Square Frame!")
 
