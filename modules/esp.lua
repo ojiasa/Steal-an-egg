@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- ESP MODULE — hiển thị egg + income (không UI)
+-- ESP MODULE v2 — Multi-map filter
 -- ═══════════════════════════════════════════════════════════════
 
 local P  = game:GetService("Players").LocalPlayer
@@ -7,34 +7,28 @@ local RS = game:GetService("ReplicatedStorage")
 
 local M = {}
 
--- ══════════ STATE ══════════
-local enabled     = false
-local espObjects  = {}
-local parentGui   = nil
-local espFolder   = nil
-local HOME_POS    = Vector3.new(465.2, 67.1, -364.1)
-local filterMin   = 0
-local showLobby   = false
+local enabled    = false
+local espObjects = {}
+local parentGui, espFolder
+local HOME_POS   = Vector3.new(465.2, 67.1, -364.1)
+local filterMaps = nil   -- nil = all, hoặc list map names
 
 local EggState, AssetEarnings
 
--- ══════════ LOAD MODULES ══════════
 pcall(function()
-    local ClientRS = RS:WaitForChild("Client", 5)
-    if ClientRS then
-        local mod = ClientRS:WaitForChild("EggState", 5)
+    local c = RS:WaitForChild("Client", 5)
+    if c then
+        local mod = c:WaitForChild("EggState", 5)
         if mod then EggState = require(mod) end
     end
 end)
-
 pcall(function()
-    local Shared = RS:WaitForChild("Shared", 5)
-    local Util = Shared and Shared:WaitForChild("Util", 5)
-    local mod = Util and Util:WaitForChild("AssetEarnings", 5)
+    local s = RS:WaitForChild("Shared", 5)
+    local u = s and s:FindFirstChild("Util", 5)
+    local mod = u and u:FindFirstChild("AssetEarnings", 5)
     if mod then AssetEarnings = require(mod) end
 end)
 
--- ══════════ HELPERS ══════════
 local function dist(a, b) return (a - b).Magnitude end
 
 local function formatMoney(n)
@@ -60,7 +54,6 @@ local function getIncomeRate(eggData)
     return nil
 end
 
--- ══════════ CREATE ESP ══════════
 local function createESP(uid, data)
     local cf = data.BoundsCFrame
     if not cf then return nil end
@@ -77,29 +70,21 @@ local function createESP(uid, data)
 
     local color = Color3.fromRGB(255, 220, 80)
     local prefix = "🥚"
-    if data.BaseMutation == "Golden" then
-        color = Color3.fromRGB(255, 200, 50); prefix = "🌟"
-    elseif data.BaseMutation == "Silver" then
-        color = Color3.fromRGB(200, 200, 220); prefix = "⭐"
-    elseif data.BaseMutation == "Rainbow" then
-        color = Color3.fromRGB(255, 100, 200); prefix = "🌈"
-    end
+    if data.BaseMutation == "Golden" then color = Color3.fromRGB(255, 200, 50); prefix = "🌟"
+    elseif data.BaseMutation == "Silver" then color = Color3.fromRGB(200, 200, 220); prefix = "⭐"
+    elseif data.BaseMutation == "Rainbow" then color = Color3.fromRGB(255, 100, 200); prefix = "🌈" end
 
     local hl = Instance.new("Highlight")
-    hl.FillColor = color
-    hl.OutlineColor = color
-    hl.FillTransparency = 0.6
-    hl.OutlineTransparency = 0
+    hl.FillColor = color; hl.OutlineColor = color
+    hl.FillTransparency = 0.6; hl.OutlineTransparency = 0
     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    hl.Adornee = attach
-    hl.Parent = espFolder
+    hl.Adornee = attach; hl.Parent = espFolder
 
     local bb = Instance.new("BillboardGui")
     bb.Size = UDim2.new(0, 190, 0, 86)
     bb.StudsOffset = Vector3.new(0, 4, 0)
     bb.AlwaysOnTop = true
-    bb.Adornee = attach
-    bb.Parent = espFolder
+    bb.Adornee = attach; bb.Parent = espFolder
 
     local nameLbl = Instance.new("TextLabel")
     nameLbl.Size = UDim2.new(1, 0, 0, 16)
@@ -107,7 +92,7 @@ local function createESP(uid, data)
     nameLbl.Text = prefix .. " " .. (data.AssetCategory or "Egg")
     nameLbl.TextColor3 = color
     nameLbl.TextStrokeTransparency = 0
-    nameLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
+    nameLbl.TextStrokeColor3 = Color3.new(0,0,0)
     nameLbl.Font = Enum.Font.GothamBold
     nameLbl.TextSize = 13
     nameLbl.Parent = bb
@@ -119,7 +104,7 @@ local function createESP(uid, data)
     mutLbl.Text = data.BaseMutation and ("✨ " .. data.BaseMutation) or ""
     mutLbl.TextColor3 = Color3.fromRGB(255, 200, 100)
     mutLbl.TextStrokeTransparency = 0
-    mutLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
+    mutLbl.TextStrokeColor3 = Color3.new(0,0,0)
     mutLbl.Font = Enum.Font.GothamBold
     mutLbl.TextSize = 10
     mutLbl.Parent = bb
@@ -130,9 +115,9 @@ local function createESP(uid, data)
     rateLbl.Position = UDim2.new(0, 0, 0, 28)
     rateLbl.BackgroundTransparency = 1
     rateLbl.Text = rate and ("💵 $" .. formatMoney(rate) .. "/s") or "💵 ?"
-    rateLbl.TextColor3 = rate and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(150, 150, 150)
+    rateLbl.TextColor3 = rate and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(150,150,150)
     rateLbl.TextStrokeTransparency = 0
-    rateLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
+    rateLbl.TextStrokeColor3 = Color3.new(0,0,0)
     rateLbl.Font = Enum.Font.GothamBold
     rateLbl.TextSize = 13
     rateLbl.Parent = bb
@@ -141,11 +126,10 @@ local function createESP(uid, data)
     infoLbl.Size = UDim2.new(1, 0, 0, 12)
     infoLbl.Position = UDim2.new(0, 0, 0, 44)
     infoLbl.BackgroundTransparency = 1
-    infoLbl.Text = string.format("📍 %s | ⚖ %.2f",
-        data.AreaId or "?", data.AssetScale or 0)
+    infoLbl.Text = string.format("📍 %s | ⚖ %.2f", data.AreaId or "?", data.AssetScale or 0)
     infoLbl.TextColor3 = Color3.fromRGB(180, 220, 255)
     infoLbl.TextStrokeTransparency = 0
-    infoLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
+    infoLbl.TextStrokeColor3 = Color3.new(0,0,0)
     infoLbl.Font = Enum.Font.Code
     infoLbl.TextSize = 10
     infoLbl.Parent = bb
@@ -157,24 +141,16 @@ local function createESP(uid, data)
     distLbl.Text = "..."
     distLbl.TextColor3 = Color3.fromRGB(150, 255, 150)
     distLbl.TextStrokeTransparency = 0
-    distLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
+    distLbl.TextStrokeColor3 = Color3.new(0,0,0)
     distLbl.Font = Enum.Font.Code
     distLbl.TextSize = 10
     distLbl.Parent = bb
 
-    return {
-        attach = attach,
-        highlight = hl,
-        billboard = bb,
-        distLabel = distLbl,
-        rate = rate or 0,
-    }
+    return { attach = attach, highlight = hl, billboard = bb, distLabel = distLbl }
 end
 
--- ══════════ REFRESH ══════════
 local function refresh()
     if not enabled or not EggState then return end
-
     local ok, fd = pcall(EggState.SyncFieldEggs)
     if not ok or type(fd) ~= "table" then return end
     local records = fd.Records
@@ -189,12 +165,17 @@ local function refresh()
             if cf then
                 local pos = cf.Position
                 local atBase = dist(pos, HOME_POS) > 150
-                local passFilter = showLobby or atBase
 
-                -- ⭐ Filter theo income
-                if passFilter and filterMin > 0 then
-                    local rate = getIncomeRate(eggData)
-                    if not rate or rate < filterMin then passFilter = false end
+                -- ⭐ Filter theo list map
+                local passFilter = atBase
+                if filterMaps and #filterMaps > 0 then
+                    passFilter = false
+                    for _, mapName in ipairs(filterMaps) do
+                        if eggData.AreaId == mapName then
+                            passFilter = true
+                            break
+                        end
+                    end
                 end
 
                 if passFilter and not espObjects[uid] then
@@ -220,26 +201,20 @@ local function updateDist()
     if not hrp then return end
     for _, obj in pairs(espObjects) do
         if obj.attach and obj.attach.Parent then
-            local d = dist(obj.attach.Position, hrp.Position)
-            obj.distLabel.Text = string.format("%.0f studs", d)
+            obj.distLabel.Text = string.format("%.0f studs", dist(obj.attach.Position, hrp.Position))
         end
     end
 end
 
--- ══════════ API ══════════
 function M.enable()
     if enabled then return end
     enabled = true
-
-    if not parentGui then
-        parentGui = (gethui and gethui()) or P:WaitForChild("PlayerGui")
-    end
+    if not parentGui then parentGui = (gethui and gethui()) or P:WaitForChild("PlayerGui") end
     if not espFolder then
         espFolder = Instance.new("Folder")
         espFolder.Name = "ESP_Eggs"
         espFolder.Parent = parentGui
     end
-
     refresh()
     print("[ESP] ✅ Enabled")
 end
@@ -256,37 +231,23 @@ function M.disable()
     print("[ESP] ❌ Disabled")
 end
 
-function M.toggle()
-    if enabled then M.disable() else M.enable() end
-    return enabled
+function M.toggle() if enabled then M.disable() else M.enable() end; return enabled end
+function M.isEnabled() return enabled end
+
+-- ⭐ Set list map filter (nil hoặc {} = all)
+function M.setMapFilter(mapList)
+    filterMaps = mapList
+    if enabled then M.disable(); M.enable() end
+    local msg = (not mapList or #mapList == 0) and "All" or table.concat(mapList, ", ")
+    print("[ESP] Filter: " .. msg)
 end
 
-function M.isEnabled()
-    return enabled
-end
+function M.setHome(pos) if pos then HOME_POS = pos end end
 
-function M.setFilter(minIncome, showLobbyEggs)
-    filterMin = minIncome or 0
-    showLobby = showLobbyEggs or false
-    if enabled then
-        -- Force refresh
-        M.disable()
-        M.enable()
-    end
-end
-
-function M.setHome(pos)
-    if pos then HOME_POS = pos end
-end
-
--- ══════════ AUTO LOOP ══════════
 task.spawn(function()
     while true do
         task.wait(0.2)
-        if enabled then
-            refresh()
-            updateDist()
-        end
+        if enabled then refresh(); updateDist() end
     end
 end)
 
