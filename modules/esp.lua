@@ -1,30 +1,30 @@
 -- ═══════════════════════════════════════════════════════════════
--- ESP MODULE v3 — Optimized (nhẹ + mượt)
--- - Không destroy/tạo lại liên tục
--- - Cache label, chỉ update khi cần
--- - Throttle distance update
--- - Force refresh mỗi 5s (bắt egg reset)
+-- ESP MODULE v5 — FIX EGG RESET + STEAL
+-- - Verify egg thật tồn tại (check Workspace)
+-- - Hash data để phát hiện egg mới
+-- - Auto clear khi egg biến mất
+-- - Auto rebuild sau khi steal hoặc reset 5p
 -- ═══════════════════════════════════════════════════════════════
 
 local P  = game:GetService("Players").LocalPlayer
 local RS = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
+local W  = workspace
 
 local M = {}
 
 -- ══════════ STATE ══════════
 local enabled    = false
-local espObjects = {}   -- [uid] = obj
+local espObjects = {}   -- [uid] = {attach, highlight, billboard, distLabel, hash, lastDist}
 local parentGui, espFolder
 local HOME_POS   = Vector3.new(465.2, 67.1, -364.1)
-local filterMaps = nil  -- nil = all
+local filterMaps = nil
 
 local EggState, AssetEarnings
 
 -- ══════════ CONFIG ══════════
-local REFRESH_INTERVAL  = 0.3     -- quét egg mới mỗi 0.3s
-local DIST_INTERVAL     = 0.15    -- update distance mỗi 0.15s
-local FORCE_CLEAR_EVERY = 5.1     -- force clear mỗi 5.1s (bắt egg reset)
+local REFRESH_INTERVAL  = 0.25
+local DIST_INTERVAL     = 0.15
+local VERIFY_INTERVAL   = 0.5      -- verify egg thật tồn tại
 
 -- ══════════ LOAD MODULES ══════════
 pcall(function()
@@ -53,17 +53,36 @@ local function formatMoney(n)
     return string.format("%.0f", n)
 end
 
--- ⭐ Cache income rate để không gọi lại
+-- ⭐ Hash data egg (để phát hiện egg mới dù uid trùng)
+local function makeHash(eggData, pos)
+    return string.format("%s|%s|%.2f|%.2f|%.2f|%.2f|%s",
+        tostring(eggData.AssetCategory or ""),
+        tostring(eggData.BaseMutation or ""),
+        pos.X, pos.Y, pos.Z,
+        eggData.AssetScale or 0,
+        tostring(eggData.AreaId or ""))
+end
+
+-- ⭐ Check egg còn tồn tại thật trong Workspace không
+local function verifyEggExists(uid)
+    -- Tìm trong AreaEggSlotsClient
+    local slots = W:FindFirstChild("AreaEggSlotsClient")
+    if not slots then return false end
+
+    for _, slot in ipairs(slots:GetChildren()) do
+        if slot.Name == uid then return true end
+    end
+    return false
+end
+
+-- ⭐ Cache income
 local incomeCache = {}
 
 local function getIncomeRate(eggData)
     if not AssetEarnings then return nil end
-
-    -- Cache key = Category + Scale + Mutation
     local key = (eggData.AssetCategory or "") .. "|"
         .. tostring(eggData.AssetScale or 1) .. "|"
         .. tostring(eggData.BaseMutation or "")
-
     if incomeCache[key] then return incomeCache[key] end
 
     local input = {
@@ -71,27 +90,19 @@ local function getIncomeRate(eggData)
         Scale = eggData.AssetScale or 1,
         Mutations = eggData.Mutations or {},
     }
-
     local r
     local ok, val = pcall(AssetEarnings.LiveRatePerSecond, input)
     if ok and type(val) == "number" and val > 0 then r = val end
-
     if not r then
         ok, val = pcall(AssetEarnings.RatePerSecond, input)
         if ok and type(val) == "number" and val > 0 then r = val end
     end
-
     incomeCache[key] = r
     return r
 end
 
--- ══════════ CREATE ESP ══════════
-local function createESP(uid, data)
-    local cf = data.BoundsCFrame
-    if not cf then return nil end
-    local pos = cf.Position
-
-    -- Part ảo
+-- ══════════ CREATE ══════════
+local function createESP(uid, data, pos)
     local attach = Instance.new("Part")
     attach.Name = "ESP_" .. uid:sub(1, 8)
     attach.Anchored = true
@@ -103,7 +114,6 @@ local function createESP(uid, data)
     attach.CFrame = CFrame.new(pos)
     attach.Parent = espFolder
 
-    -- Màu theo mutation
     local color = Color3.fromRGB(255, 220, 80)
     local prefix = "🥚"
     if data.BaseMutation == "Golden" then
@@ -114,40 +124,30 @@ local function createESP(uid, data)
         color = Color3.fromRGB(255, 100, 200); prefix = "🌈"
     end
 
-    -- Highlight
     local hl = Instance.new("Highlight")
-    hl.FillColor = color
-    hl.OutlineColor = color
-    hl.FillTransparency = 0.6
-    hl.OutlineTransparency = 0
+    hl.FillColor = color; hl.OutlineColor = color
+    hl.FillTransparency = 0.6; hl.OutlineTransparency = 0
     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    hl.Adornee = attach
-    hl.Parent = espFolder
+    hl.Adornee = attach; hl.Parent = espFolder
 
-    -- Billboard
     local bb = Instance.new("BillboardGui")
     bb.Size = UDim2.new(0, 190, 0, 86)
     bb.StudsOffset = Vector3.new(0, 4, 0)
     bb.AlwaysOnTop = true
     bb.LightInfluence = 0
-    bb.MaxDistance = 1500       -- ⭐ ẩn nếu quá xa (nhẹ)
-    bb.Adornee = attach
-    bb.Parent = espFolder
+    bb.Adornee = attach; bb.Parent = espFolder
 
-    -- Tên egg
     local nameLbl = Instance.new("TextLabel")
     nameLbl.Size = UDim2.new(1, 0, 0, 16)
     nameLbl.BackgroundTransparency = 1
     nameLbl.Text = prefix .. " " .. (data.AssetCategory or "Egg")
     nameLbl.TextColor3 = color
     nameLbl.TextStrokeTransparency = 0
-    nameLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
+    nameLbl.TextStrokeColor3 = Color3.new(0,0,0)
     nameLbl.Font = Enum.Font.GothamBold
     nameLbl.TextSize = 13
-    nameLbl.RichText = false
     nameLbl.Parent = bb
 
-    -- Mutation
     local mutLbl = Instance.new("TextLabel")
     mutLbl.Size = UDim2.new(1, 0, 0, 12)
     mutLbl.Position = UDim2.new(0, 0, 0, 16)
@@ -155,43 +155,36 @@ local function createESP(uid, data)
     mutLbl.Text = data.BaseMutation and ("✨ " .. data.BaseMutation) or ""
     mutLbl.TextColor3 = Color3.fromRGB(255, 200, 100)
     mutLbl.TextStrokeTransparency = 0
-    mutLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
+    mutLbl.TextStrokeColor3 = Color3.new(0,0,0)
     mutLbl.Font = Enum.Font.GothamBold
     mutLbl.TextSize = 10
-    mutLbl.RichText = false
     mutLbl.Parent = bb
 
-    -- Income
     local rate = getIncomeRate(data)
     local rateLbl = Instance.new("TextLabel")
     rateLbl.Size = UDim2.new(1, 0, 0, 15)
     rateLbl.Position = UDim2.new(0, 0, 0, 28)
     rateLbl.BackgroundTransparency = 1
     rateLbl.Text = rate and ("💵 $" .. formatMoney(rate) .. "/s") or "💵 ?"
-    rateLbl.TextColor3 = rate and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(150, 150, 150)
+    rateLbl.TextColor3 = rate and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(150,150,150)
     rateLbl.TextStrokeTransparency = 0
-    rateLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
+    rateLbl.TextStrokeColor3 = Color3.new(0,0,0)
     rateLbl.Font = Enum.Font.GothamBold
     rateLbl.TextSize = 13
-    rateLbl.RichText = false
     rateLbl.Parent = bb
 
-    -- Area + Scale
     local infoLbl = Instance.new("TextLabel")
     infoLbl.Size = UDim2.new(1, 0, 0, 12)
     infoLbl.Position = UDim2.new(0, 0, 0, 44)
     infoLbl.BackgroundTransparency = 1
-    infoLbl.Text = string.format("📍 %s | ⚖ %.2f",
-        data.AreaId or "?", data.AssetScale or 0)
+    infoLbl.Text = string.format("📍 %s | ⚖ %.2f", data.AreaId or "?", data.AssetScale or 0)
     infoLbl.TextColor3 = Color3.fromRGB(180, 220, 255)
     infoLbl.TextStrokeTransparency = 0
-    infoLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
+    infoLbl.TextStrokeColor3 = Color3.new(0,0,0)
     infoLbl.Font = Enum.Font.Code
     infoLbl.TextSize = 10
-    infoLbl.RichText = false
     infoLbl.Parent = bb
 
-    -- Distance
     local distLbl = Instance.new("TextLabel")
     distLbl.Size = UDim2.new(1, 0, 0, 12)
     distLbl.Position = UDim2.new(0, 0, 0, 58)
@@ -199,10 +192,9 @@ local function createESP(uid, data)
     distLbl.Text = "..."
     distLbl.TextColor3 = Color3.fromRGB(150, 255, 150)
     distLbl.TextStrokeTransparency = 0
-    distLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
+    distLbl.TextStrokeColor3 = Color3.new(0,0,0)
     distLbl.Font = Enum.Font.Code
     distLbl.TextSize = 10
-    distLbl.RichText = false
     distLbl.Parent = bb
 
     return {
@@ -210,13 +202,35 @@ local function createESP(uid, data)
         highlight = hl,
         billboard = bb,
         distLabel = distLbl,
-        lastDist = 0,
+        hash = makeHash(data, pos),
+        lastDist = -999,
+        nameLabel = nameLbl,
+        mutLabel = mutLbl,
+        rateLabel = rateLbl,
+        infoLabel = infoLbl,
     }
+end
+
+-- ══════════ DESTROY ══════════
+local function destroyObj(obj)
+    if not obj then return end
+    pcall(function() if obj.attach then obj.attach:Destroy() end end)
+    pcall(function() if obj.highlight then obj.highlight:Destroy() end end)
+    pcall(function() if obj.billboard then obj.billboard:Destroy() end end)
 end
 
 -- ══════════ REFRESH ══════════
 local function refresh()
     if not enabled or not EggState then return end
+
+    -- Verify folder
+    if not espFolder or not espFolder.Parent then
+        parentGui = (gethui and gethui()) or P:WaitForChild("PlayerGui")
+        espFolder = Instance.new("Folder")
+        espFolder.Name = "ESP_Eggs"
+        espFolder.Parent = parentGui
+        espObjects = {}
+    end
 
     local ok, fd = pcall(EggState.SyncFieldEggs)
     if not ok or type(fd) ~= "table" then return end
@@ -228,14 +242,12 @@ local function refresh()
     for _, eggData in pairs(records) do
         local uid = eggData.Uid
         if uid and type(eggData) == "table" then
-            currentUids[uid] = true
-
             local cf = eggData.BoundsCFrame
             if cf then
                 local pos = cf.Position
                 local atBase = dist(pos, HOME_POS) > 150
 
-                -- Filter theo map
+                -- Filter map
                 local passFilter = atBase
                 if filterMaps and #filterMaps > 0 then
                     passFilter = false
@@ -248,22 +260,29 @@ local function refresh()
                 end
 
                 if passFilter then
+                    currentUids[uid] = true
                     local obj = espObjects[uid]
+                    local newHash = makeHash(eggData, pos)
 
                     if not obj then
-                        -- ⭐ Tạo mới
-                        obj = createESP(uid, eggData)
-                        if obj then
-                            espObjects[uid] = obj
-                        end
+                        -- Tạo mới
+                        obj = createESP(uid, eggData, pos)
+                        if obj then espObjects[uid] = obj end
+                    elseif obj.hash ~= newHash then
+                        -- ⭐ Hash đổi → egg mới cùng uid → destroy + tạo lại
+                        destroyObj(obj)
+                        espObjects[uid] = nil
+                        obj = createESP(uid, eggData, pos)
+                        if obj then espObjects[uid] = obj end
                     else
-                        -- ⭐ Update vị trí (không destroy)
+                        -- Update vị trí
                         if obj.attach and obj.attach.Parent then
                             pcall(function()
                                 obj.attach.CFrame = CFrame.new(pos)
                             end)
                         else
-                            -- Attach bị destroy → tạo lại
+                            -- Attach mất → tạo lại
+                            destroyObj(obj)
                             espObjects[uid] = nil
                         end
                     end
@@ -271,9 +290,7 @@ local function refresh()
                     -- Không pass filter → xóa nếu có
                     local obj = espObjects[uid]
                     if obj then
-                        pcall(function() obj.attach:Destroy() end)
-                        pcall(function() obj.highlight:Destroy() end)
-                        pcall(function() obj.billboard:Destroy() end)
+                        destroyObj(obj)
                         espObjects[uid] = nil
                     end
                 end
@@ -281,18 +298,30 @@ local function refresh()
         end
     end
 
-    -- Cleanup uid biến mất
+    -- ⭐ Cleanup uid không còn trong SyncFieldEggs → egg đã bị steal/biến mất
     for uid, obj in pairs(espObjects) do
         if not currentUids[uid] then
-            pcall(function() obj.attach:Destroy() end)
-            pcall(function() obj.highlight:Destroy() end)
-            pcall(function() obj.billboard:Destroy() end)
+            destroyObj(obj)
             espObjects[uid] = nil
         end
     end
 end
 
--- ══════════ UPDATE DISTANCE ══════════
+-- ══════════ VERIFY (check egg thật có tồn tại) ══════════
+-- Dùng để phát hiện egg đã bị steal nhưng SyncFieldEggs còn cache
+local function verifyAll()
+    if not enabled then return end
+
+    for uid, obj in pairs(espObjects) do
+        -- Nếu attach mất → clear
+        if not obj.attach or not obj.attach.Parent then
+            destroyObj(obj)
+            espObjects[uid] = nil
+        end
+    end
+end
+
+-- ══════════ UPDATE DIST ══════════
 local function updateDist()
     local hrp = P.Character and P.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
@@ -301,7 +330,6 @@ local function updateDist()
     for _, obj in pairs(espObjects) do
         if obj.attach and obj.attach.Parent then
             local d = dist(obj.attach.Position, myPos)
-            -- ⭐ Chỉ update nếu thay đổi > 1 stud (giảm set property)
             if math.abs(d - obj.lastDist) > 1 then
                 obj.distLabel.Text = string.format("%.0f studs", d)
                 obj.lastDist = d
@@ -310,12 +338,10 @@ local function updateDist()
     end
 end
 
--- ══════════ FORCE CLEAR (bắt egg reset 5 phút) ══════════
+-- ══════════ FORCE CLEAR ══════════
 local function forceClear()
     for uid, obj in pairs(espObjects) do
-        pcall(function() obj.attach:Destroy() end)
-        pcall(function() obj.highlight:Destroy() end)
-        pcall(function() obj.billboard:Destroy() end)
+        destroyObj(obj)
     end
     espObjects = {}
 end
@@ -325,10 +351,10 @@ function M.enable()
     if enabled then return end
     enabled = true
 
-    if not parentGui then
+    if not parentGui or not parentGui.Parent then
         parentGui = (gethui and gethui()) or P:WaitForChild("PlayerGui")
     end
-    if not espFolder then
+    if not espFolder or not espFolder.Parent then
         espFolder = Instance.new("Folder")
         espFolder.Name = "ESP_Eggs"
         espFolder.Parent = parentGui
@@ -355,9 +381,7 @@ function M.toggle()
     return enabled
 end
 
-function M.isEnabled()
-    return enabled
-end
+function M.isEnabled() return enabled end
 
 function M.setMapFilter(mapList)
     filterMaps = mapList
@@ -365,50 +389,78 @@ function M.setMapFilter(mapList)
         forceClear()
         refresh()
     end
-    local msg = (not mapList or #mapList == 0) and "All" or table.concat(mapList, ", ")
-    print("[ESP] Filter: " .. msg)
 end
 
-function M.setHome(pos)
-    if pos then HOME_POS = pos end
-end
-
+function M.setHome(pos) if pos then HOME_POS = pos end end
 function M.getCount()
     local n = 0
     for _ in pairs(espObjects) do n = n + 1 end
     return n
 end
 
--- ══════════ MAIN LOOP ══════════
--- Refresh chậm (0.3s) — nhẹ
+-- ══════════ MAIN LOOPS ══════════
+-- Refresh: quét egg mới
 task.spawn(function()
     while true do
         task.wait(REFRESH_INTERVAL)
-        if enabled then
-            pcall(refresh)
-        end
+        if enabled then pcall(refresh) end
     end
 end)
 
--- Distance update nhanh hơn (0.15s) — mượt
+-- Update distance
 task.spawn(function()
     while true do
         task.wait(DIST_INTERVAL)
-        if enabled then
-            pcall(updateDist)
-        end
+        if enabled then pcall(updateDist) end
     end
 end)
 
--- ⭐ Force clear mỗi 5.1s — bắt egg reset
+-- Verify: check attach còn sống
 task.spawn(function()
     while true do
-        task.wait(FORCE_CLEAR_EVERY)
-        if enabled then
-            forceClear()
-            pcall(refresh)
-        end
+        task.wait(VERIFY_INTERVAL)
+        if enabled then pcall(verifyAll) end
     end
+end)
+
+-- ⭐ Sau khi respawn → rebuild
+P.CharacterAdded:Connect(function()
+    if enabled then
+        print("[ESP] 🔄 Respawn — rebuild")
+        task.wait(1)
+        forceClear()
+        if not espFolder or not espFolder.Parent then
+            parentGui = (gethui and gethui()) or P:WaitForChild("PlayerGui")
+            espFolder = Instance.new("Folder")
+            espFolder.Name = "ESP_Eggs"
+            espFolder.Parent = parentGui
+        end
+        refresh()
+    end
+end)
+
+-- ⭐ Hook chat để biết khi steal thành công → force refresh
+task.spawn(function()
+    pcall(function()
+        local chatEvents = RS:WaitForChild("DefaultChatSystemChatEvents", 5)
+        if not chatEvents then return end
+        local onMsg = chatEvents:WaitForChild("OnMessageDoneFiltering", 5)
+        if not onMsg then return end
+        onMsg.OnClientEvent:Connect(function(data)
+            if type(data) ~= "table" then return end
+            local msg = string.lower(tostring(data.Message or ""))
+            if msg:find("steal") or msg:find("carried")
+                or msg:find("picked up") or msg:find("collected")
+            then
+                if enabled then
+                    task.wait(0.3)
+                    forceClear()
+                    refresh()
+                    print("[ESP] 🔄 Steal detected — rebuild")
+                end
+            end
+        end)
+    end)
 end)
 
 return M
