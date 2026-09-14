@@ -99,31 +99,147 @@ sg.ResetOnSpawn = false
 sg.DisplayOrder = 999999
 sg.Parent = P:WaitForChild("PlayerGui")
 
--- ⭐ ICON
+-- ⭐ ICON — SQUARE + BORDER + MOBILE TOUCH
 local icon = Instance.new("ImageButton")
 icon.Name = "IconButton"
-icon.Size = UDim2.new(0, 50, 0, 50)
+icon.Size = UDim2.new(0, 52, 0, 52)
 icon.Position = UDim2.new(0, 15, 0, 150)
+
+-- SQUARE
 icon.BackgroundColor3 = COLORS.bg
+icon.BackgroundTransparency = 0.05
 icon.BorderSizePixel = 0
+
 icon.Image = "rbxassetid://86285862396979"
 icon.ScaleType = Enum.ScaleType.Fit
-icon.AutoButtonColor = false
-icon.Draggable = true
-icon.Parent = sg
-icon.Cursor = "PointingHand"
-Instance.new("UICorner", icon).CornerRadius = UDim.new(1, 0)
-local istk = Instance.new("UIStroke", icon)
-istk.Color = COLORS.accent
-istk.Thickness = 2
+icon.ImageTransparency = 0
 
-local iconText = Instance.new("TextLabel", icon)
+icon.AutoButtonColor = false
+icon.Active = true
+icon.Selectable = true
+icon.ZIndex = 20
+icon.Parent = sg
+
+-- Bo góc nhẹ, KHÔNG còn hình tròn
+local iconCorner = Instance.new("UICorner")
+iconCorner.CornerRadius = UDim.new(0, 10)
+iconCorner.Parent = icon
+
+-- Viền
+local iconStroke = Instance.new("UIStroke")
+iconStroke.Name = "IconBorder"
+iconStroke.Color = COLORS.accent
+iconStroke.Thickness = 2
+iconStroke.Transparency = 0.05
+iconStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+iconStroke.Parent = icon
+
+-- ⭐ Lớp sáng bên trong
+local iconGlow = Instance.new("Frame")
+iconGlow.Name = "Glow"
+iconGlow.Size = UDim2.new(1, -6, 1, -6)
+iconGlow.Position = UDim2.new(0, 3, 0, 3)
+iconGlow.BackgroundTransparency = 1
+iconGlow.BorderSizePixel = 0
+iconGlow.ZIndex = 21
+iconGlow.Parent = icon
+
+local glowCorner = Instance.new("UICorner")
+glowCorner.CornerRadius = UDim.new(0, 7)
+glowCorner.Parent = iconGlow
+
+local glowStroke = Instance.new("UIStroke")
+glowStroke.Color = COLORS.accent
+glowStroke.Thickness = 1
+glowStroke.Transparency = 0.65
+glowStroke.Parent = iconGlow
+
+-- ⚙ icon text
+local iconText = Instance.new("TextLabel")
+iconText.Name = "IconText"
 iconText.Size = UDim2.new(1, 0, 1, 0)
 iconText.BackgroundTransparency = 1
 iconText.Text = "⚙"
 iconText.TextColor3 = COLORS.accent
 iconText.Font = Enum.Font.GothamBold
 iconText.TextSize = 22
+iconText.ZIndex = 22
+iconText.Parent = icon
+
+-- ============================================================
+-- MOBILE + PC CLICK
+-- ============================================================
+
+local function togglePanel()
+    panel.Visible = not panel.Visible
+
+    -- hiệu ứng đậm / nhạt
+    if panel.Visible then
+        icon.BackgroundTransparency = 0
+        iconStroke.Transparency = 0
+        iconText.TextColor3 = Color3.new(1, 1, 1)
+    else
+        icon.BackgroundTransparency = 0.05
+        iconStroke.Transparency = 0.05
+        iconText.TextColor3 = COLORS.accent
+    end
+end
+
+-- Mouse
+icon.MouseButton1Click:Connect(function()
+    togglePanel()
+end)
+
+-- Touch mobile
+icon.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        togglePanel()
+    end
+end)
+
+-- ============================================================
+-- HIỆU ỨNG ĐẬM / NHẠT
+-- ============================================================
+
+icon.MouseEnter:Connect(function()
+    icon.BackgroundTransparency = 0
+    iconStroke.Thickness = 3
+    iconStroke.Transparency = 0
+end)
+
+icon.MouseLeave:Connect(function()
+    if not panel.Visible then
+        icon.BackgroundTransparency = 0.05
+        iconStroke.Thickness = 2
+        iconStroke.Transparency = 0.05
+    end
+end)
+
+-- Touch bắt đầu
+icon.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+        or input.UserInputType == Enum.UserInputType.MouseButton1 then
+
+        icon.BackgroundTransparency = 0
+        iconStroke.Thickness = 3
+        iconStroke.Transparency = 0
+    end
+end)
+
+-- Touch kết thúc
+icon.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+        or input.UserInputType == Enum.UserInputType.MouseButton1 then
+
+        task.delay(0.08, function()
+            if not panel.Visible then
+                icon.BackgroundTransparency = 0.05
+                iconStroke.Thickness = 2
+                iconStroke.Transparency = 0.05
+            end
+        end)
+    end
+end)
 
 -- ⭐ MAIN PANEL (✅ FIXED: 580x380 size)
 local panel = Instance.new("Frame")
