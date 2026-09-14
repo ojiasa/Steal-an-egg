@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v5 — Steal xong chạy về ngay
+-- STEAL MODULE v6 — Fix Dead state + Steal OK về ngay
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -32,16 +32,18 @@ local config = {
     SPEED          = 1500,
     SPEED_CAP      = 500,
     BAIT_TIMEOUT   = 15,
-    MAX_RETRY      = 5,
+    MAX_RETRY      = 3,
     CHAT_WAIT      = 2.0,
     MAP_RADIUS     = 800,
     ARRIVE_DIST    = 10,
-    STEAL_VERIFY_WAIT = 0.35,
-    MAX_FIRES      = 8,
+    STEAL_VERIFY_WAIT = 0.15,
+    MAX_FIRES      = 5,
     KB_HEALTH_DROP = 0.5,
     HOME_TIMEOUT   = 25,
-    RE_TELE_MAX    = 3,
-    RUN_HOME_DELAY = 0.15,   -- ⭐ delay trước khi chạy về
+    RE_TELE_MAX    = 2,
+    RUN_HOME_DELAY = 0.15,
+    DEAD_TIMEOUT   = 1.5,
+    FAIL_MAX       = 2,
 }
 
 local isRunning      = false
@@ -73,7 +75,7 @@ local function keepHealth()
     end) end
 end
 
--- ⭐⭐⭐ RESTORE HUMANOID — sau steal, cho chạy bình thường
+-- ⭐⭐⭐ RESTORE HUMANOID — sau steal
 local function restoreHumanoid()
     local c = P.Character
     if not c then return end
@@ -96,7 +98,6 @@ local function restoreHumanoid()
         h:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
     end)
 
-    -- Restart Animate script
     task.spawn(function()
         task.wait(0.05)
         local old = c:FindFirstChild("Animate")
@@ -200,7 +201,7 @@ local function findPromptSteal(pos, radius)
     return best, bestDist
 end
 
--- ⭐ ANIMATION restore
+-- ══════════ ANIMATION ══════════
 local function restoreAnimations()
     local c = P.Character
     if not c then return end
@@ -233,7 +234,7 @@ local function restoreAnimations()
     end)
 end
 
--- ⭐ REPLACE — chỉ dùng cho TELE (không dùng khi chạy về)
+-- ⭐ REPLACE — chỉ dùng cho TELE
 local function replaceHumanoidDirect()
     local c = P.Character
     if not c then return false end
@@ -298,7 +299,7 @@ local function firePromptOnce(prompt)
     return true
 end
 
--- ⭐ CHẠY VELOCITY tới vị trí
+-- ⭐ CHẠY VELOCITY
 local function velocityMoveTo(targetPos, timeout)
     timeout = timeout or 20
     local hum, hrp = getHum(), getHRP()
@@ -362,11 +363,10 @@ local function teleToPos(targetPos)
     end
 end
 
--- ⭐⭐⭐ CHẠY VỀ HOME bằng VELOCITY (restore humanoid trước)
+-- ⭐⭐⭐ CHẠY VỀ HOME
 local function runHome()
     log("🏃 Chạy velocity về home...")
 
-    -- ⭐ RESTORE HUMANOID trước khi chạy
     restoreHumanoid()
     task.wait(config.RUN_HOME_DELAY)
 
@@ -395,7 +395,6 @@ local function runHome()
                 local nrm = dir.Unit
                 local ramp = math.min((os.clock() - t0) / 0.5, 1)
                 r.AssemblyLinearVelocity = nrm * math.min(config.SPEED / 2.5, config.SPEED_CAP) * ramp
-                -- Nudge nhẹ
                 if d > 30 then
                     local nudge = math.min(d, 80) * 0.06
                     r.CFrame = CFrame.new(curPos + nrm * nudge)
@@ -403,13 +402,11 @@ local function runHome()
             end
         end)
 
-        -- Log mỗi 5s
         if os.clock() - lastLog > 5 then
             log(string.format("⏳ Còn %.0f studs", d))
             lastLog = os.clock()
         end
 
-        -- Chống kẹt
         if lastPos then
             local moved = dist(curPos, lastPos)
             if moved < 0.5 then
@@ -425,7 +422,6 @@ local function runHome()
         task.wait(0.02)
     end
 
-    -- Timeout → tele về home
     log("⚠ Timeout → tele về home")
     local r = getHRP()
     if r then
@@ -438,14 +434,13 @@ local function runHome()
     return true
 end
 
--- ⭐⭐⭐ STEAL — tự check vị trí + re-tele
+-- ⭐⭐⭐ STEAL với check Dead state
 local function stealAtPos(eggPos, label)
     log("═══════")
     log("STEAL: " .. label)
 
     task.wait(0.05)
 
-    -- Tele tới egg nếu xa
     local hrp = getHRP()
     if not hrp or dist(hrp.Position, eggPos) > 50 then
         teleToPos(eggPos + Vector3.new(0, 3, 0))
@@ -461,10 +456,30 @@ local function stealAtPos(eggPos, label)
     local slotsBefore, countBefore = getSlotSet()
     log("📊 Slots: " .. countBefore)
 
+    -- ⭐ Track Dead/Physics
+    local deadStart = nil
+
     for i = 1, config.MAX_FIRES do
         if not isRunning then return false end
 
-        -- ⭐ Check bị văng khỏi egg
+        -- ⭐ Check Dead/Physics state
+        local hum = getHum()
+        if hum then
+            local state = hum:GetState()
+            if state == Enum.HumanoidStateType.Dead
+                or state == Enum.HumanoidStateType.Physics
+                or state == Enum.HumanoidStateType.FallingDown then
+                if not deadStart then deadStart = os.clock() end
+                local deadTime = os.clock() - deadStart
+                if deadTime > config.DEAD_TIMEOUT then
+                    log(string.format("💀 Dead %.1fs → bỏ steal", deadTime))
+                    return false
+                end
+            else
+                deadStart = nil
+            end
+        end
+
         local h2 = getHRP()
         if h2 then
             local dEgg = dist(h2.Position, eggPos)
@@ -483,6 +498,7 @@ local function stealAtPos(eggPos, label)
         local stolen, name = hasStolenSlot(slotsBefore)
         if stolen then
             log("🎒 OK: " .. name)
+            -- ⭐ STEAL OK → RETURN NGAY
             return true
         end
     end
@@ -517,6 +533,7 @@ local function baitBoss(timeout)
     return false
 end
 
+-- ══════════ MAIN LOOP ══════════
 local function mainLoop()
     while isRunning do
         log("═══════════════════════")
@@ -566,6 +583,8 @@ local function mainLoop()
                             local targetPos = eggPos + Vector3.new(0, 3, 0)
 
                             local success = false
+                            local failCount = 0
+
                             for attempt = 1, config.MAX_RETRY do
                                 if not isRunning then break end
                                 log("🔄 ATTEMPT " .. attempt)
@@ -577,7 +596,7 @@ local function mainLoop()
                                 local stolen = stealAtPos(eggPos, eggMap.name)
 
                                 if stolen then
-                                    -- ⭐⭐⭐ STEAL XONG → CHẠY VỀ NGAY
+                                    -- ⭐ STEAL OK → VỀ HOME NGAY
                                     local ok = runHome()
                                     if ok then
                                         task.wait(config.CHAT_WAIT)
@@ -591,8 +610,17 @@ local function mainLoop()
                                         end
                                     end
                                 else
-                                    log("⚠ Steal fail — retry")
-                                    task.wait(0.3)
+                                    failCount = failCount + 1
+                                    log(string.format("⚠ Fail %d/%d", failCount, config.FAIL_MAX))
+
+                                    -- ⭐ Fail 2 lần → bỏ, về home
+                                    if failCount >= config.FAIL_MAX then
+                                        log("💀 Fail max → bỏ, về home")
+                                        runHome()
+                                        break
+                                    end
+
+                                    task.wait(0.5)
                                 end
                             end
 
