@@ -1,5 +1,8 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v2 — Multi-target support
+-- STEAL MODULE v4 — Smart logic
+-- - Steal → chạy velocity về home (không tele)
+-- - Bị boss đánh văng → tele lại egg
+-- - Tele fail → chạy bộ tới egg
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -27,18 +30,20 @@ local ALL_MAPS = {
 local config = {
     HOME_POS       = Vector3.new(465.2, 67.1, -364.1),
     FOREST_POS     = Vector3.new(599.9, 67.6, -363.9),
-    TARGETS        = { { name = "Snow", pos = Vector3.new(1405.1, 68.0, -363.8) } },  -- ⭐ list
-    PREFER_FAR     = true,    -- ⭐ ưu tiên map xa trước
+    TARGETS        = { { name = "Snow", pos = Vector3.new(1405.1, 68.0, -363.8) } },
+    PREFER_FAR     = true,
     SPEED          = 1500,
     SPEED_CAP      = 500,
     BAIT_TIMEOUT   = 15,
-    MAX_RETRY      = 3,
+    MAX_RETRY      = 5,
     CHAT_WAIT      = 2.0,
     MAP_RADIUS     = 800,
     ARRIVE_DIST    = 10,
     STEAL_VERIFY_WAIT = 0.35,
     MAX_FIRES      = 8,
     KB_HEALTH_DROP = 0.5,
+    HOME_TIMEOUT   = 25,
+    RE_TELE_MAX    = 3,   -- số lần tele lại egg khi bị văng
 }
 
 local isRunning      = false
@@ -90,7 +95,6 @@ local function hasStolenSlot(beforeSet)
     return false, nil
 end
 
--- ⭐ Tìm prompt theo LIST map
 local function findEggInTargets()
     local best, bestPos, bestDist, bestMap = nil, nil, 99999, nil
     local hrp = getHRP()
@@ -106,17 +110,15 @@ local function findEggInTargets()
                 local ppos
                 if part and part:IsA("BasePart") then ppos = part.Position
                 elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
-                elseif part and part.Parent and part.Parent:IsA("BasePart") then ppos = part.Parent.Position end
+                elseif part and part.Parent and part.Parent:IsA("BasePart") then
+                    ppos = part.Parent.Position end
                 if ppos then
-                    -- Check thuộc map nào trong list target
                     for _, tgt in ipairs(config.TARGETS) do
                         local dToMap = dist(ppos, tgt.pos)
                         if dToMap < 500 then
                             local dFromPlayer = dist(ppos, hrp.Position)
-                            -- ⭐ Ưu tiên theo config
                             local score
                             if config.PREFER_FAR then
-                                -- Ưu tiên map xa: dùng distance từ home
                                 score = -dist(tgt.pos, config.HOME_POS) + dFromPlayer * 0.001
                             else
                                 score = dFromPlayer
@@ -159,7 +161,7 @@ local function findPromptSteal(pos, radius)
     return best, bestDist
 end
 
--- ══════════ ANIMATION FIX ══════════
+-- ══════════ ANIMATION ══════════
 local function restoreAnimations()
     local c = P.Character
     if not c then return end
@@ -283,6 +285,7 @@ local function firePromptOnce(prompt)
     return true
 end
 
+-- ⭐ CHẠY VELOCITY tới vị trí
 local function velocityMoveTo(targetPos, timeout)
     timeout = timeout or 20
     local hum, hrp = getHum(), getHRP()
@@ -326,7 +329,8 @@ local function velocityMoveTo(targetPos, timeout)
     return false
 end
 
-local function teleToMap(targetPos)
+-- ⭐ TELE 1 phát (dùng khi cần thiết, có replace humanoid)
+local function teleToPos(targetPos)
     local hrp = getHRP()
     if hrp then pcall(function()
         hrp.CFrame = CFrame.new(targetPos)
@@ -345,48 +349,165 @@ local function teleToMap(targetPos)
     end
 end
 
-local function goHomeFast()
-    log("🏃 Về home")
+-- ⭐⭐⭐ CHẠY VỀ HOME bằng VELOCITY (không tele)
+local function goHomeByVelocity()
+    log("🏃 Chạy velocity về home...")
     local t0 = os.clock()
-    local lastPos, stuckTime = nil, os.clock()
-    while os.clock() - t0 < 30 and isRunning do
+    local lastPos = nil
+    local stuckTime = os.clock()
+    local lastLog = t0
+
+    while os.clock() - t0 < config.HOME_TIMEOUT and isRunning do
         local hum, r = getHum(), getHRP()
-        if not hum or not r then break end
+        if not hum or not r then task.wait(0.05); continue end
         keepHealth()
-        local d = dist(r.Position, config.HOME_POS)
+
+        local curPos = r.Position
+        local d = dist(curPos, config.HOME_POS)
+
         if d < config.ARRIVE_DIST then
             pcall(function() r.AssemblyLinearVelocity = Vector3.zero end)
+            log(string.format("✅ Về home (%.1fs)", os.clock() - t0))
             return true
         end
+
         pcall(function()
-            local dir = config.HOME_POS - r.Position
+            local dir = config.HOME_POS - curPos
             if dir.Magnitude > 0 then
                 local nrm = dir.Unit
-                local ramp = math.min((os.clock() - t0) / 0.3, 1)
+                local ramp = math.min((os.clock() - t0) / 0.5, 1)
                 r.AssemblyLinearVelocity = nrm * math.min(config.SPEED / 2.5, config.SPEED_CAP) * ramp
+                -- Nudge nhẹ (không tele)
                 if d > 30 then
-                    local nudge = math.min(d, 150) * 0.08
-                    r.CFrame = CFrame.new(r.Position + nrm * nudge)
+                    local nudge = math.min(d, 80) * 0.06
+                    r.CFrame = CFrame.new(curPos + nrm * nudge)
                 end
             end
         end)
+
+        if os.clock() - lastLog > 5 then
+            log(string.format("⏳ Còn %.0f studs", d))
+            lastLog = os.clock()
+        end
+
+        -- Chống kẹt
         if lastPos then
-            if dist(r.Position, lastPos) < 0.5 then
+            local moved = dist(curPos, lastPos)
+            if moved < 0.5 then
                 if os.clock() - stuckTime > 0.4 then
                     pcall(function() hum.Jump = true end)
                     stuckTime = os.clock()
                 end
-            else stuckTime = os.clock() end
+            else
+                stuckTime = os.clock()
+            end
         end
-        lastPos = r.Position
-        task.wait()
+        lastPos = curPos
+        task.wait(0.02)
     end
+
+    log("⚠ Timeout về home")
+    return false
+end
+
+-- ⭐⭐⭐ VERIFY Ở ĐÚNG VỊ TRÍ EGG (chống bị boss base đánh văng)
+local function ensureAtEgg(eggPos, maxRetries)
+    maxRetries = maxRetries or config.RE_TELE_MAX
+    local eggStandPos = eggPos + Vector3.new(0, 3, 0)
+
+    for attempt = 1, maxRetries do
+        if not isRunning then return false end
+
+        local hrp = getHRP()
+        if not hrp then task.wait(0.1); continue end
+
+        local d = dist(hrp.Position, eggPos)
+
+        -- Nếu đang ở gần egg (< 20 studs) → OK
+        if d < 20 then
+            return true
+        end
+
+        -- Xa egg → tele lại (đang bị boss base đánh văng → server cho phép)
+        log(string.format("🔄 Re-tele lần %d (đang cách %.0f studs)", attempt, d))
+        teleToPos(eggStandPos)
+        task.wait(0.15)
+
+        -- Check lại
+        local hrp2 = getHRP()
+        if hrp2 and dist(hrp2.Position, eggPos) < 20 then
+            return true
+        end
+    end
+
+    log("⚠ Re-tele fail, chạy bộ tới egg")
+    -- Fallback: chạy bộ tới egg
+    local ok = velocityMoveTo(eggStandPos, 15)
+    return ok
+end
+
+-- ⭐⭐⭐ STEAL với re-tele check
+local function stealAtPos(targetPos, label, eggMapPos)
+    log("═══════")
+    log("STEAL: " .. label)
+
+    task.wait(0.05)
+
+    -- ⭐ Nếu xa egg → tele tới (lần đầu, đang bị knockback)
+    local hrp = getHRP()
+    if not hrp or dist(hrp.Position, targetPos) > 50 then
+        log("📡 Tele tới egg (đang knockback)")
+        teleToPos(targetPos + Vector3.new(0, 3, 0))
+        task.wait(0.1)
+    end
+
+    local prompt = findPromptSteal(targetPos, 150)
+    if not prompt then
+        log("⚠ Không prompt")
+        return false
+    end
+
+    local slotsBefore, countBefore = getSlotSet()
+    log("📊 Slots: " .. countBefore)
+
+    for i = 1, config.MAX_FIRES do
+        if not isRunning then return false end
+
+        -- ⭐ CHECK xem có bị văng khỏi egg không
+        local h2 = getHRP()
+        if h2 then
+            local dEgg = dist(h2.Position, targetPos)
+            if dEgg > 30 then
+                log(string.format("💥 Bị văng %.0f studs — re-tele", dEgg))
+                -- Bị boss đánh văng → tele lại
+                local ok = ensureAtEgg(targetPos, 3)
+                if not ok then
+                    log("❌ Không về được egg")
+                    return false
+                end
+                task.wait(0.05)
+            end
+
+            local p2 = findPromptSteal(h2.Position, 150)
+            if p2 then firePromptOnce(p2) end
+        end
+
+        task.wait(config.STEAL_VERIFY_WAIT)
+
+        local stolen, name = hasStolenSlot(slotsBefore)
+        if stolen then
+            log("🎒 OK: " .. name)
+            return true
+        end
+    end
+
+    log("⚠ Fail fire")
     return false
 end
 
 local function baitBoss(timeout)
     timeout = timeout or config.BAIT_TIMEOUT
-    log("🎯 Bait boss...")
+    log("🎯 Bait boss Forest...")
     local t0 = os.clock()
     local hum0, hrp0 = getHum(), getHRP()
     local startHealth = hum0 and hum0.Health or 100
@@ -410,53 +531,32 @@ local function baitBoss(timeout)
     return false
 end
 
-local function stealAtPos(targetPos, label)
-    log("═══════")
-    log("STEAL: " .. label)
-    task.wait(0.05)
-    local hrp = getHRP()
-    if not hrp or dist(hrp.Position, targetPos) > 50 then
-        teleToMap(targetPos)
-        task.wait(0.05)
-    end
-    local prompt = findPromptSteal(targetPos, 150)
-    if not prompt then log("⚠ Không prompt"); return false end
-    local slotsBefore, countBefore = getSlotSet()
-    log("📊 Slots: " .. countBefore)
-    for i = 1, config.MAX_FIRES do
-        if not isRunning then return false end
-        local h2 = getHRP()
-        if h2 then
-            local p2 = findPromptSteal(h2.Position, 150)
-            if p2 then firePromptOnce(p2) end
-        end
-        task.wait(config.STEAL_VERIFY_WAIT)
-        local stolen, name = hasStolenSlot(slotsBefore)
-        if stolen then log("🎒 OK: " .. name); return true end
-    end
-    log("⚠ Fail"); return false
-end
-
 local function mainLoop()
     while isRunning do
         log("═══════════════════════")
         log("PHASE 1: Forest")
+
+        -- 1. Chạy tới Forest
         if not velocityMoveTo(config.FOREST_POS, 30) then
             if not isRunning then break end
             task.wait(0.5)
         else
             local hrp = getHRP()
             local prompt = hrp and findPromptSteal(hrp.Position, config.MAP_RADIUS)
+
             if prompt then
                 local part = prompt.Parent
                 local ppos
                 if part:IsA("BasePart") then ppos = part.Position
                 elseif part:IsA("Attachment") then ppos = part.WorldPosition
                 elseif part.Parent and part.Parent:IsA("BasePart") then ppos = part.Parent.Position end
+
                 if ppos then
                     if dist(hrp.Position, ppos) > config.ARRIVE_DIST then
                         velocityMoveTo(ppos, 20)
                     end
+
+                    -- Steal Forest
                     local fb, fc = getSlotSet()
                     for i = 1, 5 do
                         if not isRunning then break end
@@ -471,46 +571,70 @@ local function mainLoop()
                     end
                     stolenPrompts[prompt] = true
                     task.wait(0.1)
-                    log("PHASE 3: Bait")
+
+                    -- Bait boss
+                    log("PHASE 3: Bait boss")
                     if baitBoss(config.BAIT_TIMEOUT) then
-                        log("PHASE 4: Tìm egg trong " .. #config.TARGETS .. " map")
+                        log("PHASE 4: Tìm egg target")
                         local eggPrompt, eggPos, _, eggMap = findEggInTargets()
+
                         if eggPos and eggMap then
-                            log(string.format("🎯 Map: %s @ %.0f,%.0f,%.0f", eggMap.name, eggPos.X, eggPos.Y, eggPos.Z))
+                            log(string.format("🎯 Map: %s", eggMap.name))
                             local targetPos = eggPos + Vector3.new(0, 3, 0)
+
                             local success = false
                             for attempt = 1, config.MAX_RETRY do
                                 if not isRunning then break end
                                 log("🔄 ATTEMPT " .. attempt)
                                 deliveryFailed = false
-                                teleToMap(targetPos)
-                                task.wait(0.05)
-                                local stolen = stealAtPos(eggPos, eggMap.name)
+
+                                -- ⭐ TELE 1 phát tới egg (đang knockback → cho phép)
+                                teleToPos(targetPos)
+                                task.wait(0.1)
+
+                                -- ⭐ Steal với re-tele check
+                                local stolen = stealAtPos(eggPos, eggMap.name, eggMap.pos)
+
                                 if stolen then
-                                    goHomeFast()
-                                    task.wait(config.CHAT_WAIT)
-                                    if deliveryFailed then
-                                        log("❌ Chat fail"); task.wait(0.2)
+                                    -- ⭐ CHẠY VELOCITY VỀ HOME (không tele)
+                                    local ok = goHomeByVelocity()
+                                    if ok then
+                                        task.wait(config.CHAT_WAIT)
+                                        if deliveryFailed then
+                                            log("❌ Chat fail")
+                                            task.wait(0.2)
+                                        else
+                                            log("🎉 SUCCESS")
+                                            success = true
+                                            break
+                                        end
                                     else
-                                        log("🎉 SUCCESS"); success = true; break
+                                        log("⚠ Về home fail")
+                                        task.wait(0.5)
                                     end
                                 else
-                                    task.wait(0.2)
+                                    log("⚠ Steal fail — retry")
+                                    task.wait(0.3)
                                 end
                             end
+
                             if not success then log("❌ Hết retry") end
                         else
-                            log("⚠ Không tìm thấy egg ở map target")
+                            log("⚠ Không tìm thấy egg target")
                         end
                     end
                 end
+            else
+                log("⚠ Không prompt Forest")
             end
         end
+
         if not isRunning then break end
         task.wait(0.5)
     end
 end
 
+-- ══════════ BYPASS ══════════
 local bypassInstalled = false
 local function installBypass()
     if bypassInstalled then return end
@@ -556,7 +680,6 @@ end
 function M.stop() isRunning = false; log("■ STOP") end
 function M.isRunning() return isRunning end
 
--- ⭐ Set LIST targets (multi)
 function M.setTargets(targetList)
     if type(targetList) ~= "table" then return end
     config.TARGETS = targetList
@@ -565,7 +688,6 @@ function M.setTargets(targetList)
     log("🎯 Targets: " .. table.concat(names, ", "))
 end
 
--- Backward compat
 function M.setTarget(name, pos)
     config.TARGETS = { { name = name, pos = pos } }
     log("🎯 Target: " .. name)
