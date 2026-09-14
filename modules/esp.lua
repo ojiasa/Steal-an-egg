@@ -1,5 +1,6 @@
 -- ═══════════════════════════════════════════════════════════════
--- ESP MODULE v8.1 — Không spam SyncFieldEggs + auto update info
+-- ESP MODULE v9 — Đọc từ ReadFieldEggs (đủ mọi map)
+-- Fix: Prehistoric/Cosmic hiện + auto update tên sau reset
 -- ═══════════════════════════════════════════════════════════════
 
 local P  = game:GetService("Players").LocalPlayer
@@ -14,12 +15,20 @@ local parentGui, espFolder
 local HOME_POS   = Vector3.new(465.2, 67.1, -364.1)
 local filterMaps = nil
 local AssetEarnings
+local EggState
 
 local REFRESH_INTERVAL = 0.3
 local DIST_INTERVAL    = 0.15
-local CACHE_TIME       = 1.0
 
 -- ══════════ LOAD MODULES ══════════
+pcall(function()
+    local c = RS:WaitForChild("Client", 5)
+    if c then
+        local mod = c:WaitForChild("EggState", 5)
+        if mod then EggState = require(mod) end
+    end
+end)
+
 pcall(function()
     local s = RS:WaitForChild("Shared", 5)
     local u = s and s:FindFirstChild("Util", 5)
@@ -40,14 +49,19 @@ local function formatMoney(n)
 end
 
 local function getPrefixAndColor(mutation)
-    if mutation == "Golden" then
-        return "🌟", Color3.fromRGB(255, 200, 50)
-    elseif mutation == "Silver" then
-        return "⭐", Color3.fromRGB(200, 200, 220)
-    elseif mutation == "Rainbow" then
-        return "🌈", Color3.fromRGB(255, 100, 200)
-    end
+    if mutation == "Golden" then return "🌟", Color3.fromRGB(255, 200, 50)
+    elseif mutation == "Silver" then return "⭐", Color3.fromRGB(200, 200, 220)
+    elseif mutation == "Rainbow" then return "🌈", Color3.fromRGB(255, 100, 200) end
     return "🥚", Color3.fromRGB(255, 220, 80)
+end
+
+-- ⭐ Hash để detect egg mới
+local function makeHash(eggData, pos)
+    return string.format("%s|%s|%.1f|%.1f|%.1f|%.2f",
+        tostring(eggData.AssetCategory or ""),
+        tostring(eggData.BaseMutation or ""),
+        pos.X, pos.Y, pos.Z,
+        eggData.AssetScale or 0)
 end
 
 local incomeCache = {}
@@ -68,79 +82,26 @@ local function getIncomeRate(category, scale, mutations)
     return r
 end
 
--- ⭐ Đọc egg thật từ Workspace
-local function scanWorkspaceEggs()
+-- ⭐⭐⭐ ĐỌC EGG TỪ ReadFieldEggs (nguồn chính, có mọi map)
+local function readAllEggs()
     local result = {}
-    local slots = W:FindFirstChild("AreaEggSlotsClient")
-    if not slots then return result end
+    if not EggState then return result end
 
-    for _, slot in ipairs(slots:GetChildren()) do
-        local hitbox = slot:FindFirstChild("Hitbox")
-        if hitbox and hitbox:IsA("BasePart") then
-            local hasMesh = false
-            for _, c in ipairs(slot:GetChildren()) do
-                if c:IsA("MeshPart") then
-                    hasMesh = true
-                    break
-                end
-            end
-            if hasMesh then
-                result[slot.Name] = {
-                    uid = slot.Name,
-                    pos = hitbox.Position,
-                }
-            end
+    local ok, fd = pcall(EggState.ReadFieldEggs)
+    if not ok or type(fd) ~= "table" or type(fd.Records) ~= "table" then
+        return result
+    end
+
+    for _, eggData in pairs(fd.Records) do
+        if eggData.Uid and eggData.BoundsCFrame then
+            result[eggData.Uid] = eggData
         end
     end
     return result
-end
-
--- ⭐ Đọc info từ ReadFieldEggs (cache 1s)
-local readCache = { data = nil, time = 0 }
-
-local function getEggInfoMap()
-    local now = os.clock()
-    if readCache.data and (now - readCache.time) < CACHE_TIME then
-        return readCache.data
-    end
-
-    local result = {}
-    pcall(function()
-        local c = RS:FindFirstChild("Client")
-        if not c then return end
-        local mod = c:FindFirstChild("EggState")
-        if not mod then return end
-        local es = require(mod)
-        if not es.ReadFieldEggs then return end
-        local fd = es.ReadFieldEggs()
-        if type(fd) ~= "table" or type(fd.Records) ~= "table" then return end
-
-        for _, eggData in pairs(fd.Records) do
-            if eggData.Uid then
-                result[eggData.Uid] = eggData
-            end
-        end
-    end)
-
-    readCache.data = result
-    readCache.time = now
-    return result
-end
-
-local function buildInfo(uid, syncData)
-    if not syncData then return { name = "Egg" } end
-    local rate = getIncomeRate(syncData.AssetCategory, syncData.AssetScale, syncData.Mutations)
-    return {
-        name = syncData.AssetCategory or "Egg",
-        mutation = syncData.BaseMutation,
-        area = syncData.AreaId,
-        scale = syncData.AssetScale,
-        rate = rate,
-    }
 end
 
 -- ══════════ CREATE ESP ══════════
-local function createESP(uid, pos, info)
+local function createESP(uid, pos, info, hash)
     local attach = Instance.new("Part")
     attach.Name = "ESP_" .. uid:sub(1, 8)
     attach.Anchored = true
@@ -240,7 +201,9 @@ local function createESP(uid, pos, info)
         mutLabel = mutLbl,
         infoLabel = infoLbl,
         lastDist = -999,
+        hash = hash,
         lastRate = info.rate,
+        lastName = info.name,
     }
 end
 
@@ -249,31 +212,6 @@ local function destroyObj(obj)
     pcall(function() if obj.attach then obj.attach:Destroy() end end)
     pcall(function() if obj.highlight then obj.highlight:Destroy() end end)
     pcall(function() if obj.billboard then obj.billboard:Destroy() end end)
-end
-
--- ══════════ UPDATE LABEL ══════════
-local function updateObjLabels(obj, info)
-    local prefix, color = getPrefixAndColor(info.mutation)
-
-    pcall(function()
-        if info.name and info.name ~= "Egg" then
-            obj.nameLabel.Text = prefix .. " " .. info.name
-            obj.nameLabel.TextColor3 = color
-            obj.highlight.FillColor = color
-            obj.highlight.OutlineColor = color
-        end
-        if info.mutation then
-            obj.mutLabel.Text = "✨ " .. info.mutation
-        end
-        if info.rate and not obj.lastRate then
-            obj.lastRate = info.rate
-            obj.rateLabel.Text = "💵 $" .. formatMoney(info.rate) .. "/s"
-            obj.rateLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
-        end
-        if info.area then
-            obj.infoLabel.Text = string.format("📍 %s | ⚖ %.2f", info.area, info.scale or 0)
-        end
-    end)
 end
 
 -- ══════════ REFRESH ══════════
@@ -288,62 +226,70 @@ local function refresh()
         espObjects = {}
     end
 
-    local realEggs = scanWorkspaceEggs()
-    local infoMap = getEggInfoMap()
-
+    -- ⭐ Đọc TẤT CẢ egg từ ReadFieldEggs
+    local allEggs = readAllEggs()
     local currentUids = {}
 
-    for uid, realEgg in pairs(realEggs) do
-        local pos = realEgg.pos
-        local atBase = dist(pos, HOME_POS) > 150
+    for uid, eggData in pairs(allEggs) do
+        local pos = eggData.BoundsCFrame.Position
 
-        if atBase then
-            local syncData = infoMap[uid]
-            local info = buildInfo(uid, syncData)
-
-            local passFilter = true
-            if filterMaps and #filterMaps > 0 then
-                passFilter = false
-                if info.area then
-                    for _, mapName in ipairs(filterMaps) do
-                        if info.area == mapName then
-                            passFilter = true
-                            break
-                        end
-                    end
+        -- Filter map
+        local passFilter = true
+        if filterMaps and #filterMaps > 0 then
+            passFilter = false
+            for _, mapName in ipairs(filterMaps) do
+                if eggData.AreaId == mapName then
+                    passFilter = true
+                    break
                 end
             end
+        end
 
-            if passFilter then
-                currentUids[uid] = true
-                local obj = espObjects[uid]
+        if passFilter then
+            currentUids[uid] = true
 
-                if not obj then
-                    -- Tạo mới
-                    obj = createESP(uid, pos, info)
-                    if obj then espObjects[uid] = obj end
-                else
-                    if obj.attach and obj.attach.Parent then
-                        -- Update vị trí
-                        pcall(function()
-                            obj.attach.CFrame = CFrame.new(pos)
-                        end)
-                        -- Update label (nếu có info mới)
-                        updateObjLabels(obj, info)
-                    else
-                        destroyObj(obj)
-                        espObjects[uid] = nil
-                    end
-                end
+            local info = {
+                name = eggData.AssetCategory or "Egg",
+                mutation = eggData.BaseMutation,
+                area = eggData.AreaId,
+                scale = eggData.AssetScale,
+                rate = getIncomeRate(eggData.AssetCategory, eggData.AssetScale, eggData.Mutations),
+            }
+            local newHash = makeHash(eggData, pos)
+
+            local obj = espObjects[uid]
+
+            if not obj then
+                -- Tạo mới
+                obj = createESP(uid, pos, info, newHash)
+                if obj then espObjects[uid] = obj end
+            elseif obj.hash ~= newHash then
+                -- ⭐ HASH ĐỔI → egg mới cùng uid → DESTROY + TẠO LẠI
+                destroyObj(obj)
+                espObjects[uid] = nil
+                obj = createESP(uid, pos, info, newHash)
+                if obj then espObjects[uid] = obj end
             else
-                -- Không pass filter → xóa
-                if espObjects[uid] then
-                    destroyObj(espObjects[uid])
+                if obj.attach and obj.attach.Parent then
+                    -- Update vị trí
+                    pcall(function()
+                        obj.attach.CFrame = CFrame.new(pos)
+                    end)
+                    -- Update label phòng rate/name đổi
+                    if info.rate and obj.lastRate ~= info.rate then
+                        obj.lastRate = info.rate
+                        pcall(function()
+                            obj.rateLabel.Text = "💵 $" .. formatMoney(info.rate) .. "/s"
+                            obj.rateLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+                        end)
+                    end
+                else
+                    destroyObj(obj)
                     espObjects[uid] = nil
                 end
             end
         else
-            -- Ở lobby → xóa
+            -- Không pass filter → xóa
             if espObjects[uid] then
                 destroyObj(espObjects[uid])
                 espObjects[uid] = nil
@@ -351,7 +297,7 @@ local function refresh()
         end
     end
 
-    -- Clear ESP cho egg biến mất
+    -- Clear ESP cho egg không còn
     for uid, obj in pairs(espObjects) do
         if not currentUids[uid] then
             destroyObj(obj)
@@ -397,7 +343,6 @@ function M.enable()
         espFolder.Parent = parentGui
     end
     incomeCache = {}
-    readCache = { data = nil, time = 0 }
     refresh()
     print("[ESP] ✅ Enabled")
 end
@@ -410,7 +355,6 @@ function M.disable()
         espFolder = nil
     end
     incomeCache = {}
-    readCache = { data = nil, time = 0 }
     print("[ESP] ❌ Disabled")
 end
 
