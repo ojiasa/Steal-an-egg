@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- MAIN.LUA v4 — UI BEAUTIFUL (Icon tròn + Menu Modern)
+-- MAIN.LUA v4 — UI style Foxname (tab + switch + sidebar)
 -- ═══════════════════════════════════════════════════════════════
 
 local BASE_URL = "https://raw.githubusercontent.com/ojiasa/Steal-an-egg/main"
@@ -42,7 +42,7 @@ _G.StealEgg = {
     ESP_Disable = function() if ESPModule then ESPModule.disable() end end,
     ESP_Toggle  = function() if ESPModule then return ESPModule.toggle() end end,
     ESP_IsEnabled = function() return ESPModule and ESPModule.isEnabled() or false end,
-    Version = "4.0.0",
+    Version = "1.0.0",
 }
 local API = _G.StealEgg
 _G.MyScript = API
@@ -50,272 +50,384 @@ _G.MyScript = API
 local P   = game:GetService("Players").LocalPlayer
 local UIS = game:GetService("UserInputService")
 
--- ══════════ MAIN UI CONTAINER ══════════
+-- ══════════ COLOR ══════════
+local COLORS = {
+    bg         = Color3.fromRGB(20, 20, 30),
+    bg2        = Color3.fromRGB(28, 28, 40),
+    bg3        = Color3.fromRGB(35, 35, 50),
+    accent     = Color3.fromRGB(120, 140, 255),
+    accent2    = Color3.fromRGB(150, 100, 255),
+    text       = Color3.fromRGB(220, 220, 240),
+    textDim    = Color3.fromRGB(150, 150, 180),
+    green      = Color3.fromRGB(80, 220, 130),
+    red        = Color3.fromRGB(220, 80, 80),
+}
+
+-- ══════════ UI ROOT ══════════
 local sg = Instance.new("ScreenGui")
-sg.Name = "StealEggUI_v4"
+sg.Name = "StealEggUI"
 sg.ResetOnSpawn = false
 sg.DisplayOrder = 999999
 sg.Parent = (gethui and gethui()) or P:WaitForChild("PlayerGui")
 
--- ═══════════════════════════════════════════════════════════════
--- ⭐ ICON TRÒN ĐẸP (Gradient + Glow Effect)
--- ═══════════════════════════════════════════════════════════════
-local iconContainer = Instance.new("Frame")
-iconContainer.Name = "IconContainer"
-iconContainer.Size = UDim2.new(0, 55, 0, 55)
-iconContainer.Position = UDim2.new(0, 15, 0, 150)
-iconContainer.BackgroundTransparency = 1
-iconContainer.Parent = sg
-
--- Icon chính - nền gradient
+-- ⭐ ICON TRÒN
 local icon = Instance.new("TextButton")
-icon.Name = "MainIcon"
-icon.Size = UDim2.new(1, 0, 1, 0)
-icon.Position = UDim2.new(0, 0, 0, 0)
-icon.BackgroundColor3 = Color3.fromRGB(45, 100, 180)
-icon.BorderSizePixel = 0
-icon.Text = ""
+icon.Size = UDim2.new(0, 46, 0, 46)
+icon.Position = UDim2.new(0, 15, 0, 150)
+icon.BackgroundColor3 = COLORS.bg
+icon.Text = "🌀"
+icon.TextSize = 20
+icon.Font = Enum.Font.GothamBold
+icon.TextColor3 = COLORS.accent
 icon.AutoButtonColor = false
-icon.Parent = iconContainer
+icon.Parent = sg
 Instance.new("UICorner", icon).CornerRadius = UDim.new(1, 0)
+local stk = Instance.new("UIStroke")
+stk.Color = COLORS.accent
+stk.Thickness = 1.5
+stk.Parent = icon
 
--- Stroke (border sáng)
-local iconStroke = Instance.new("UIStroke")
-iconStroke.Color = Color3.fromRGB(100, 200, 255)
-iconStroke.Thickness = 2.5
-iconStroke.Parent = icon
-
--- Biểu tượng bên trong (thay bằng hình ảnh hoặc emoji)
-local iconSymbol = Instance.new("TextLabel")
-iconSymbol.Name = "IconSymbol"
-iconSymbol.Size = UDim2.new(1, 0, 1, 0)
-iconSymbol.BackgroundTransparency = 1
-iconSymbol.Text = "⚙"  -- Có thể thay thành emoji khác: 🎮, 🔧, ⚡, etc
-iconSymbol.TextColor3 = Color3.fromRGB(255, 255, 255)
-iconSymbol.Font = Enum.Font.GothamBold
-iconSymbol.TextSize = 28
-iconSymbol.Parent = icon
-
--- Shadow effect (glow)
-local iconShadow = Instance.new("Frame")
-iconShadow.Name = "IconShadow"
-iconShadow.Size = UDim2.new(1, 8, 1, 8)
-iconShadow.Position = UDim2.new(0, -4, 0, -4)
-iconShadow.BackgroundColor3 = Color3.fromRGB(45, 100, 180)
-iconShadow.BackgroundTransparency = 0.6
-iconShadow.BorderSizePixel = 0
-iconShadow.Parent = iconContainer
-iconShadow.ZIndex = icon.ZIndex - 1
-Instance.new("UICorner", iconShadow).CornerRadius = UDim.new(1, 0)
-
--- ═══════════════════════════════════════════════════════════════
--- ⭐ PANEL UI CHÍNH (Modern Design)
--- ═══════════════════════════════════════════════════════════════
+-- ⭐ PANEL
 local panel = Instance.new("Frame")
-panel.Name = "MainPanel"
-panel.Size = UDim2.new(0, 260, 0, 420)
-panel.Position = UDim2.new(0.5, -130, 0.5, -210)
-panel.BackgroundColor3 = Color3.fromRGB(12, 14, 20)
+panel.Size = UDim2.new(0, 260, 0, 380)
+panel.Position = UDim2.new(0.5, -130, 0.5, -190)
+panel.BackgroundColor3 = COLORS.bg
 panel.BorderSizePixel = 0
 panel.Visible = false
 panel.Parent = sg
+Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
+local pstk = Instance.new("UIStroke")
+pstk.Color = COLORS.accent
+pstk.Thickness = 1
+pstk.Transparency = 0.5
+pstk.Parent = panel
 
-local pCorner = Instance.new("UICorner", panel)
-pCorner.CornerRadius = UDim.new(0, 12)
-
-local pStroke = Instance.new("UIStroke")
-pStroke.Color = Color3.fromRGB(80, 150, 220)
-pStroke.Thickness = 1.5
-pStroke.Parent = panel
-
--- ⭐ HEADER (Title + Close)
-local header = Instance.new("Frame")
-header.Name = "Header"
-header.Size = UDim2.new(1, 0, 0, 40)
-header.BackgroundColor3 = Color3.fromRGB(20, 50, 100)
-header.BorderSizePixel = 0
+-- ⭐ HEADER (drag)
+local header = Instance.new("TextButton")
+header.Size = UDim2.new(1, 0, 0, 30)
+header.BackgroundColor3 = COLORS.bg2
+header.Text = "🌀  STEAL EGG"
+header.TextColor3 = COLORS.text
+header.Font = Enum.Font.GothamBold
+header.TextSize = 11
+header.TextXAlignment = Enum.TextXAlignment.Left
+header.AutoButtonColor = false
 header.Parent = panel
-Instance.new("UICorner", header).CornerRadius = UDim.new(0, 12)
+Instance.new("UICorner", header).CornerRadius = UDim.new(0, 10)
 
-local headerStroke = Instance.new("UIStroke")
-headerStroke.Color = Color3.fromRGB(100, 180, 255)
-headerStroke.Thickness = 1
-headerStroke.Parent = header
+local headerPad = Instance.new("UIPadding")
+headerPad.PaddingLeft = UDim.new(0, 12)
+headerPad.Parent = header
 
--- Title
-local title = Instance.new("TextLabel")
-title.Name = "Title"
-title.Size = UDim2.new(1, -50, 1, 0)
-title.Position = UDim2.new(0, 8, 0, 0)
-title.BackgroundTransparency = 1
-title.Text = "⚙ STEAL EGG"
-title.TextColor3 = Color3.fromRGB(200, 240, 255)
-title.Font = Enum.Font.GothamBold
-title.TextSize = 13
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Parent = header
-
--- Close Button
 local closeBtn = Instance.new("TextButton")
-closeBtn.Name = "CloseBtn"
-closeBtn.Size = UDim2.new(0, 28, 0, 28)
-closeBtn.Position = UDim2.new(1, -34, 0.5, -14)
-closeBtn.BackgroundColor3 = Color3.fromRGB(220, 80, 80)
-closeBtn.BorderSizePixel = 0
+closeBtn.Size = UDim2.new(0, 22, 0, 22)
+closeBtn.Position = UDim2.new(1, -26, 0, 4)
+closeBtn.BackgroundColor3 = COLORS.bg3
 closeBtn.Text = "✕"
-closeBtn.TextColor3 = Color3.new(1, 1, 1)
+closeBtn.TextColor3 = COLORS.textDim
 closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextSize = 12
-closeBtn.AutoButtonColor = true
+closeBtn.TextSize = 11
+closeBtn.AutoButtonColor = false
 closeBtn.Parent = header
-Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(1, 0)
 
--- ⭐ SCROLL CONTENT
-local scrollContent = Instance.new("ScrollingFrame")
-scrollContent.Name = "ScrollContent"
-scrollContent.Size = UDim2.new(1, 0, 1, -50)
-scrollContent.Position = UDim2.new(0, 0, 0, 40)
-scrollContent.BackgroundTransparency = 1
-scrollContent.BorderSizePixel = 0
-scrollContent.ScrollBarThickness = 3
-scrollContent.CanvasSize = UDim2.new(0, 0, 0, 0)
-scrollContent.AutomaticCanvasSize = Enum.AutomaticSize.Y
-scrollContent.Parent = panel
+-- ⭐ SIDEBAR (tabs)
+local sidebar = Instance.new("Frame")
+sidebar.Size = UDim2.new(0, 60, 1, -30)
+sidebar.Position = UDim2.new(0, 0, 0, 30)
+sidebar.BackgroundColor3 = COLORS.bg2
+sidebar.BorderSizePixel = 0
+sidebar.Parent = panel
 
-local contentPadding = Instance.new("UIPadding")
-contentPadding.PaddingTop = UDim.new(0, 8)
-contentPadding.PaddingLeft = UDim.new(0, 8)
-contentPadding.PaddingRight = UDim.new(0, 8)
-contentPadding.PaddingBottom = UDim.new(0, 8)
-contentPadding.Parent = scrollContent
+local sidebarPad = Instance.new("UIPadding")
+sidebarPad.PaddingTop = UDim.new(0, 8)
+sidebarPad.PaddingBottom = UDim.new(0, 8)
+sidebarPad.Parent = sidebar
 
--- ⭐ LAYOUT
-local contentLayout = Instance.new("UIListLayout")
-contentLayout.Padding = UDim.new(0, 6)
-contentLayout.FillDirection = Enum.FillDirection.Vertical
-contentLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-contentLayout.Parent = scrollContent
+local sideLayout = Instance.new("UIListLayout")
+sideLayout.Padding = UDim.new(0, 4)
+sideLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+sideLayout.Parent = sidebar
 
--- ═══════════════════════════════════════════════════════════════
--- ⭐ BUTTON STYLES (Function)
--- ═══════════════════════════════════════════════════════════════
-local function createButton(name, text, color, onClick)
-    local btn = Instance.new("TextButton")
-    btn.Name = name
-    btn.Size = UDim2.new(1, -4, 0, 35)
-    btn.BackgroundColor3 = color
-    btn.BorderSizePixel = 0
-    btn.Text = text
-    btn.TextColor3 = Color3.new(1, 1, 1)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 11
-    btn.AutoButtonColor = true
-    btn.Parent = scrollContent
-    
-    local corner = Instance.new("UICorner", btn)
-    corner.CornerRadius = UDim.new(0, 6)
-    
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(100, 150, 200)
-    stroke.Thickness = 1
-    stroke.Parent = btn
-    
-    if onClick then
-        btn.MouseButton1Click:Connect(onClick)
+-- ⭐ CONTENT AREA
+local content = Instance.new("Frame")
+content.Size = UDim2.new(1, -60, 1, -30)
+content.Position = UDim2.new(0, 60, 0, 30)
+content.BackgroundColor3 = COLORS.bg
+content.BorderSizePixel = 0
+content.Parent = panel
+
+local contentPad = Instance.new("UIPadding")
+contentPad.PaddingTop = UDim.new(0, 10)
+contentPad.PaddingLeft = UDim.new(0, 12)
+contentPad.PaddingRight = UDim.new(0, 12)
+contentPad.PaddingBottom = UDim.new(0, 10)
+contentPad.Parent = content
+
+-- ══════════ TABS DATA ══════════
+local tabs = {
+    { id = "main",   icon = "🏠", name = "Main" },
+    { id = "esp",    icon = "👁", name = "ESP" },
+    { id = "map",    icon = "🎯", name = "Map" },
+    { id = "log",    icon = "📋", name = "Log" },
+}
+
+local activeTab = "main"
+
+-- ⭐ Content pages
+local pages = {}
+
+-- ══════════ TAB BUTTON ══════════
+local tabButtons = {}
+
+local function setActiveTab(id)
+    activeTab = id
+    for _, tab in ipairs(tabs) do
+        local btn = tabButtons[tab.id]
+        if btn then
+            if tab.id == id then
+                btn.BackgroundColor3 = COLORS.accent
+                btn.TextColor3 = Color3.new(1, 1, 1)
+            else
+                btn.BackgroundColor3 = COLORS.bg3
+                btn.TextColor3 = COLORS.textDim
+            end
+        end
+        -- Hiện/ẩn page
+        if pages[tab.id] then
+            pages[tab.id].Visible = (tab.id == id)
+        end
     end
-    
-    return btn
 end
 
--- ═══════════════════════════════════════════════════════════════
--- ⭐ MAIN BUTTONS
--- ═══════════════════════════════════════════════════════════════
-local farmBtn = createButton("FarmBtn", "▶ FARM", Color3.fromRGB(60, 180, 90), function()
-    if API.IsRunning() then
-        API.Stop()
-        farmBtn.Text = "▶ FARM"
-        farmBtn.BackgroundColor3 = Color3.fromRGB(60, 180, 90)
-    else
-        API.Start()
-        farmBtn.Text = "⏹ STOP"
-        farmBtn.BackgroundColor3 = Color3.fromRGB(220, 80, 80)
-    end
+for _, tab in ipairs(tabs) do
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0, 44, 0, 44)
+    btn.BackgroundColor3 = COLORS.bg3
+    btn.Text = tab.icon
+    btn.TextColor3 = COLORS.textDim
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 18
+    btn.AutoButtonColor = false
+    btn.Parent = sidebar
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+
+    table.insert(tabButtons, { btn = btn, tab = tab })
+    tabButtons[tab.id] = btn
+
+    btn.MouseButton1Click:Connect(function()
+        setActiveTab(tab.id)
+    end)
+end
+
+-- ══════════ PAGE: MAIN ══════════
+local pageMain = Instance.new("Frame")
+pageMain.Size = UDim2.new(1, 0, 1, 0)
+pageMain.BackgroundTransparency = 1
+pageMain.Parent = content
+pages.main = pageMain
+
+local function makeSection(parent, text)
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, 0, 0, 18)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text
+    lbl.TextColor3 = COLORS.textDim
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 9
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = parent
+    return lbl
+end
+
+-- Farm button
+makeSection(pageMain, "AUTO FARM")
+
+local farmBtn = Instance.new("TextButton")
+farmBtn.Size = UDim2.new(1, 0, 0, 34)
+farmBtn.Position = UDim2.new(0, 0, 0, 22)
+farmBtn.BackgroundColor3 = COLORS.green
+farmBtn.Text = "▶  BẮT ĐẦU FARM"
+farmBtn.TextColor3 = Color3.new(0, 0, 0)
+farmBtn.Font = Enum.Font.GothamBold
+farmBtn.TextSize = 11
+farmBtn.AutoButtonColor = false
+farmBtn.Parent = pageMain
+Instance.new("UICorner", farmBtn).CornerRadius = UDim.new(0, 6)
+
+-- Set buttons
+makeSection(pageMain, "VỊ TRÍ").Position = UDim2.new(0, 0, 0, 65)
+
+local homeBtn = Instance.new("TextButton")
+homeBtn.Size = UDim2.new(0.5, -3, 0, 30)
+homeBtn.Position = UDim2.new(0, 0, 0, 87)
+homeBtn.BackgroundColor3 = COLORS.bg3
+homeBtn.Text = "📍 HOME"
+homeBtn.TextColor3 = COLORS.text
+homeBtn.Font = Enum.Font.GothamBold
+homeBtn.TextSize = 10
+homeBtn.AutoButtonColor = false
+homeBtn.Parent = pageMain
+Instance.new("UICorner", homeBtn).CornerRadius = UDim.new(0, 6)
+
+local forestBtn = Instance.new("TextButton")
+forestBtn.Size = UDim2.new(0.5, -3, 0, 30)
+forestBtn.Position = UDim2.new(0.5, 3, 0, 87)
+forestBtn.BackgroundColor3 = COLORS.bg3
+forestBtn.Text = "📍 FOREST"
+forestBtn.TextColor3 = COLORS.text
+forestBtn.Font = Enum.Font.GothamBold
+forestBtn.TextSize = 10
+forestBtn.AutoButtonColor = false
+forestBtn.Parent = pageMain
+Instance.new("UICorner", forestBtn).CornerRadius = UDim.new(0, 6)
+
+-- ══════════ PAGE: ESP ══════════
+local pageESP = Instance.new("Frame")
+pageESP.Size = UDim2.new(1, 0, 1, 0)
+pageESP.BackgroundTransparency = 1
+pageESP.Visible = false
+pageESP.Parent = content
+pages.esp = pageESP
+
+makeSection(pageESP, "ESP EGG")
+
+-- Switch-style row
+local function makeSwitchRow(parent, y, title, initialOn, callback)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 34)
+    row.Position = UDim2.new(0, 0, 0, y)
+    row.BackgroundColor3 = COLORS.bg2
+    row.BorderSizePixel = 0
+    row.Parent = parent
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -60, 1, 0)
+    lbl.Position = UDim2.new(0, 10, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = title
+    lbl.TextColor3 = COLORS.text
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 10
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = row
+
+    -- Switch
+    local sw = Instance.new("TextButton")
+    sw.Size = UDim2.new(0, 40, 0, 20)
+    sw.Position = UDim2.new(1, -50, 0.5, -10)
+    sw.BackgroundColor3 = initialOn and COLORS.green or COLORS.bg3
+    sw.Text = ""
+    sw.AutoButtonColor = false
+    sw.Parent = row
+    Instance.new("UICorner", sw).CornerRadius = UDim.new(1, 0)
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0, 16, 0, 16)
+    knob.Position = initialOn and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
+    knob.BackgroundColor3 = Color3.new(1, 1, 1)
+    knob.BorderSizePixel = 0
+    knob.Parent = sw
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+    local state = initialOn
+
+    sw.MouseButton1Click:Connect(function()
+        state = not state
+        if state then
+            sw.BackgroundColor3 = COLORS.green
+            knob.Position = UDim2.new(1, -18, 0.5, -8)
+        else
+            sw.BackgroundColor3 = COLORS.bg3
+            knob.Position = UDim2.new(0, 2, 0.5, -8)
+        end
+        if callback then callback(state) end
+    end)
+
+    return sw, function() return state end
+end
+
+local espSwitch = makeSwitchRow(pageESP, 22, "Bật ESP Egg", false, function(on)
+    if on then API.ESP_Enable() else API.ESP_Disable() end
 end)
 
-local espBtn = createButton("ESPBtn", "👁 ESP OFF", Color3.fromRGB(60, 100, 200), function()
-    local on = API.ESP_Toggle()
-    if on then
-        espBtn.Text = "👁 ESP ON"
-        espBtn.BackgroundColor3 = Color3.fromRGB(80, 200, 100)
-    else
-        espBtn.Text = "👁 ESP OFF"
-        espBtn.BackgroundColor3 = Color3.fromRGB(60, 100, 200)
-    end
-end)
+-- ══════════ PAGE: MAP ══════════
+local pageMap = Instance.new("Frame")
+pageMap.Size = UDim2.new(1, 0, 1, 0)
+pageMap.BackgroundTransparency = 1
+pageMap.Visible = false
+pageMap.Parent = content
+pages.map = pageMap
 
--- ⭐ LOCATION BUTTONS (Ngang)
-local locationFrame = Instance.new("Frame")
-locationFrame.Name = "LocationFrame"
-locationFrame.Size = UDim2.new(1, -4, 0, 35)
-locationFrame.BackgroundTransparency = 1
-locationFrame.Parent = scrollContent
+makeSection(pageMap, "CHỌN MAP TARGET")
 
-local locLayout = Instance.new("UIListLayout")
-locLayout.FillDirection = Enum.FillDirection.Horizontal
-locLayout.Padding = UDim.new(0, 6)
-locLayout.Parent = locationFrame
+local mapScroll = Instance.new("ScrollingFrame")
+mapScroll.Size = UDim2.new(1, 0, 1, -26)
+mapScroll.Position = UDim2.new(0, 0, 0, 22)
+mapScroll.BackgroundColor3 = COLORS.bg2
+mapScroll.BorderSizePixel = 0
+mapScroll.ScrollBarThickness = 3
+mapScroll.ScrollBarImageColor3 = COLORS.accent
+mapScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+mapScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+mapScroll.Parent = pageMap
+Instance.new("UICorner", mapScroll).CornerRadius = UDim.new(0, 6)
 
-local homeBtn = createButton("HomeBtn", "📍 HOME", Color3.fromRGB(200, 140, 50), function()
-    local hrp = P.Character and P.Character:FindFirstChild("HumanoidRootPart")
-    if hrp then API.SetHome(hrp.Position); addLog("📍 Home set") end
-end)
-homeBtn.Parent = locationFrame
-homeBtn.Size = UDim2.new(0.5, -3, 0, 35)
-
-local forestBtn = createButton("ForestBtn", "🌲 FOREST", Color3.fromRGB(80, 160, 80), function()
-    local hrp = P.Character and P.Character:FindFirstChild("HumanoidRootPart")
-    if hrp then API.SetForest(hrp.Position); addLog("🌲 Forest set") end
-end)
-forestBtn.Parent = locationFrame
-forestBtn.Size = UDim2.new(0.5, -3, 0, 35)
-
--- ⭐ MAP SELECTOR HEADER
-local mapHeader = Instance.new("TextLabel")
-mapHeader.Name = "MapHeader"
-mapHeader.Size = UDim2.new(1, -4, 0, 22)
-mapHeader.BackgroundColor3 = Color3.fromRGB(50, 90, 160)
-mapHeader.BorderSizePixel = 0
-mapHeader.Text = "🎯 MAP: Snow"
-mapHeader.TextColor3 = Color3.fromRGB(220, 240, 255)
-mapHeader.Font = Enum.Font.GothamBold
-mapHeader.TextSize = 11
-mapHeader.Parent = scrollContent
-Instance.new("UICorner", mapHeader).CornerRadius = UDim.new(0, 5)
-
--- ⭐ MAP LIST
-local mapList = Instance.new("ScrollingFrame")
-mapList.Name = "MapList"
-mapList.Size = UDim2.new(1, -4, 0, 130)
-mapList.BackgroundColor3 = Color3.fromRGB(5, 7, 12)
-mapList.BorderSizePixel = 0
-mapList.ScrollBarThickness = 2
-mapList.CanvasSize = UDim2.new(0, 0, 0, 0)
-mapList.AutomaticCanvasSize = Enum.AutomaticSize.Y
-mapList.Parent = scrollContent
-Instance.new("UICorner", mapList).CornerRadius = UDim.new(0, 5)
+local mapPad = Instance.new("UIPadding")
+mapPad.PaddingTop = UDim.new(0, 4)
+mapPad.PaddingLeft = UDim.new(0, 4)
+mapPad.PaddingRight = UDim.new(0, 4)
+mapPad.PaddingBottom = UDim.new(0, 4)
+mapPad.Parent = mapScroll
 
 local mapLayout = Instance.new("UIListLayout")
 mapLayout.Padding = UDim.new(0, 3)
-mapLayout.Parent = mapList
+mapLayout.Parent = mapScroll
 
-local mapPad = Instance.new("UIPadding")
-mapPad.PaddingTop = UDim.new(0, 3)
-mapPad.PaddingLeft = UDim.new(0, 3)
-mapPad.PaddingRight = UDim.new(0, 3)
-mapPad.PaddingBottom = UDim.new(0, 3)
-mapPad.Parent = mapList
+-- ══════════ PAGE: LOG ══════════
+local pageLog = Instance.new("Frame")
+pageLog.Size = UDim2.new(1, 0, 1, 0)
+pageLog.BackgroundTransparency = 1
+pageLog.Visible = false
+pageLog.Parent = content
+pages.log = pageLog
 
--- ⭐ MAP DATA
+makeSection(pageLog, "LOG")
+
+local logScroll = Instance.new("ScrollingFrame")
+logScroll.Size = UDim2.new(1, 0, 1, -26)
+logScroll.Position = UDim2.new(0, 0, 0, 22)
+logScroll.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
+logScroll.BorderSizePixel = 0
+logScroll.ScrollBarThickness = 3
+logScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+logScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+logScroll.Parent = pageLog
+Instance.new("UICorner", logScroll).CornerRadius = UDim.new(0, 6)
+
+local logLabel = Instance.new("TextLabel")
+logLabel.Size = UDim2.new(1, -8, 0, 0)
+logLabel.Position = UDim2.new(0, 4, 0, 4)
+logLabel.BackgroundTransparency = 1
+logLabel.TextColor3 = COLORS.text
+logLabel.Font = Enum.Font.Code
+logLabel.TextSize = 9
+logLabel.TextXAlignment = Enum.TextXAlignment.Left
+logLabel.TextYAlignment = Enum.TextYAlignment.Top
+logLabel.TextWrapped = true
+logLabel.AutomaticSize = Enum.AutomaticSize.Y
+logLabel.Parent = logScroll
+
+local logLines = {}
+local function addLog(msg)
+    table.insert(logLines, tostring(msg))
+    if #logLines > 30 then table.remove(logLines, 1) end
+    logLabel.Text = table.concat(logLines, "\n")
+    logScroll.CanvasPosition = Vector2.new(0, 999999)
+end
+
+-- ══════════ MAP DATA ══════════
 local MAPS = {
     { name = "Forest",         pos = Vector3.new( 599.9, 67.6, -363.9) },
     { name = "Lake",           pos = Vector3.new( 722.5, 67.7, -363.9) },
@@ -336,113 +448,81 @@ local mapButtons = {}
 
 for _, mapData in ipairs(MAPS) do
     local b = Instance.new("TextButton")
-    b.Size = UDim2.new(1, -6, 0, 22)
+    b.Size = UDim2.new(1, -8, 0, 26)
     b.BackgroundColor3 = (mapData.name == currentTarget)
-        and Color3.fromRGB(100, 180, 70)
-        or Color3.fromRGB(30, 35, 50)
-    b.BorderSizePixel = 0
-    b.Text = mapData.name
-    b.TextColor3 = Color3.fromRGB(230, 235, 245)
+        and Color3.fromRGB(80, 90, 200)
+        or COLORS.bg3
+    b.Text = "    " .. mapData.name
+    b.TextColor3 = COLORS.text
     b.Font = Enum.Font.GothamBold
     b.TextSize = 10
-    b.AutoButtonColor = true
-    b.Parent = mapList
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
+    b.TextXAlignment = Enum.TextXAlignment.Left
+    b.AutoButtonColor = false
+    b.Parent = mapScroll
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
 
-    table.insert(mapButtons, { btn = b, data = mapData })
+    -- Dot indicator
+    local dot = Instance.new("Frame")
+    dot.Size = UDim2.new(0, 6, 0, 6)
+    dot.Position = UDim2.new(0, 8, 0.5, -3)
+    dot.BackgroundColor3 = (mapData.name == currentTarget)
+        and COLORS.green
+        or COLORS.bg
+    dot.BorderSizePixel = 0
+    dot.Parent = b
+    Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+
+    table.insert(mapButtons, { btn = b, data = mapData, dot = dot })
 
     b.MouseButton1Click:Connect(function()
         currentTarget = mapData.name
         API.SetTarget(mapData.name, mapData.pos)
         for _, item in ipairs(mapButtons) do
             if item.data.name == currentTarget then
-                item.btn.BackgroundColor3 = Color3.fromRGB(100, 180, 70)
+                item.btn.BackgroundColor3 = Color3.fromRGB(80, 90, 200)
+                item.dot.BackgroundColor3 = COLORS.green
             else
-                item.btn.BackgroundColor3 = Color3.fromRGB(30, 35, 50)
+                item.btn.BackgroundColor3 = COLORS.bg3
+                item.dot.BackgroundColor3 = COLORS.bg
             end
         end
-        mapHeader.Text = "🎯 MAP: " .. currentTarget
-        addLog("🎯 " .. currentTarget)
+        addLog("🎯 Target: " .. currentTarget)
     end)
 end
 
--- ⭐ LOG FRAME
-local logLabel = Instance.new("TextLabel")
-logLabel.Name = "LogLabel"
-logLabel.Size = UDim2.new(1, -4, 0, 70)
-logLabel.BackgroundColor3 = Color3.fromRGB(3, 4, 8)
-logLabel.BorderSizePixel = 0
-logLabel.Parent = scrollContent
-logLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-logLabel.Font = Enum.Font.Code
-logLabel.TextSize = 8
-logLabel.TextXAlignment = Enum.TextXAlignment.Left
-logLabel.TextYAlignment = Enum.TextYAlignment.Top
-logLabel.TextWrapped = true
-Instance.new("UICorner", logLabel).CornerRadius = UDim.new(0, 5)
-
-local logPad = Instance.new("UIPadding")
-logPad.PaddingTop = UDim.new(0, 4)
-logPad.PaddingLeft = UDim.new(0, 4)
-logPad.PaddingRight = UDim.new(0, 4)
-logPad.Parent = logLabel
-
-local logLines = {}
-function addLog(msg)
-    table.insert(logLines, tostring(msg))
-    if #logLines > 20 then table.remove(logLines, 1) end
-    logLabel.Text = table.concat(logLines, "\n")
-end
-
--- ═══════════════════════════════════════════════════════════════
--- ⭐ DRAG FUNCTIONALITY
--- ═══════════════════════════════════════════════════════════════
-
--- Drag Icon
+-- ══════════ DRAG ICON ══════════
 local dragging, dragStart, startPos
 icon.InputBegan:Connect(function(i)
     if i.UserInputType == Enum.UserInputType.MouseButton1
         or i.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = i.Position
-        startPos = iconContainer.Position
+        dragging = true; dragStart = i.Position; startPos = icon.Position
     end
 end)
-
 icon.InputEnded:Connect(function(i)
     if i.UserInputType == Enum.UserInputType.MouseButton1
-        or i.UserInputType == Enum.UserInputType.Touch then
-        dragging = false
-    end
+        or i.UserInputType == Enum.UserInputType.Touch then dragging = false end
 end)
-
 UIS.InputChanged:Connect(function(i)
     if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement
         or i.UserInputType == Enum.UserInputType.Touch) then
         local d = i.Position - dragStart
-        iconContainer.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X,
+        icon.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X,
             startPos.Y.Scale, startPos.Y.Offset + d.Y)
     end
 end)
 
--- Drag Panel
+-- ══════════ DRAG PANEL ══════════
 local pdrag, pds, psp
 header.InputBegan:Connect(function(i)
     if i.UserInputType == Enum.UserInputType.MouseButton1
         or i.UserInputType == Enum.UserInputType.Touch then
-        pdrag = true
-        pds = i.Position
-        psp = panel.Position
+        pdrag, pds, psp = true, i.Position, panel.Position
     end
 end)
-
 header.InputEnded:Connect(function(i)
     if i.UserInputType == Enum.UserInputType.MouseButton1
-        or i.UserInputType == Enum.UserInputType.Touch then
-        pdrag = false
-    end
+        or i.UserInputType == Enum.UserInputType.Touch then pdrag = false end
 end)
-
 UIS.InputChanged:Connect(function(i)
     if pdrag and (i.UserInputType == Enum.UserInputType.MouseMovement
         or i.UserInputType == Enum.UserInputType.Touch) then
@@ -452,26 +532,38 @@ UIS.InputChanged:Connect(function(i)
     end
 end)
 
--- ═══════════════════════════════════════════════════════════════
--- ⭐ EVENT LISTENERS
--- ═══════════════════════════════════════════════════════════════
+-- ══════════ EVENTS ══════════
 icon.MouseButton1Click:Connect(function()
     panel.Visible = not panel.Visible
+    if panel.Visible then setActiveTab("main") end
+end)
+closeBtn.MouseButton1Click:Connect(function() panel.Visible = false end)
+
+farmBtn.MouseButton1Click:Connect(function()
+    if API.IsRunning() then
+        API.Stop()
+        farmBtn.Text = "▶  BẮT ĐẦU FARM"
+        farmBtn.BackgroundColor3 = COLORS.green
+    else
+        API.Start()
+        farmBtn.Text = "⏹  DỪNG FARM"
+        farmBtn.BackgroundColor3 = COLORS.red
+    end
 end)
 
-closeBtn.MouseButton1Click:Connect(function()
-    panel.Visible = false
+homeBtn.MouseButton1Click:Connect(function()
+    local hrp = P.Character and P.Character:FindFirstChild("HumanoidRootPart")
+    if hrp then API.SetHome(hrp.Position); addLog("📍 Home set") end
 end)
 
-API.OnLog(function(msg)
-    addLog(msg)
+forestBtn.MouseButton1Click:Connect(function()
+    local hrp = P.Character and P.Character:FindFirstChild("HumanoidRootPart")
+    if hrp then API.SetForest(hrp.Position); addLog("📍 Forest set") end
 end)
 
--- ═══════════════════════════════════════════════════════════════
--- ⭐ STARTUP
--- ═══════════════════════════════════════════════════════════════
-addLog("✅ UI Loaded v4")
-addLog("Ready to farm!")
+API.OnLog(function(msg) addLog(msg) end)
 
-print("[Main] ✅ UI Ready v4!")
+setActiveTab("main")
+addLog("✅ Ready")
 
+print("[Main] ✅ Ready!")
