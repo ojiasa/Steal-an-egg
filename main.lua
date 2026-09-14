@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- MAIN.LUA v2 — Map list LUÔN hiển thị
+-- MAIN.LUA v3 — UI GỌN cho mobile
 -- ═══════════════════════════════════════════════════════════════
 
 local BASE_URL = "https://raw.githubusercontent.com/ojiasa/Steal-an-egg/main"
@@ -10,14 +10,12 @@ local function fetch(path)
     for _, url in ipairs(urls) do
         local ok, src = pcall(function() return game:HttpGet(url) end)
         if ok and src and #src > 100 then
-            local fn, err = loadstring(src, "=" .. path)
+            local fn = loadstring(src, "=" .. path)
             if fn then
                 local success, result = pcall(fn)
                 if success then
                     print("[Main] ✅ " .. path)
                     return result
-                else
-                    warn("[Main] Runtime error " .. path .. ": " .. tostring(result))
                 end
             end
         end
@@ -49,23 +47,23 @@ _G.StealEgg = {
 local API = _G.StealEgg
 _G.MyScript = API
 
--- ══════════ UI ══════════
 local P   = game:GetService("Players").LocalPlayer
 local UIS = game:GetService("UserInputService")
 
+-- ══════════ UI GỌN ══════════
 local sg = Instance.new("ScreenGui")
 sg.Name = "StealEggUI"
 sg.ResetOnSpawn = false
 sg.DisplayOrder = 999999
 sg.Parent = (gethui and gethui()) or P:WaitForChild("PlayerGui")
 
--- ⭐ Icon
+-- Icon
 local icon = Instance.new("TextButton")
-icon.Size = UDim2.new(0, 50, 0, 50)
+icon.Size = UDim2.new(0, 45, 0, 45)
 icon.Position = UDim2.new(0, 15, 0, 150)
 icon.BackgroundColor3 = Color3.fromRGB(15, 16, 22)
 icon.Text = "🌀"
-icon.TextSize = 22
+icon.TextSize = 20
 icon.Font = Enum.Font.GothamBold
 icon.TextColor3 = Color3.fromRGB(120, 200, 255)
 icon.AutoButtonColor = false
@@ -76,10 +74,10 @@ stk.Color = Color3.fromRGB(120, 200, 255)
 stk.Thickness = 2
 stk.Parent = icon
 
--- ⭐ Panel TO HƠN — 340 x 600
+-- ⭐ PANEL GỌN — 240 x 340
 local panel = Instance.new("Frame")
-panel.Size = UDim2.new(0, 340, 0, 600)
-panel.Position = UDim2.new(0.5, -170, 0.5, -300)
+panel.Size = UDim2.new(0, 240, 0, 340)
+panel.Position = UDim2.new(0.5, -120, 0.5, -170)
 panel.BackgroundColor3 = Color3.fromRGB(15, 16, 22)
 panel.BorderSizePixel = 0
 panel.Visible = false
@@ -92,114 +90,112 @@ pstk.Parent = panel
 
 -- Title
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, 0, 0, 32)
+title.Size = UDim2.new(1, 0, 0, 26)
 title.BackgroundColor3 = Color3.fromRGB(22, 24, 33)
-title.Text = "🌀 STEAL EGG v" .. API.Version
+title.Text = "🌀 STEAL EGG"
 title.TextColor3 = Color3.fromRGB(180, 230, 255)
 title.Font = Enum.Font.GothamBold
-title.TextSize = 12
+title.TextSize = 11
 title.Parent = panel
 Instance.new("UICorner", title).CornerRadius = UDim.new(0, 8)
 
 local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 26, 0, 22)
-closeBtn.Position = UDim2.new(1, -30, 0, 5)
+closeBtn.Size = UDim2.new(0, 22, 0, 18)
+closeBtn.Position = UDim2.new(1, -25, 0, 4)
 closeBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
 closeBtn.Text = "✕"
 closeBtn.TextColor3 = Color3.new(1, 1, 1)
 closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextSize = 11
+closeBtn.TextSize = 10
 closeBtn.Parent = panel
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 4)
 
--- ⭐ FARM
+-- ⭐ FARM btn — nhỏ gọn
 local farmBtn = Instance.new("TextButton")
-farmBtn.Size = UDim2.new(1, -20, 0, 42)
-farmBtn.Position = UDim2.new(0, 10, 0, 40)
+farmBtn.Size = UDim2.new(1, -14, 0, 30)
+farmBtn.Position = UDim2.new(0, 7, 0, 30)
 farmBtn.BackgroundColor3 = Color3.fromRGB(50, 180, 80)
-farmBtn.Text = "▶ BẮT ĐẦU FARM"
+farmBtn.Text = "▶ FARM"
 farmBtn.TextColor3 = Color3.new(0, 0, 0)
 farmBtn.Font = Enum.Font.GothamBold
-farmBtn.TextSize = 13
+farmBtn.TextSize = 11
 farmBtn.Parent = panel
-Instance.new("UICorner", farmBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", farmBtn).CornerRadius = UDim.new(0, 5)
 
--- ⭐ ESP
+-- ⭐ ESP btn
 local espBtn = Instance.new("TextButton")
-espBtn.Size = UDim2.new(1, -20, 0, 42)
-espBtn.Position = UDim2.new(0, 10, 0, 88)
+espBtn.Size = UDim2.new(1, -14, 0, 30)
+espBtn.Position = UDim2.new(0, 7, 0, 63)
 espBtn.BackgroundColor3 = Color3.fromRGB(50, 80, 180)
-espBtn.Text = "👁 BẬT ESP"
+espBtn.Text = "👁 ESP"
 espBtn.TextColor3 = Color3.new(1, 1, 1)
 espBtn.Font = Enum.Font.GothamBold
-espBtn.TextSize = 13
+espBtn.TextSize = 11
 espBtn.Parent = panel
-Instance.new("UICorner", espBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", espBtn).CornerRadius = UDim.new(0, 5)
 
--- ⭐ SET HOME
+-- ⭐ HOME / FOREST — nằm ngang
 local homeBtn = Instance.new("TextButton")
-homeBtn.Size = UDim2.new(0.48, -10, 0, 32)
-homeBtn.Position = UDim2.new(0, 10, 0, 136)
+homeBtn.Size = UDim2.new(0.5, -8, 0, 26)
+homeBtn.Position = UDim2.new(0, 7, 0, 96)
 homeBtn.BackgroundColor3 = Color3.fromRGB(200, 130, 40)
-homeBtn.Text = "📍 SET HOME"
+homeBtn.Text = "📍 HOME"
 homeBtn.TextColor3 = Color3.new(0, 0, 0)
 homeBtn.Font = Enum.Font.GothamBold
-homeBtn.TextSize = 10
+homeBtn.TextSize = 9
 homeBtn.Parent = panel
-Instance.new("UICorner", homeBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", homeBtn).CornerRadius = UDim.new(0, 5)
 
--- ⭐ SET FOREST
 local forestBtn = Instance.new("TextButton")
-forestBtn.Size = UDim2.new(0.48, -10, 0, 32)
-forestBtn.Position = UDim2.new(0.5, 5, 0, 136)
+forestBtn.Size = UDim2.new(0.5, -8, 0, 26)
+forestBtn.Position = UDim2.new(0.5, 1, 0, 96)
 forestBtn.BackgroundColor3 = Color3.fromRGB(120, 200, 255)
-forestBtn.Text = "📍 SET FOREST"
+forestBtn.Text = "📍 FOREST"
 forestBtn.TextColor3 = Color3.new(0, 0, 0)
 forestBtn.Font = Enum.Font.GothamBold
-forestBtn.TextSize = 10
+forestBtn.TextSize = 9
 forestBtn.Parent = panel
-Instance.new("UICorner", forestBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", forestBtn).CornerRadius = UDim.new(0, 5)
 
--- ⭐ Label "CHỌN MAP"
+-- ⭐ Label MAP
 local mapHeader = Instance.new("TextLabel")
-mapHeader.Size = UDim2.new(1, -20, 0, 22)
-mapHeader.Position = UDim2.new(0, 10, 0, 175)
+mapHeader.Size = UDim2.new(1, -14, 0, 20)
+mapHeader.Position = UDim2.new(0, 7, 0, 125)
 mapHeader.BackgroundColor3 = Color3.fromRGB(80, 60, 160)
-mapHeader.Text = "🎯 CHỌN MAP TARGET"
+mapHeader.Text = "🎯 MAP: Snow"
 mapHeader.TextColor3 = Color3.new(1, 1, 1)
 mapHeader.Font = Enum.Font.GothamBold
-mapHeader.TextSize = 11
+mapHeader.TextSize = 10
 mapHeader.Parent = panel
-Instance.new("UICorner", mapHeader).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", mapHeader).CornerRadius = UDim.new(0, 5)
 
--- ⭐ Map list — LUÔN HIỆN
+-- ⭐ MAP LIST — NHỎ, scroll
 local mapList = Instance.new("ScrollingFrame")
-mapList.Size = UDim2.new(1, -20, 0, 200)
-mapList.Position = UDim2.new(0, 10, 0, 202)
+mapList.Size = UDim2.new(1, -14, 0, 110)
+mapList.Position = UDim2.new(0, 7, 0, 147)
 mapList.BackgroundColor3 = Color3.fromRGB(8, 8, 12)
 mapList.BorderSizePixel = 0
-mapList.ScrollBarThickness = 4
+mapList.ScrollBarThickness = 3
 mapList.CanvasSize = UDim2.new(0, 0, 0, 0)
 mapList.AutomaticCanvasSize = Enum.AutomaticSize.Y
-mapList.Visible = true    -- ⭐ LUÔN HIỆN
 mapList.Parent = panel
 Instance.new("UICorner", mapList).CornerRadius = UDim.new(0, 4)
 
 local mapLayout = Instance.new("UIListLayout")
-mapLayout.Padding = UDim.new(0, 3)
+mapLayout.Padding = UDim.new(0, 2)
 mapLayout.Parent = mapList
 
 local mapPad = Instance.new("UIPadding")
-mapPad.PaddingTop = UDim.new(0, 5)
-mapPad.PaddingLeft = UDim.new(0, 5)
-mapPad.PaddingRight = UDim.new(0, 5)
-mapPad.PaddingBottom = UDim.new(0, 5)
+mapPad.PaddingTop = UDim.new(0, 4)
+mapPad.PaddingLeft = UDim.new(0, 4)
+mapPad.PaddingRight = UDim.new(0, 4)
+mapPad.PaddingBottom = UDim.new(0, 4)
 mapPad.Parent = mapList
 
--- ⭐ Log
+-- ⭐ Log — ngắn
 local logFrame = Instance.new("ScrollingFrame")
-logFrame.Size = UDim2.new(1, -20, 0, 110)
-logFrame.Position = UDim2.new(0, 10, 0, 410)
+logFrame.Size = UDim2.new(1, -14, 0, 60)
+logFrame.Position = UDim2.new(0, 7, 0, 260)
 logFrame.BackgroundColor3 = Color3.fromRGB(5, 5, 8)
 logFrame.BorderSizePixel = 0
 logFrame.ScrollBarThickness = 3
@@ -214,7 +210,7 @@ logLabel.Position = UDim2.new(0, 3, 0, 3)
 logLabel.BackgroundTransparency = 1
 logLabel.TextColor3 = Color3.fromRGB(200, 255, 200)
 logLabel.Font = Enum.Font.Code
-logLabel.TextSize = 9
+logLabel.TextSize = 8
 logLabel.TextXAlignment = Enum.TextXAlignment.Left
 logLabel.TextYAlignment = Enum.TextYAlignment.Top
 logLabel.TextWrapped = true
@@ -224,12 +220,12 @@ logLabel.Parent = logFrame
 local logLines = {}
 local function addLog(msg)
     table.insert(logLines, tostring(msg))
-    if #logLines > 50 then table.remove(logLines, 1) end
+    if #logLines > 30 then table.remove(logLines, 1) end
     logLabel.Text = table.concat(logLines, "\n")
     logFrame.CanvasPosition = Vector2.new(0, 999999)
 end
 
--- ══════════ MAP DATA ══════════
+-- ⭐ MAP DATA
 local MAPS = {
     { name = "Forest",         pos = Vector3.new( 599.9, 67.6, -363.9) },
     { name = "Lake",           pos = Vector3.new( 722.5, 67.7, -363.9) },
@@ -248,17 +244,16 @@ local MAPS = {
 local currentTarget = "Snow"
 local mapButtons = {}
 
--- ⭐ Tạo nút cho mỗi map
 for _, mapData in ipairs(MAPS) do
     local b = Instance.new("TextButton")
-    b.Size = UDim2.new(1, -10, 0, 26)
+    b.Size = UDim2.new(1, -8, 0, 20)
     b.BackgroundColor3 = (mapData.name == currentTarget)
         and Color3.fromRGB(100, 70, 20)
         or Color3.fromRGB(30, 33, 45)
     b.Text = mapData.name
     b.TextColor3 = Color3.fromRGB(230, 235, 245)
     b.Font = Enum.Font.GothamBold
-    b.TextSize = 11
+    b.TextSize = 9
     b.Parent = mapList
     Instance.new("UICorner", b).CornerRadius = UDim.new(0, 3)
 
@@ -267,8 +262,6 @@ for _, mapData in ipairs(MAPS) do
     b.MouseButton1Click:Connect(function()
         currentTarget = mapData.name
         API.SetTarget(mapData.name, mapData.pos)
-
-        -- Đổi màu
         for _, item in ipairs(mapButtons) do
             if item.data.name == currentTarget then
                 item.btn.BackgroundColor3 = Color3.fromRGB(100, 70, 20)
@@ -276,9 +269,8 @@ for _, mapData in ipairs(MAPS) do
                 item.btn.BackgroundColor3 = Color3.fromRGB(30, 33, 45)
             end
         end
-
         mapHeader.Text = "🎯 MAP: " .. currentTarget
-        addLog("🎯 Target: " .. currentTarget)
+        addLog("🎯 " .. currentTarget)
     end)
 end
 
@@ -325,21 +317,17 @@ UIS.InputChanged:Connect(function(i)
 end)
 
 -- ══════════ EVENTS ══════════
-icon.MouseButton1Click:Connect(function()
-    panel.Visible = not panel.Visible
-end)
-closeBtn.MouseButton1Click:Connect(function()
-    panel.Visible = false
-end)
+icon.MouseButton1Click:Connect(function() panel.Visible = not panel.Visible end)
+closeBtn.MouseButton1Click:Connect(function() panel.Visible = false end)
 
 farmBtn.MouseButton1Click:Connect(function()
     if API.IsRunning() then
         API.Stop()
-        farmBtn.Text = "▶ BẮT ĐẦU FARM"
+        farmBtn.Text = "▶ FARM"
         farmBtn.BackgroundColor3 = Color3.fromRGB(50, 180, 80)
     else
         API.Start()
-        farmBtn.Text = "⏹ DỪNG FARM"
+        farmBtn.Text = "⏹ STOP"
         farmBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
     end
 end)
@@ -347,10 +335,10 @@ end)
 espBtn.MouseButton1Click:Connect(function()
     local on = API.ESP_Toggle()
     if on then
-        espBtn.Text = "👁 TẮT ESP"
+        espBtn.Text = "👁 ESP ON"
         espBtn.BackgroundColor3 = Color3.fromRGB(80, 200, 80)
     else
-        espBtn.Text = "👁 BẬT ESP"
+        espBtn.Text = "👁 ESP"
         espBtn.BackgroundColor3 = Color3.fromRGB(50, 80, 180)
     end
 end)
@@ -367,7 +355,6 @@ end)
 
 API.OnLog(function(msg) addLog(msg) end)
 
-addLog("✅ UI ready")
-addLog("🎯 Map: " .. currentTarget)
+addLog("✅ Ready")
 
 print("[Main] ✅ Ready!")
