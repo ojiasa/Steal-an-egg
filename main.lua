@@ -1,9 +1,8 @@
 -- ═══════════════════════════════════════════════════════════════
--- UI MENU — icon 🌀 + panel + nút bật tắt
--- Yêu cầu: _G.StealEgg đã load xong
+-- UI MENU FULL — có map selector
 -- ═══════════════════════════════════════════════════════════════
 
--- ⭐ Load script trước nếu chưa có
+-- Load script nếu chưa có
 if not _G.StealEgg then
     loadstring(game:HttpGet(
         "https://raw.githubusercontent.com/ojiasa/Steal-an-egg/main/loader.lua"
@@ -15,14 +14,14 @@ local API = _G.StealEgg
 local P   = game:GetService("Players").LocalPlayer
 local UIS = game:GetService("UserInputService")
 
--- ══════════ UI CHÍNH ══════════
+-- ══════════ ROOT UI ══════════
 local sg = Instance.new("ScreenGui")
 sg.Name = "StealEggUI"
 sg.ResetOnSpawn = false
 sg.DisplayOrder = 999999
 sg.Parent = (gethui and gethui()) or P:WaitForChild("PlayerGui")
 
--- ⭐ Icon tròn nhỏ
+-- ══════════ ICON ══════════
 local icon = Instance.new("TextButton")
 icon.Size = UDim2.new(0, 50, 0, 50)
 icon.Position = UDim2.new(0, 15, 0, 150)
@@ -39,10 +38,10 @@ stk.Color = Color3.fromRGB(120, 200, 255)
 stk.Thickness = 2
 stk.Parent = icon
 
--- ⭐ Panel menu
+-- ══════════ PANEL ══════════
 local panel = Instance.new("Frame")
-panel.Size = UDim2.new(0, 280, 0, 340)
-panel.Position = UDim2.new(0.5, -140, 0.5, -170)
+panel.Size = UDim2.new(0, 280, 0, 375)
+panel.Position = UDim2.new(0.5, -140, 0.5, -190)
 panel.BackgroundColor3 = Color3.fromRGB(15, 16, 22)
 panel.BorderSizePixel = 0
 panel.Visible = false
@@ -53,7 +52,7 @@ pstk.Color = Color3.fromRGB(120, 200, 255)
 pstk.Thickness = 1.5
 pstk.Parent = panel
 
--- Title bar
+-- Title
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 32)
 title.BackgroundColor3 = Color3.fromRGB(22, 24, 33)
@@ -64,7 +63,7 @@ title.TextSize = 12
 title.Parent = panel
 Instance.new("UICorner", title).CornerRadius = UDim.new(0, 8)
 
--- Close button
+-- Close
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 26, 0, 22)
 closeBtn.Position = UDim2.new(1, -30, 0, 5)
@@ -76,10 +75,10 @@ closeBtn.TextSize = 11
 closeBtn.Parent = panel
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 4)
 
--- ⭐ Nút START/STOP FARM
+-- Farm button
 local farmBtn = Instance.new("TextButton")
-farmBtn.Size = UDim2.new(1, -20, 0, 45)
-farmBtn.Position = UDim2.new(0, 10, 0, 45)
+farmBtn.Size = UDim2.new(1, -20, 0, 42)
+farmBtn.Position = UDim2.new(0, 10, 0, 40)
 farmBtn.BackgroundColor3 = Color3.fromRGB(50, 180, 80)
 farmBtn.Text = "▶ BẮT ĐẦU FARM"
 farmBtn.TextColor3 = Color3.new(0, 0, 0)
@@ -88,10 +87,10 @@ farmBtn.TextSize = 13
 farmBtn.Parent = panel
 Instance.new("UICorner", farmBtn).CornerRadius = UDim.new(0, 6)
 
--- ⭐ Nút ESP
+-- ESP button
 local espBtn = Instance.new("TextButton")
-espBtn.Size = UDim2.new(1, -20, 0, 45)
-espBtn.Position = UDim2.new(0, 10, 0, 100)
+espBtn.Size = UDim2.new(1, -20, 0, 42)
+espBtn.Position = UDim2.new(0, 10, 0, 88)
 espBtn.BackgroundColor3 = Color3.fromRGB(50, 80, 180)
 espBtn.Text = "👁 BẬT ESP"
 espBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -100,34 +99,70 @@ espBtn.TextSize = 13
 espBtn.Parent = panel
 Instance.new("UICorner", espBtn).CornerRadius = UDim.new(0, 6)
 
--- ⭐ SET HOME
+-- Set Home
 local homeBtn = Instance.new("TextButton")
-homeBtn.Size = UDim2.new(1, -20, 0, 35)
-homeBtn.Position = UDim2.new(0, 10, 0, 155)
+homeBtn.Size = UDim2.new(0.48, -10, 0, 32)
+homeBtn.Position = UDim2.new(0, 10, 0, 136)
 homeBtn.BackgroundColor3 = Color3.fromRGB(200, 130, 40)
 homeBtn.Text = "📍 SET HOME"
 homeBtn.TextColor3 = Color3.new(0, 0, 0)
 homeBtn.Font = Enum.Font.GothamBold
-homeBtn.TextSize = 11
+homeBtn.TextSize = 10
 homeBtn.Parent = panel
 Instance.new("UICorner", homeBtn).CornerRadius = UDim.new(0, 6)
 
--- ⭐ SET FOREST
+-- Set Forest
 local forestBtn = Instance.new("TextButton")
-forestBtn.Size = UDim2.new(1, -20, 0, 35)
-forestBtn.Position = UDim2.new(0, 10, 0, 195)
+forestBtn.Size = UDim2.new(0.48, -10, 0, 32)
+forestBtn.Position = UDim2.new(0.5, 5, 0, 136)
 forestBtn.BackgroundColor3 = Color3.fromRGB(120, 200, 255)
 forestBtn.Text = "📍 SET FOREST"
 forestBtn.TextColor3 = Color3.new(0, 0, 0)
 forestBtn.Font = Enum.Font.GothamBold
-forestBtn.TextSize = 11
+forestBtn.TextSize = 10
 forestBtn.Parent = panel
 Instance.new("UICorner", forestBtn).CornerRadius = UDim.new(0, 6)
 
--- ⭐ LOG
+-- Map toggle
+local mapToggleBtn = Instance.new("TextButton")
+mapToggleBtn.Size = UDim2.new(1, -20, 0, 30)
+mapToggleBtn.Position = UDim2.new(0, 10, 0, 173)
+mapToggleBtn.BackgroundColor3 = Color3.fromRGB(80, 60, 160)
+mapToggleBtn.Text = "🎯 MAP: Snow ▼"
+mapToggleBtn.TextColor3 = Color3.new(1, 1, 1)
+mapToggleBtn.Font = Enum.Font.GothamBold
+mapToggleBtn.TextSize = 11
+mapToggleBtn.Parent = panel
+Instance.new("UICorner", mapToggleBtn).CornerRadius = UDim.new(0, 6)
+
+-- Map list (ẩn)
+local mapList = Instance.new("ScrollingFrame")
+mapList.Size = UDim2.new(1, -20, 0, 140)
+mapList.Position = UDim2.new(0, 10, 0, 206)
+mapList.BackgroundColor3 = Color3.fromRGB(8, 8, 12)
+mapList.BorderSizePixel = 0
+mapList.ScrollBarThickness = 4
+mapList.CanvasSize = UDim2.new(0, 0, 0, 0)
+mapList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+mapList.Visible = false
+mapList.Parent = panel
+Instance.new("UICorner", mapList).CornerRadius = UDim.new(0, 4)
+
+local mapLayout = Instance.new("UIListLayout")
+mapLayout.Padding = UDim.new(0, 3)
+mapLayout.Parent = mapList
+
+local mapPad = Instance.new("UIPadding")
+mapPad.PaddingTop = UDim.new(0, 5)
+mapPad.PaddingLeft = UDim.new(0, 5)
+mapPad.PaddingRight = UDim.new(0, 5)
+mapPad.PaddingBottom = UDim.new(0, 5)
+mapPad.Parent = mapList
+
+-- Log
 local logFrame = Instance.new("ScrollingFrame")
 logFrame.Size = UDim2.new(1, -20, 0, 80)
-logFrame.Position = UDim2.new(0, 10, 0, 240)
+logFrame.Position = UDim2.new(0, 10, 0, 270)
 logFrame.BackgroundColor3 = Color3.fromRGB(5, 5, 8)
 logFrame.BorderSizePixel = 0
 logFrame.ScrollBarThickness = 3
@@ -157,7 +192,7 @@ local function addLog(msg)
     logFrame.CanvasPosition = Vector2.new(0, 999999)
 end
 
--- ══════════ KÉO ICON ══════════
+-- ══════════ DRAG ICON ══════════
 local dragging, dragStart, startPos
 icon.InputBegan:Connect(function(i)
     if i.UserInputType == Enum.UserInputType.MouseButton1
@@ -182,7 +217,7 @@ UIS.InputChanged:Connect(function(i)
     end
 end)
 
--- ══════════ KÉO PANEL ══════════
+-- ══════════ DRAG PANEL ══════════
 local pdrag, pds, psp
 title.InputBegan:Connect(function(i)
     if i.UserInputType == Enum.UserInputType.MouseButton1
@@ -205,7 +240,7 @@ UIS.InputChanged:Connect(function(i)
     end
 end)
 
--- ══════════ TOGGLE PANEL ══════════
+-- ══════════ EVENTS ══════════
 icon.MouseButton1Click:Connect(function()
     panel.Visible = not panel.Visible
 end)
@@ -213,7 +248,6 @@ closeBtn.MouseButton1Click:Connect(function()
     panel.Visible = false
 end)
 
--- ══════════ FARM BUTTON ══════════
 farmBtn.MouseButton1Click:Connect(function()
     if API.IsRunning() then
         API.Stop()
@@ -226,7 +260,6 @@ farmBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- ══════════ ESP BUTTON ══════════
 espBtn.MouseButton1Click:Connect(function()
     local on = API.ESP_Toggle()
     if on then
@@ -238,12 +271,11 @@ espBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- ══════════ SET HOME/FOREST ══════════
 homeBtn.MouseButton1Click:Connect(function()
     local hrp = P.Character and P.Character:FindFirstChild("HumanoidRootPart")
     if hrp then
         API.SetHome(hrp.Position)
-        addLog("📍 Home: " .. tostring(hrp.Position))
+        addLog("📍 Home set")
     end
 end)
 
@@ -251,7 +283,72 @@ forestBtn.MouseButton1Click:Connect(function()
     local hrp = P.Character and P.Character:FindFirstChild("HumanoidRootPart")
     if hrp then
         API.SetForest(hrp.Position)
-        addLog("📍 Forest: " .. tostring(hrp.Position))
+        addLog("📍 Forest set")
+    end
+end)
+
+-- ══════════ MAP LIST ══════════
+local MAPS = {
+    { name = "Forest",         pos = Vector3.new( 599.9, 67.6, -363.9) },
+    { name = "Lake",           pos = Vector3.new( 722.5, 67.7, -363.9) },
+    { name = "Desert",         pos = Vector3.new( 930.8, 67.5, -320.6) },
+    { name = "Jungle",         pos = Vector3.new(1124.7, 67.5, -363.9) },
+    { name = "Snow",           pos = Vector3.new(1405.1, 68.0, -363.8) },
+    { name = "Volcano",        pos = Vector3.new(1863.1, 68.0, -399.5) },
+    { name = "Abyss Ocean",    pos = Vector3.new(2166.1, 67.6, -363.9) },
+    { name = "Prehistoric",    pos = Vector3.new(2634.4, 67.6, -363.9) },
+    { name = "Cosmic",         pos = Vector3.new(3376.8, 68.4, -322.7) },
+    { name = "Cherry Blossom", pos = Vector3.new(3928.0, 67.6, -363.8) },
+    { name = "Titan Temple",   pos = Vector3.new(4698.0, 67.6, -363.8) },
+    { name = "Light Dark",     pos = Vector3.new(5563.0, 67.6, -363.8) },
+}
+
+local currentTarget = "Snow"
+local mapButtons = {}
+
+for _, mapData in ipairs(MAPS) do
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1, -10, 0, 24)
+    b.BackgroundColor3 = (mapData.name == currentTarget)
+        and Color3.fromRGB(100, 70, 20)
+        or Color3.fromRGB(30, 33, 45)
+    b.Text = mapData.name
+    b.TextColor3 = Color3.fromRGB(230, 235, 245)
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 10
+    b.Parent = mapList
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 3)
+
+    table.insert(mapButtons, { btn = b, data = mapData })
+
+    b.MouseButton1Click:Connect(function()
+        currentTarget = mapData.name
+        API.SetTarget(mapData.name, mapData.pos)
+
+        for _, item in ipairs(mapButtons) do
+            if item.data.name == currentTarget then
+                item.btn.BackgroundColor3 = Color3.fromRGB(100, 70, 20)
+            else
+                item.btn.BackgroundColor3 = Color3.fromRGB(30, 33, 45)
+            end
+        end
+
+        mapToggleBtn.Text = "🎯 MAP: " .. currentTarget .. " ▼"
+        addLog("🎯 " .. currentTarget)
+    end)
+end
+
+local mapOpen = false
+mapToggleBtn.MouseButton1Click:Connect(function()
+    mapOpen = not mapOpen
+    mapList.Visible = mapOpen
+
+    if mapOpen then
+        panel.Size = UDim2.new(0, 280, 0, 525)
+        logFrame.Position = UDim2.new(0, 10, 0, 420)
+    else
+        panel.Size = UDim2.new(0, 280, 0, 375)
+        logFrame.Position = UDim2.new(0, 10, 0, 270)
     end
 end)
 
@@ -261,3 +358,4 @@ API.OnLog(function(msg)
 end)
 
 addLog("✅ UI ready")
+addLog("Chọn map trước khi farm")
