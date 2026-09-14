@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- MAIN.LUA v6 — Priority Income UI
+-- MAIN.LUA FOXNAME STYLE — Steal Egg UI (IMPROVED)
 -- ═══════════════════════════════════════════════════════════════
 
 local BASE_URL = "https://raw.githubusercontent.com/ojiasa/Steal-an-egg/main"
@@ -17,7 +17,6 @@ local function fetch(path)
             end
         end
     end
-    warn("[Main] ❌ " .. path)
     return nil
 end
 
@@ -33,53 +32,31 @@ _G.StealEgg = {
     SetTargets = function(list) if Steal then Steal.setTargets(list) end end,
     SetHome = function(p) if Steal then Steal.setHome(p) end end,
     SetForest = function(p) if Steal then Steal.setForest(p) end end,
-    GetAllMaps = function() return Steal and Steal.getAllMaps() or {} end,
     OnLog = function(cb) if Steal then Steal.onLog(cb) end end,
-
-    -- ⭐ Priority Income
-    SetPriorityIncome = function(on) if Steal then return Steal.setPriorityIncome(on) end end,
-    IsPriorityIncome = function() return Steal and Steal.isPriorityIncome() or false end,
-    TogglePriorityIncome = function() if Steal then return Steal.togglePriorityIncome() end end,
-    SetPriorityThreshold = function(n) if Steal then Steal.setPriorityThreshold(n) end end,
-    GetPriorityThreshold = function() return Steal and Steal.getPriorityThreshold() or 1000000 end,
-    ClearIncomeCache = function() if Steal then Steal.clearIncomeCache() end end,
-
-    -- ⭐ ESP
     ESP_Enable = function() if ESP then ESP.enable() end end,
     ESP_Disable = function() if ESP then ESP.disable() end end,
     ESP_Toggle = function() if ESP then return ESP.toggle() end end,
     ESP_IsEnabled = function() return ESP and ESP.isEnabled() or false end,
-    ESP_SetMapFilter = function(list) if ESP then ESP.setMapFilter(list) end end,
-
-    Version = "2.0.0",
+    Version = "7.0.0",
 }
 local API = _G.StealEgg
 _G.MyScript = API
 
 local P = game:GetService("Players").LocalPlayer
 local UIS = game:GetService("UserInputService")
-local CoreGui = game:GetService("CoreGui")
-
-local function getParent()
-    local ok = pcall(function()
-        local t = Instance.new("Folder"); t.Parent = CoreGui; t:Destroy()
-    end)
-    return ok and CoreGui or P:WaitForChild("PlayerGui")
-end
-local PARENT = getParent()
 
 local COLORS = {
     bg      = Color3.fromRGB(12, 14, 22),
     bg2     = Color3.fromRGB(18, 22, 32),
     bg3     = Color3.fromRGB(28, 34, 48),
     accent  = Color3.fromRGB(0, 220, 255),
-    accent2 = Color3.fromRGB(0, 160, 220),
+    accent2 = Color3.fromRGB(100, 150, 255),
     text    = Color3.fromRGB(220, 240, 255),
     textDim = Color3.fromRGB(150, 180, 200),
-    green   = Color3.fromRGB(0, 200, 120),
-    red     = Color3.fromRGB(220, 60, 80),
-    purple  = Color3.fromRGB(120, 90, 220),
+    green   = Color3.fromRGB(100, 200, 120),
+    red     = Color3.fromRGB(220, 80, 100),
     gold    = Color3.fromRGB(255, 200, 50),
+    offBg   = Color3.fromRGB(40, 45, 55),
 }
 
 local ALL_MAPS = {
@@ -88,431 +65,471 @@ local ALL_MAPS = {
     "Titan Temple","Light Dark",
 }
 
-local MAP_POS = {}
-for _, m in ipairs(API.GetAllMaps and API.GetAllMaps() or {}) do
-    MAP_POS[m.name] = m.pos
-end
-
 -- ══════════ UI ══════════
-local old = PARENT:FindFirstChild("StealEggUI")
+local old = P:WaitForChild("PlayerGui"):FindFirstChild("StealEggUI")
 if old then old:Destroy() end
 
 local sg = Instance.new("ScreenGui")
 sg.Name = "StealEggUI"
 sg.ResetOnSpawn = false
 sg.DisplayOrder = 999999
-sg.Parent = PARENT
+sg.Parent = P:WaitForChild("PlayerGui")
 
--- Icon
+-- ⭐ ICON (Image-based, fallback to text if image missing)
 local icon = Instance.new("ImageButton")
 icon.Size = UDim2.new(0, 50, 0, 50)
-icon.Position = UDim2.new(0, 20, 0.5, -25)
+icon.Position = UDim2.new(0, 15, 0, 150)
 icon.BackgroundColor3 = COLORS.bg
 icon.BorderSizePixel = 0
-icon.Image = "rbxassetid://86285862396979"
+icon.Image = "rbxassetid://86285862396979" -- Replace with your icon asset ID
+icon.ScaleType = Enum.ScaleType.Fit
+icon.AutoButtonColor = false
 icon.Draggable = true
 icon.Parent = sg
 Instance.new("UICorner", icon).CornerRadius = UDim.new(1, 0)
 local istk = Instance.new("UIStroke", icon)
 istk.Color = COLORS.accent
-istk.Thickness = 2.5
+istk.Thickness = 2
 
--- Panel
+-- Fallback text if image doesn't load
+local iconText = Instance.new("TextLabel", icon)
+iconText.Size = UDim2.new(1, 0, 1, 0)
+iconText.BackgroundTransparency = 1
+iconText.Text = "⚙"
+iconText.TextColor3 = COLORS.accent
+iconText.Font = Enum.Font.GothamBold
+iconText.TextSize = 22
+
+-- ⭐ MAIN PANEL
 local panel = Instance.new("Frame")
-panel.Size = UDim2.new(0, 460, 0, 400)
-panel.Position = UDim2.new(0.5, -230, 0.5, -200)
+panel.Size = UDim2.new(0, 500, 0, 480)
+panel.Position = UDim2.new(0.5, -250, 0.5, -240)
 panel.BackgroundColor3 = COLORS.bg
-panel.BackgroundTransparency = 0.1
+panel.BackgroundTransparency = 0.35
 panel.BorderSizePixel = 0
-panel.ClipsDescendants = true
 panel.Visible = false
-panel.Active = true
-panel.Draggable = true
 panel.Parent = sg
+panel.Active = true
 Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 12)
 local pstk = Instance.new("UIStroke", panel)
 pstk.Color = COLORS.accent
 pstk.Thickness = 1.5
 
+-- ⭐ BACKGROUND IMAGE
 local bgImg = Instance.new("ImageLabel", panel)
 bgImg.Size = UDim2.new(1, 0, 1, 0)
-bgImg.BackgroundTransparency = 1
+bgImg.Position = UDim2.new(0, 0, 0, 0)
+bgImg.BackgroundTransparency = 0.25
 bgImg.ScaleType = Enum.ScaleType.Crop
 bgImg.Image = "rbxassetid://116222439691339"
-bgImg.ImageTransparency = 0.5
+bgImg.ImageTransparency = 0.55
 bgImg.ZIndex = 0
 Instance.new("UICorner", bgImg).CornerRadius = UDim.new(0, 12)
 
-local title = Instance.new("TextLabel", panel)
-title.Size = UDim2.new(1, -20, 0, 32)
-title.Position = UDim2.new(0, 15, 0, 4)
-title.BackgroundTransparency = 1
-title.Text = "ＳＴＥＡＬ  ＥＧＧ  ＨＵＢ"
-title.Font = Enum.Font.GothamBold
-title.TextSize = 14
-title.TextColor3 = COLORS.accent
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.ZIndex = 2
+-- ⭐ CLOSE BUTTON (X)
+local closeBtn = Instance.new("TextButton", panel)
+closeBtn.Size = UDim2.new(0, 28, 0, 28)
+closeBtn.Position = UDim2.new(1, -35, 0, 7)
+closeBtn.BackgroundColor3 = COLORS.red
+closeBtn.Text = "✕"
+closeBtn.TextColor3 = Color3.new(1, 1, 1)
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 16
+closeBtn.AutoButtonColor = false
+closeBtn.ZIndex = 10
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
+local closeBtnStk = Instance.new("UIStroke", closeBtn)
+closeBtnStk.Color = COLORS.red
+closeBtnStk.Thickness = 1
 
--- Sidebar
-local sidebar = Instance.new("Frame", panel)
-sidebar.Position = UDim2.new(0, 12, 0, 42)
-sidebar.Size = UDim2.new(0, 110, 1, -55)
-sidebar.BackgroundColor3 = COLORS.bg2
-sidebar.BackgroundTransparency = 0.3
+closeBtn.MouseButton1Click:Connect(function()
+    panel.Visible = false
+end)
+
+closeBtn.MouseEnter:Connect(function()
+    closeBtn.BackgroundColor3 = Color3.fromRGB(255, 120, 140)
+end)
+
+closeBtn.MouseLeave:Connect(function()
+    closeBtn.BackgroundColor3 = COLORS.red
+end)
+
+-- ⭐ SIDEBAR
+local sidebar = Instance.new("Frame")
+sidebar.Size = UDim2.new(0, 80, 1, 0)
+sidebar.Position = UDim2.new(0, 0, 0, 0)
+sidebar.BackgroundColor3 = Color3.fromRGB(8, 10, 16)
+sidebar.BackgroundTransparency = 0.5
 sidebar.BorderSizePixel = 0
+sidebar.Parent = panel
 sidebar.ZIndex = 2
-Instance.new("UICorner", sidebar).CornerRadius = UDim.new(0, 8)
+Instance.new("UICorner", sidebar).CornerRadius = UDim.new(0, 12)
 
-local sidePad = Instance.new("UIPadding", sidebar)
-sidePad.PaddingTop = UDim.new(0, 8)
-sidePad.PaddingLeft = UDim.new(0, 6)
-sidePad.PaddingRight = UDim.new(0, 6)
-sidePad.PaddingBottom = UDim.new(0, 8)
-
-local sideLayout = Instance.new("UIListLayout", sidebar)
-sideLayout.Padding = UDim.new(0, 6)
-sideLayout.Parent = sidebar
-
--- Content
-local content = Instance.new("Frame", panel)
-content.Position = UDim2.new(0, 130, 0, 42)
-content.Size = UDim2.new(1, -142, 1, -55)
+-- ⭐ CONTENT AREA
+local content = Instance.new("Frame")
+content.Size = UDim2.new(1, -80, 1, 0)
+content.Position = UDim2.new(0, 80, 0, 0)
 content.BackgroundTransparency = 1
-content.ZIndex = 2
+content.BorderSizePixel = 0
+content.Parent = panel
 
--- Tabs
+local contentPad = Instance.new("UIPadding", content)
+contentPad.PaddingTop = UDim.new(0, 15)
+contentPad.PaddingLeft = UDim.new(0, 15)
+contentPad.PaddingRight = UDim.new(0, 15)
+contentPad.PaddingBottom = UDim.new(0, 15)
+
+-- ⭐ RESIZE HANDLE (Bottom Right Corner)
+local resizeHandle = Instance.new("Frame", panel)
+resizeHandle.Size = UDim2.new(0, 16, 0, 16)
+resizeHandle.Position = UDim2.new(1, -16, 1, -16)
+resizeHandle.BackgroundColor3 = COLORS.accent
+resizeHandle.BorderSizePixel = 0
+resizeHandle.ZIndex = 10
+resizeHandle.Cursor = "ResizeNWSE"
+Instance.new("UICorner", resizeHandle).CornerRadius = UDim.new(0, 4)
+
+-- Resize logic
+local resizing = false
+local startSize, startPos, startMouse
+
+resizeHandle.MouseButton1Down:Connect(function()
+    resizing = true
+    startSize = panel.Size
+    startPos = panel.Position
+    startMouse = game:GetService("UserInputService"):GetMouseLocation()
+end)
+
+game:GetService("UserInputService").InputEnded:Connect(function(input, gameProcessed)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        resizing = false
+    end
+end)
+
+game:GetService("RunService").RenderStepped:Connect(function()
+    if resizing then
+        local currentMouse = game:GetService("UserInputService"):GetMouseLocation()
+        local deltaX = currentMouse.X - startMouse.X
+        local deltaY = currentMouse.Y - startMouse.Y
+        
+        local newWidth = math.max(300, startSize.X.Offset + deltaX)
+        local newHeight = math.max(250, startSize.Y.Offset + deltaY)
+        
+        panel.Size = UDim2.new(0, newWidth, 0, newHeight)
+    end
+end)
+
+-- ⭐ PAGES
 local currentTab = "main"
 local pages = {}
 local tabBtns = {}
 
 local function setTab(id)
     currentTab = id
-    for _, item in pairs(tabBtns) do
+    for _, item in ipairs(tabBtns) do
         if item.id == id then
-            item.btn.BackgroundColor3 = COLORS.accent2
-            item.btn.TextColor3 = Color3.new(1,1,1)
+            item.label.TextColor3 = COLORS.accent
+            item.bg.BackgroundTransparency = 0.3
         else
-            item.btn.BackgroundColor3 = COLORS.bg3
-            item.btn.TextColor3 = COLORS.text
+            item.label.TextColor3 = COLORS.textDim
+            item.bg.BackgroundTransparency = 0.7
         end
     end
     for tid, page in pairs(pages) do page.Visible = (tid == id) end
 end
 
-local function mkTab(id, text)
-    local b = Instance.new("TextButton", sidebar)
-    b.Size = UDim2.new(1, 0, 0, 34)
-    b.BackgroundColor3 = COLORS.bg3
-    b.Text = text
-    b.TextColor3 = COLORS.text
-    b.Font = Enum.Font.GothamBold
-    b.TextSize = 11
-    b.AutoButtonColor = false
-    b.ZIndex = 3
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
-    b.MouseButton1Click:Connect(function() setTab(id) end)
-    table.insert(tabBtns, { btn = b, id = id })
-    return b
+-- ⭐ TAB CREATOR
+local function mkTab(id, icon, text)
+    local bg = Instance.new("Frame", sidebar)
+    bg.Size = UDim2.new(1, 0, 0, 50)
+    bg.BackgroundColor3 = COLORS.bg2
+    bg.BackgroundTransparency = 0.7
+    bg.BorderSizePixel = 0
+    bg.Parent = sidebar
+
+    local btn = Instance.new("TextButton", bg)
+    btn.Size = UDim2.new(1, 0, 1, 0)
+    btn.BackgroundTransparency = 1
+    btn.Text = icon .. "\n" .. text
+    btn.TextColor3 = COLORS.textDim
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 9
+    btn.AutoButtonColor = false
+    
+    local lbl = Instance.new("TextLabel", bg)
+    lbl.Size = UDim2.new(1, 0, 1, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = icon .. "\n" .. text
+    lbl.TextColor3 = COLORS.textDim
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 9
+
+    btn.MouseButton1Click:Connect(function() setTab(id) end)
+    table.insert(tabBtns, { btn = btn, label = lbl, bg = bg, id = id })
+    return bg
 end
 
-mkTab("main", "🏠 Main")
-mkTab("esp",  "👁 ESP")
+mkTab("main", "🏠", "Main")
+mkTab("esp", "👁", "ESP")
 
--- ══════════ PAGE MAIN ══════════
+-- ⭐ TOGGLE SWITCH PILL CREATOR
+local function mkToggle(parent, label, defaultState, onToggle)
+    local ctrl = Instance.new("Frame", parent)
+    ctrl.Size = UDim2.new(1, 0, 0, 50)
+    ctrl.BackgroundTransparency = 1
+    
+    -- Label
+    local lbl = Instance.new("TextLabel", ctrl)
+    lbl.Size = UDim2.new(0.6, 0, 0, 16)
+    lbl.Position = UDim2.new(0, 0, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = label
+    lbl.TextColor3 = COLORS.textDim
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 10
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    
+    -- Toggle Switch Container (Pill shape)
+    local toggleBg = Instance.new("Frame", ctrl)
+    toggleBg.Size = UDim2.new(0, 50, 0, 24)
+    toggleBg.Position = UDim2.new(1, -50, 0, 0)
+    toggleBg.BackgroundColor3 = COLORS.offBg
+    toggleBg.BorderSizePixel = 0
+    Instance.new("UICorner", toggleBg).CornerRadius = UDim.new(0.5, 0)
+    
+    -- Toggle Ball (Inner Circle)
+    local toggleBall = Instance.new("Frame", toggleBg)
+    toggleBall.Size = UDim2.new(0, 20, 0, 20)
+    toggleBall.Position = UDim2.new(0, 2, 0.5, -10)
+    toggleBall.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+    toggleBall.BorderSizePixel = 0
+    Instance.new("UICorner", toggleBall).CornerRadius = UDim.new(1, 0)
+    
+    local state = defaultState or false
+    
+    local function updateToggle(newState)
+        state = newState
+        if state then
+            -- ON state: green background, ball slides right
+            toggleBg.BackgroundColor3 = COLORS.green
+            toggleBall.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            toggleBall.Position = UDim2.new(1, -22, 0.5, -10)
+        else
+            -- OFF state: dark background, ball on left
+            toggleBg.BackgroundColor3 = COLORS.offBg
+            toggleBall.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+            toggleBall.Position = UDim2.new(0, 2, 0.5, -10)
+        end
+        if onToggle then onToggle(state) end
+    end
+    
+    -- Click handler
+    local clickRegion = Instance.new("TextButton", toggleBg)
+    clickRegion.Size = UDim2.new(1, 0, 1, 0)
+    clickRegion.BackgroundTransparency = 1
+    clickRegion.Text = ""
+    clickRegion.MouseButton1Click:Connect(function()
+        updateToggle(not state)
+    end)
+    
+    -- Expose methods
+    return {
+        ctrl = ctrl,
+        setState = updateToggle,
+        getState = function() return state end
+    }
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- PAGE: MAIN
+-- ═══════════════════════════════════════════════════════════════
 local pageMain = Instance.new("Frame", content)
 pageMain.Size = UDim2.new(1, 0, 1, 0)
 pageMain.BackgroundTransparency = 1
-pageMain.ZIndex = 3
 pages.main = pageMain
 
-local function mkLabel(parent, text, y)
-    local l = Instance.new("TextLabel", parent)
-    l.Size = UDim2.new(1, 0, 0, 18)
-    l.Position = UDim2.new(0, 0, 0, y)
-    l.BackgroundTransparency = 1
-    l.Text = text
-    l.TextColor3 = COLORS.textDim
-    l.Font = Enum.Font.GothamBold
-    l.TextSize = 10
-    l.TextXAlignment = Enum.TextXAlignment.Left
-    l.ZIndex = 3
-    return l
+local mainLayout = Instance.new("UIListLayout", pageMain)
+mainLayout.Padding = UDim.new(0, 12)
+mainLayout.FillDirection = Enum.FillDirection.Vertical
+
+local mainPad = Instance.new("UIPadding", pageMain)
+mainPad.PaddingTop = UDim.new(0, 0)
+
+-- ⭐ SELECT MAP (dropdown)
+local function mkControl(parent, label)
+    local ctrl = Instance.new("Frame", parent)
+    ctrl.Size = UDim2.new(1, 0, 0, 0)
+    ctrl.BackgroundTransparency = 1
+    
+    local lbl = Instance.new("TextLabel", ctrl)
+    lbl.Size = UDim2.new(1, 0, 0, 16)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = label
+    lbl.TextColor3 = COLORS.textDim
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 10
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    
+    return ctrl, lbl
 end
 
--- ⭐ FARM BUTTON
-mkLabel(pageMain, "🤖 AUTO FARM", 0)
+local mapCtrl, mapLabel = mkControl(pageMain, "🎯 SELECT MAP")
+local mapSelect = Instance.new("TextButton", mapCtrl)
+mapSelect.Size = UDim2.new(1, 0, 0, 32)
+mapSelect.Position = UDim2.new(0, 0, 0, 20)
+mapSelect.BackgroundColor3 = COLORS.bg2
+mapSelect.Text = "All Maps  ▼"
+mapSelect.TextColor3 = COLORS.text
+mapSelect.Font = Enum.Font.GothamBold
+mapSelect.TextSize = 11
+mapSelect.AutoButtonColor = false
+mapSelect.Parent = mapCtrl
+Instance.new("UICorner", mapSelect).CornerRadius = UDim.new(0, 6)
 
-local farmBtn = Instance.new("TextButton", pageMain)
-farmBtn.Size = UDim2.new(1, 0, 0, 36)
-farmBtn.Position = UDim2.new(0, 0, 0, 22)
-farmBtn.BackgroundColor3 = COLORS.green
-farmBtn.Text = "▶  BẮT ĐẦU FARM"
-farmBtn.TextColor3 = Color3.new(0,0,0)
-farmBtn.Font = Enum.Font.GothamBold
-farmBtn.TextSize = 12
-farmBtn.AutoButtonColor = false
-farmBtn.ZIndex = 3
-Instance.new("UICorner", farmBtn).CornerRadius = UDim.new(0, 6)
-
-farmBtn.MouseButton1Click:Connect(function()
-    if API.IsRunning() then
-        API.Stop()
-        farmBtn.Text = "▶  BẮT ĐẦU FARM"
-        farmBtn.BackgroundColor3 = COLORS.green
-    else
-        API.Start()
-        farmBtn.Text = "⏹  DỪNG FARM"
-        farmBtn.BackgroundColor3 = COLORS.red
-    end
-end)
-
--- ⭐⭐ PRIORITY INCOME TOGGLE
-mkLabel(pageMain, "💰 ƯU TIÊN TIỀN CAO", 68)
-
-local prioBtn = Instance.new("TextButton", pageMain)
-prioBtn.Size = UDim2.new(1, 0, 0, 36)
-prioBtn.Position = UDim2.new(0, 0, 0, 90)
-prioBtn.BackgroundColor3 = COLORS.bg3
-prioBtn.Text = "💰 Ưu tiên tiền cao: TẮT (min $1M/s)"
-prioBtn.TextColor3 = COLORS.text
-prioBtn.Font = Enum.Font.GothamBold
-prioBtn.TextSize = 11
-prioBtn.AutoButtonColor = false
-prioBtn.ZIndex = 3
-Instance.new("UICorner", prioBtn).CornerRadius = UDim.new(0, 6)
-
-prioBtn.MouseButton1Click:Connect(function()
-    local on = not API.IsPriorityIncome()
-    API.SetPriorityIncome(on)
-    if on then
-        prioBtn.Text = "💰 Ưu tiên tiền cao: BẬT (min $1M/s)"
-        prioBtn.BackgroundColor3 = COLORS.gold
-        prioBtn.TextColor3 = Color3.new(0, 0, 0)
-    else
-        prioBtn.Text = "💰 Ưu tiên tiền cao: TẮT (min $1M/s)"
-        prioBtn.BackgroundColor3 = COLORS.bg3
-        prioBtn.TextColor3 = COLORS.text
-    end
-end)
-
--- ⭐ THRESHOLD INPUT
-mkLabel(pageMain, "💵 Ngưỡng tối thiểu (M/s)", 132)
-
-local threshBox = Instance.new("TextBox", pageMain)
-threshBox.Size = UDim2.new(1, 0, 0, 30)
-threshBox.Position = UDim2.new(0, 0, 0, 152)
-threshBox.BackgroundColor3 = COLORS.bg2
-threshBox.Text = "1"
-threshBox.TextColor3 = COLORS.text
-threshBox.Font = Enum.Font.GothamBold
-threshBox.TextSize = 12
-threshBox.PlaceholderText = "1"
-threshBox.ZIndex = 3
-Instance.new("UICorner", threshBox).CornerRadius = UDim.new(0, 6)
-
-threshBox.FocusLost:Connect(function()
-    local n = tonumber(threshBox.Text) or 1
-    n = math.max(n, 0)
-    API.SetPriorityThreshold(n * 1e6)
-    threshBox.Text = tostring(n)
-end)
-
--- ⭐ MAP SELECT
-mkLabel(pageMain, "🎯 CHỌN MAP FARM (multi)", 192)
-
-local mapSelectBtn = Instance.new("TextButton", pageMain)
-mapSelectBtn.Size = UDim2.new(1, 0, 0, 30)
-mapSelectBtn.Position = UDim2.new(0, 0, 0, 212)
-mapSelectBtn.BackgroundColor3 = COLORS.bg3
-mapSelectBtn.Text = "All Maps  ▼"
-mapSelectBtn.TextColor3 = COLORS.text
-mapSelectBtn.Font = Enum.Font.GothamBold
-mapSelectBtn.TextSize = 11
-mapSelectBtn.AutoButtonColor = false
-mapSelectBtn.ZIndex = 3
-Instance.new("UICorner", mapSelectBtn).CornerRadius = UDim.new(0, 6)
-
+-- Dropdown list
 local mapScroll = Instance.new("ScrollingFrame", pageMain)
-mapScroll.Size = UDim2.new(1, 0, 0, 130)
-mapScroll.Position = UDim2.new(0, 0, 0, 246)
-mapScroll.BackgroundColor3 = COLORS.bg2
+mapScroll.Size = UDim2.new(1, 0, 0, 120)
+mapScroll.Position = UDim2.new(0, 0, 0, 0)
+mapScroll.BackgroundColor3 = COLORS.bg3
 mapScroll.BorderSizePixel = 0
-mapScroll.ScrollBarThickness = 3
-mapScroll.ScrollBarImageColor3 = COLORS.accent
+mapScroll.ScrollBarThickness = 2
 mapScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 mapScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 mapScroll.Visible = false
-mapScroll.ZIndex = 5
+mapScroll.Parent = pageMain
 Instance.new("UICorner", mapScroll).CornerRadius = UDim.new(0, 6)
 
 local mPad = Instance.new("UIPadding", mapScroll)
 mPad.PaddingTop = UDim.new(0, 4)
 mPad.PaddingLeft = UDim.new(0, 4)
 mPad.PaddingRight = UDim.new(0, 4)
-mPad.PaddingBottom = UDim.new(0, 4)
 
 local mLayout = Instance.new("UIListLayout", mapScroll)
 mLayout.Padding = UDim.new(0, 3)
 
 local selectedMaps = {}
 local mapRowBtns = {}
-for _, m in ipairs(ALL_MAPS) do selectedMaps[m] = true end
 
-local allBtn = Instance.new("TextButton", mapScroll)
-allBtn.Size = UDim2.new(1, -8, 0, 24)
-allBtn.BackgroundColor3 = COLORS.accent2
-allBtn.Text = "  ✓ ALL MAPS"
-allBtn.TextColor3 = Color3.new(1,1,1)
-allBtn.Font = Enum.Font.GothamBold
-allBtn.TextSize = 10
-allBtn.TextXAlignment = Enum.TextXAlignment.Left
-allBtn.AutoButtonColor = false
-allBtn.ZIndex = 6
-Instance.new("UICorner", allBtn).CornerRadius = UDim.new(0, 4)
+-- Add "Select All" button
+local selAllBtn = Instance.new("TextButton", mapScroll)
+selAllBtn.Size = UDim2.new(1, -8, 0, 22)
+selAllBtn.BackgroundColor3 = COLORS.gold
+selAllBtn.Text = "All Maps"
+selAllBtn.TextColor3 = Color3.new(0, 0, 0)
+selAllBtn.Font = Enum.Font.GothamBold
+selAllBtn.TextSize = 10
+selAllBtn.TextXAlignment = Enum.TextXAlignment.Left
+selAllBtn.AutoButtonColor = false
+Instance.new("UICorner", selAllBtn).CornerRadius = UDim.new(0, 4)
 
-allBtn.MouseButton1Click:Connect(function()
+selAllBtn.MouseButton1Click:Connect(function()
     for _, m in ipairs(ALL_MAPS) do selectedMaps[m] = true end
-    allBtn.BackgroundColor3 = COLORS.accent2
+    mapSelect.Text = "All Maps  ▼"
     for _, item in ipairs(mapRowBtns) do
-        item.btn.BackgroundColor3 = COLORS.accent2
-        item.btn.Text = "  ✓ " .. item.name
+        item.btn.BackgroundColor3 = COLORS.green
+        item.btn.TextColor3 = Color3.new(0, 0, 0)
     end
-    local list = {}
-    for _, m in ipairs(ALL_MAPS) do
-        if MAP_POS[m] then table.insert(list, { name = m, pos = MAP_POS[m] }) end
-    end
-    API.SetTargets(list)
-    mapSelectBtn.Text = "All Maps  ▼"
+    mapScroll.Visible = false
 end)
 
+-- Add map items
 for _, m in ipairs(ALL_MAPS) do
     local b = Instance.new("TextButton", mapScroll)
-    b.Size = UDim2.new(1, -8, 0, 24)
-    b.BackgroundColor3 = COLORS.accent2
-    b.Text = "  ✓ " .. m
-    b.TextColor3 = Color3.new(1,1,1)
+    b.Size = UDim2.new(1, -8, 0, 22)
+    b.BackgroundColor3 = COLORS.bg3
+    b.Text = m
+    b.TextColor3 = COLORS.text
     b.Font = Enum.Font.GothamBold
     b.TextSize = 10
     b.TextXAlignment = Enum.TextXAlignment.Left
     b.AutoButtonColor = false
-    b.ZIndex = 6
     Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
-
+    
     table.insert(mapRowBtns, { btn = b, name = m })
-
+    
     b.MouseButton1Click:Connect(function()
+        selectedMaps[m] = not selectedMaps[m]
         if selectedMaps[m] then
-            selectedMaps[m] = nil
+            b.BackgroundColor3 = COLORS.green
+            b.TextColor3 = Color3.new(0, 0, 0)
+        else
             b.BackgroundColor3 = COLORS.bg3
-            b.Text = "    " .. m
-        else
-            selectedMaps[m] = true
-            b.BackgroundColor3 = COLORS.accent2
-            b.Text = "  ✓ " .. m
+            b.TextColor3 = COLORS.text
         end
+        
         local count = 0
-        local list = {}
-        for _, name in ipairs(ALL_MAPS) do
-            if selectedMaps[name] and MAP_POS[name] then
-                count = count + 1
-                table.insert(list, { name = name, pos = MAP_POS[name] })
-            end
-        end
-        if count == #ALL_MAPS then
-            mapSelectBtn.Text = "All Maps  ▼"
-            allBtn.BackgroundColor3 = COLORS.accent2
+        for _ in pairs(selectedMaps) do count = count + 1 end
+        if count == 0 then
+            mapSelect.Text = "No Maps  ▼"
+        elseif count == #ALL_MAPS then
+            mapSelect.Text = "All Maps  ▼"
         else
-            mapSelectBtn.Text = count .. " Maps  ▼"
+            mapSelect.Text = count .. " Maps  ▼"
         end
-        API.SetTargets(list)
     end)
 end
 
-mapSelectBtn.MouseButton1Click:Connect(function()
+mapSelect.MouseButton1Click:Connect(function()
     mapScroll.Visible = not mapScroll.Visible
 end)
 
--- Set Home/Forest
-local homeBtn = Instance.new("TextButton", pageMain)
-homeBtn.Size = UDim2.new(0.5, -3, 0, 26)
-homeBtn.Position = UDim2.new(0, 0, 0, 380)  -- tạm thời
-homeBtn.BackgroundColor3 = COLORS.bg3
-homeBtn.Text = "📍 HOME"
-homeBtn.TextColor3 = COLORS.text
-homeBtn.Font = Enum.Font.GothamBold
-homeBtn.TextSize = 10
-homeBtn.AutoButtonColor = false
-homeBtn.ZIndex = 3
-Instance.new("UICorner", homeBtn).CornerRadius = UDim.new(0, 6)
-
-local forestBtn = Instance.new("TextButton", pageMain)
-forestBtn.Size = UDim2.new(0.5, -3, 0, 26)
-forestBtn.Position = UDim2.new(0.5, 3, 0, 380)
-forestBtn.BackgroundColor3 = COLORS.bg3
-forestBtn.Text = "📍 FOREST"
-forestBtn.TextColor3 = COLORS.text
-forestBtn.Font = Enum.Font.GothamBold
-forestBtn.TextSize = 10
-forestBtn.AutoButtonColor = false
-forestBtn.ZIndex = 3
-Instance.new("UICorner", forestBtn).CornerRadius = UDim.new(0, 6)
-
-homeBtn.MouseButton1Click:Connect(function()
-    local hrp = P.Character and P.Character:FindFirstChild("HumanoidRootPart")
-    if hrp then API.SetHome(hrp.Position) end
-end)
-forestBtn.MouseButton1Click:Connect(function()
-    local hrp = P.Character and P.Character:FindFirstChild("HumanoidRootPart")
-    if hrp then API.SetForest(hrp.Position) end
+-- ⭐ AUTO STEAL (Toggle Switch Pill)
+local stealToggle = mkToggle(pageMain, "🔄 AUTO STEAL", false, function(state)
+    if state then
+        API.Start()
+    else
+        API.Stop()
+    end
 end)
 
--- ══════════ PAGE ESP ══════════
+-- ⭐ SELECT VALUE (input)
+local valCtrl, valLabel = mkControl(pageMain, "💵 SELECT VALUE")
+local valInput = Instance.new("TextBox", valCtrl)
+valInput.Size = UDim2.new(1, 0, 0, 32)
+valInput.Position = UDim2.new(0, 0, 0, 20)
+valInput.BackgroundColor3 = COLORS.bg2
+valInput.Text = "100000"
+valInput.TextColor3 = COLORS.text
+valInput.Font = Enum.Font.GothamBold
+valInput.TextSize = 12
+valInput.PlaceholderText = "Enter value..."
+valInput.Parent = valCtrl
+Instance.new("UICorner", valInput).CornerRadius = UDim.new(0, 6)
+
+-- ⭐ STEAL BEST EGG (Toggle Switch Pill)
+local bestToggle = mkToggle(pageMain, "⭐ STEAL BEST EGG", false, function(state)
+    -- Custom logic here
+end)
+
+-- ═══════════════════════════════════════════════════════════════
+-- PAGE: ESP
+-- ═══════════════════════════════════════════════════════════════
 local pageESP = Instance.new("Frame", content)
 pageESP.Size = UDim2.new(1, 0, 1, 0)
 pageESP.BackgroundTransparency = 1
 pageESP.Visible = false
-pageESP.ZIndex = 3
 pages.esp = pageESP
 
-mkLabel(pageESP, "👁 ESP EGG", 0)
+local espLabel = Instance.new("TextLabel", pageESP)
+espLabel.Size = UDim2.new(1, 0, 0, 30)
+espLabel.BackgroundTransparency = 1
+espLabel.Text = "👁 ESP SETTINGS"
+espLabel.TextColor3 = COLORS.text
+espLabel.Font = Enum.Font.GothamBold
+espLabel.TextSize = 12
 
-local espBtn = Instance.new("TextButton", pageESP)
-espBtn.Size = UDim2.new(1, 0, 0, 34)
-espBtn.Position = UDim2.new(0, 0, 0, 22)
-espBtn.BackgroundColor3 = COLORS.purple
-espBtn.Text = "👁  BẬT ESP EGG"
-espBtn.TextColor3 = Color3.new(1,1,1)
-espBtn.Font = Enum.Font.GothamBold
-espBtn.TextSize = 12
-espBtn.AutoButtonColor = false
-espBtn.ZIndex = 3
-Instance.new("UICorner", espBtn).CornerRadius = UDim.new(0, 6)
-
-espBtn.MouseButton1Click:Connect(function()
-    local on = API.ESP_Toggle()
-    if on then
-        espBtn.Text = "👁  TẮT ESP EGG"
-        espBtn.BackgroundColor3 = COLORS.red
+-- ⭐ ESP Toggle (Toggle Switch Pill)
+local espToggle = mkToggle(pageESP, "Enable ESP", false, function(state)
+    if state then
+        API.ESP_Enable()
     else
-        espBtn.Text = "👁  BẬT ESP EGG"
-        espBtn.BackgroundColor3 = COLORS.purple
+        API.ESP_Disable()
     end
 end)
+espToggle.ctrl.Position = UDim2.new(0, 0, 0, 40)
 
 -- ══════════ INIT ══════════
 setTab("main")
+icon.MouseButton1Click:Connect(function() panel.Visible = not panel.Visible end)
 
-local initList = {}
-for _, m in ipairs(ALL_MAPS) do
-    if MAP_POS[m] then table.insert(initList, { name = m, pos = MAP_POS[m] }) end
-end
-API.SetTargets(initList)
-
-icon.MouseButton1Click:Connect(function()
-    panel.Visible = not panel.Visible
-end)
-
-API.OnLog(function(msg) print("[StealEgg] " .. msg) end)
-
-print("[Main] ✅ Ready v6")
+print("[Main] ✅ Ready v7 - Toggle Switch Edition!")
