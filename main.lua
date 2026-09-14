@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- MAIN.LUA FOXNAME STYLE — Steal Egg UI (IMPROVED)
+-- MAIN.LUA FOXNAME STYLE — Steal Egg UI (FIXED + HOOKED)
 -- ═══════════════════════════════════════════════════════════════
 
 local BASE_URL = "https://raw.githubusercontent.com/ojiasa/Steal-an-egg/main"
@@ -33,17 +33,31 @@ _G.StealEgg = {
     SetHome = function(p) if Steal then Steal.setHome(p) end end,
     SetForest = function(p) if Steal then Steal.setForest(p) end end,
     OnLog = function(cb) if Steal then Steal.onLog(cb) end end,
+    -- ⭐ Priority Income API
+    SetPriorityIncome = function(b) if Steal then return Steal.setPriorityIncome(b) end end,
+    TogglePriorityIncome = function() if Steal then return Steal.togglePriorityIncome() end end,
+    SetPriorityThreshold = function(n) if Steal then Steal.setPriorityThreshold(n) end end,
+    GetPriorityThreshold = function() if Steal then return Steal.getPriorityThreshold() end end,
+    IsPriorityIncome = function() return Steal and Steal.isPriorityIncome() or false end,
+    ClearIncomeCache = function() if Steal then Steal.clearIncomeCache() end end,
+    -- ESP
     ESP_Enable = function() if ESP then ESP.enable() end end,
     ESP_Disable = function() if ESP then ESP.disable() end end,
     ESP_Toggle = function() if ESP then return ESP.toggle() end end,
     ESP_IsEnabled = function() return ESP and ESP.isEnabled() or false end,
-    Version = "7.0.0",
+    Version = "9.3.0",
 }
 local API = _G.StealEgg
 _G.MyScript = API
 
 local P = game:GetService("Players").LocalPlayer
 local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+-- ⭐ GỌI LOG RA CONSOLE (bạn có thể log lên UI sau)
+API.OnLog(function(msg)
+    print("[UI-Log] " .. tostring(msg))
+end)
 
 local COLORS = {
     bg      = Color3.fromRGB(12, 14, 22),
@@ -60,9 +74,18 @@ local COLORS = {
 }
 
 local ALL_MAPS = {
-    "Forest","Lake","Desert","Jungle","Snow","Volcano",
-    "Abyss Ocean","Prehistoric","Cosmic","Cherry Blossom",
-    "Titan Temple","Light Dark",
+    { name = "Forest",         pos = Vector3.new( 599.9, 67.6, -363.9) },
+    { name = "Lake",           pos = Vector3.new( 722.5, 67.7, -363.9) },
+    { name = "Desert",         pos = Vector3.new( 930.8, 67.5, -320.6) },
+    { name = "Jungle",         pos = Vector3.new(1124.7, 67.5, -363.9) },
+    { name = "Snow",           pos = Vector3.new(1405.1, 68.0, -363.8) },
+    { name = "Volcano",        pos = Vector3.new(1863.1, 68.0, -399.5) },
+    { name = "Abyss Ocean",    pos = Vector3.new(2166.1, 67.6, -363.9) },
+    { name = "Prehistoric",    pos = Vector3.new(2634.4, 67.6, -363.9) },
+    { name = "Cosmic",         pos = Vector3.new(3376.8, 68.4, -322.7) },
+    { name = "Cherry Blossom", pos = Vector3.new(3928.0, 67.6, -363.8) },
+    { name = "Titan Temple",   pos = Vector3.new(4698.0, 67.6, -363.8) },
+    { name = "Light Dark",     pos = Vector3.new(5563.0, 67.6, -363.8) },
 }
 
 -- ══════════ UI ══════════
@@ -75,13 +98,13 @@ sg.ResetOnSpawn = false
 sg.DisplayOrder = 999999
 sg.Parent = P:WaitForChild("PlayerGui")
 
--- ⭐ ICON (Image-based, fallback to text if image missing)
+-- ⭐ ICON
 local icon = Instance.new("ImageButton")
 icon.Size = UDim2.new(0, 50, 0, 50)
 icon.Position = UDim2.new(0, 15, 0, 150)
 icon.BackgroundColor3 = COLORS.bg
 icon.BorderSizePixel = 0
-icon.Image = "rbxassetid://86285862396979" -- Replace with your icon asset ID
+icon.Image = "rbxassetid://86285862396979"
 icon.ScaleType = Enum.ScaleType.Fit
 icon.AutoButtonColor = false
 icon.Draggable = true
@@ -91,7 +114,6 @@ local istk = Instance.new("UIStroke", icon)
 istk.Color = COLORS.accent
 istk.Thickness = 2
 
--- Fallback text if image doesn't load
 local iconText = Instance.new("TextLabel", icon)
 iconText.Size = UDim2.new(1, 0, 1, 0)
 iconText.BackgroundTransparency = 1
@@ -102,8 +124,8 @@ iconText.TextSize = 22
 
 -- ⭐ MAIN PANEL
 local panel = Instance.new("Frame")
-panel.Size = UDim2.new(0, 500, 0, 480)
-panel.Position = UDim2.new(0.5, -250, 0.5, -240)
+panel.Size = UDim2.new(0, 500, 0, 520)
+panel.Position = UDim2.new(0.5, -250, 0.5, -260)
 panel.BackgroundColor3 = COLORS.bg
 panel.BackgroundTransparency = 0.35
 panel.BorderSizePixel = 0
@@ -115,10 +137,9 @@ local pstk = Instance.new("UIStroke", panel)
 pstk.Color = COLORS.accent
 pstk.Thickness = 1.5
 
--- ⭐ BACKGROUND IMAGE
+-- ⭐ BG IMAGE
 local bgImg = Instance.new("ImageLabel", panel)
 bgImg.Size = UDim2.new(1, 0, 1, 0)
-bgImg.Position = UDim2.new(0, 0, 0, 0)
 bgImg.BackgroundTransparency = 0.25
 bgImg.ScaleType = Enum.ScaleType.Crop
 bgImg.Image = "rbxassetid://116222439691339"
@@ -126,7 +147,7 @@ bgImg.ImageTransparency = 0.55
 bgImg.ZIndex = 0
 Instance.new("UICorner", bgImg).CornerRadius = UDim.new(0, 12)
 
--- ⭐ CLOSE BUTTON (X)
+-- ⭐ CLOSE
 local closeBtn = Instance.new("TextButton", panel)
 closeBtn.Size = UDim2.new(0, 28, 0, 28)
 closeBtn.Position = UDim2.new(1, -35, 0, 7)
@@ -138,26 +159,14 @@ closeBtn.TextSize = 16
 closeBtn.AutoButtonColor = false
 closeBtn.ZIndex = 10
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
-local closeBtnStk = Instance.new("UIStroke", closeBtn)
-closeBtnStk.Color = COLORS.red
-closeBtnStk.Thickness = 1
 
-closeBtn.MouseButton1Click:Connect(function()
-    panel.Visible = false
-end)
-
-closeBtn.MouseEnter:Connect(function()
-    closeBtn.BackgroundColor3 = Color3.fromRGB(255, 120, 140)
-end)
-
-closeBtn.MouseLeave:Connect(function()
-    closeBtn.BackgroundColor3 = COLORS.red
-end)
+closeBtn.MouseButton1Click:Connect(function() panel.Visible = false end)
+closeBtn.MouseEnter:Connect(function() closeBtn.BackgroundColor3 = Color3.fromRGB(255, 120, 140) end)
+closeBtn.MouseLeave:Connect(function() closeBtn.BackgroundColor3 = COLORS.red end)
 
 -- ⭐ SIDEBAR
 local sidebar = Instance.new("Frame")
 sidebar.Size = UDim2.new(0, 80, 1, 0)
-sidebar.Position = UDim2.new(0, 0, 0, 0)
 sidebar.BackgroundColor3 = Color3.fromRGB(8, 10, 16)
 sidebar.BackgroundTransparency = 0.5
 sidebar.BorderSizePixel = 0
@@ -165,12 +174,18 @@ sidebar.Parent = panel
 sidebar.ZIndex = 2
 Instance.new("UICorner", sidebar).CornerRadius = UDim.new(0, 12)
 
--- ⭐ CONTENT AREA
+local sidebarPad = Instance.new("UIPadding", sidebar)
+sidebarPad.PaddingTop = UDim.new(0, 8)
+
+local sidebarLayout = Instance.new("UIListLayout", sidebar)
+sidebarLayout.Padding = UDim.new(0, 4)
+sidebarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+-- ⭐ CONTENT
 local content = Instance.new("Frame")
 content.Size = UDim2.new(1, -80, 1, 0)
 content.Position = UDim2.new(0, 80, 0, 0)
 content.BackgroundTransparency = 1
-content.BorderSizePixel = 0
 content.Parent = panel
 
 local contentPad = Instance.new("UIPadding", content)
@@ -179,43 +194,37 @@ contentPad.PaddingLeft = UDim.new(0, 15)
 contentPad.PaddingRight = UDim.new(0, 15)
 contentPad.PaddingBottom = UDim.new(0, 15)
 
--- ⭐ RESIZE HANDLE (Bottom Right Corner)
+-- ⭐ RESIZE
 local resizeHandle = Instance.new("Frame", panel)
 resizeHandle.Size = UDim2.new(0, 16, 0, 16)
 resizeHandle.Position = UDim2.new(1, -16, 1, -16)
 resizeHandle.BackgroundColor3 = COLORS.accent
 resizeHandle.BorderSizePixel = 0
 resizeHandle.ZIndex = 10
-resizeHandle.Cursor = "ResizeNWSE"
 Instance.new("UICorner", resizeHandle).CornerRadius = UDim.new(0, 4)
 
--- Resize logic
 local resizing = false
-local startSize, startPos, startMouse
-
-resizeHandle.MouseButton1Down:Connect(function()
-    resizing = true
-    startSize = panel.Size
-    startPos = panel.Position
-    startMouse = game:GetService("UserInputService"):GetMouseLocation()
+local startSize, startMouse
+resizeHandle.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        resizing = true
+        startSize = panel.Size
+        startMouse = UIS:GetMouseLocation()
+    end
 end)
-
-game:GetService("UserInputService").InputEnded:Connect(function(input, gameProcessed)
+UIS.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         resizing = false
     end
 end)
-
-game:GetService("RunService").RenderStepped:Connect(function()
+RunService.RenderStepped:Connect(function()
     if resizing then
-        local currentMouse = game:GetService("UserInputService"):GetMouseLocation()
-        local deltaX = currentMouse.X - startMouse.X
-        local deltaY = currentMouse.Y - startMouse.Y
-        
-        local newWidth = math.max(300, startSize.X.Offset + deltaX)
-        local newHeight = math.max(250, startSize.Y.Offset + deltaY)
-        
-        panel.Size = UDim2.new(0, newWidth, 0, newHeight)
+        local cm = UIS:GetMouseLocation()
+        local dx = cm.X - startMouse.X
+        local dy = cm.Y - startMouse.Y
+        local newW = math.clamp(startSize.X.Offset + dx, 300, 1200)
+        local newH = math.clamp(startSize.Y.Offset + dy, 250, 900)
+        panel.Size = UDim2.new(0, newW, 0, newH)
     end
 end)
 
@@ -229,40 +238,40 @@ local function setTab(id)
     for _, item in ipairs(tabBtns) do
         if item.id == id then
             item.label.TextColor3 = COLORS.accent
+            item.bg.BackgroundColor3 = COLORS.bg3
             item.bg.BackgroundTransparency = 0.3
         else
             item.label.TextColor3 = COLORS.textDim
+            item.bg.BackgroundColor3 = COLORS.bg2
             item.bg.BackgroundTransparency = 0.7
         end
     end
     for tid, page in pairs(pages) do page.Visible = (tid == id) end
 end
 
--- ⭐ TAB CREATOR
-local function mkTab(id, icon, text)
+-- ⭐ TAB CREATOR (FIX: 1 label thôi)
+local function mkTab(id, iconChar, text)
     local bg = Instance.new("Frame", sidebar)
-    bg.Size = UDim2.new(1, 0, 0, 50)
+    bg.Size = UDim2.new(0, 70, 0, 50)
     bg.BackgroundColor3 = COLORS.bg2
     bg.BackgroundTransparency = 0.7
     bg.BorderSizePixel = 0
-    bg.Parent = sidebar
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 8)
 
     local btn = Instance.new("TextButton", bg)
     btn.Size = UDim2.new(1, 0, 1, 0)
     btn.BackgroundTransparency = 1
-    btn.Text = icon .. "\n" .. text
-    btn.TextColor3 = COLORS.textDim
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 9
+    btn.Text = ""
     btn.AutoButtonColor = false
-    
+
     local lbl = Instance.new("TextLabel", bg)
     lbl.Size = UDim2.new(1, 0, 1, 0)
     lbl.BackgroundTransparency = 1
-    lbl.Text = icon .. "\n" .. text
+    lbl.Text = iconChar .. "\n" .. text
     lbl.TextColor3 = COLORS.textDim
     lbl.Font = Enum.Font.GothamBold
     lbl.TextSize = 9
+    lbl.ZIndex = 2
 
     btn.MouseButton1Click:Connect(function() setTab(id) end)
     table.insert(tabBtns, { btn = btn, label = lbl, bg = bg, id = id })
@@ -272,58 +281,51 @@ end
 mkTab("main", "🏠", "Main")
 mkTab("esp", "👁", "ESP")
 
--- ⭐ TOGGLE SWITCH PILL CREATOR
+-- ⭐ TOGGLE SWITCH
 local function mkToggle(parent, label, defaultState, onToggle)
     local ctrl = Instance.new("Frame", parent)
-    ctrl.Size = UDim2.new(1, 0, 0, 50)
+    ctrl.Size = UDim2.new(1, 0, 0, 32)
     ctrl.BackgroundTransparency = 1
-    
-    -- Label
+
     local lbl = Instance.new("TextLabel", ctrl)
-    lbl.Size = UDim2.new(0.6, 0, 0, 16)
-    lbl.Position = UDim2.new(0, 0, 0, 0)
+    lbl.Size = UDim2.new(0.6, 0, 1, 0)
     lbl.BackgroundTransparency = 1
     lbl.Text = label
-    lbl.TextColor3 = COLORS.textDim
+    lbl.TextColor3 = COLORS.text
     lbl.Font = Enum.Font.GothamBold
-    lbl.TextSize = 10
+    lbl.TextSize = 11
     lbl.TextXAlignment = Enum.TextXAlignment.Left
-    
-    -- Toggle Switch Container (Pill shape)
+
     local toggleBg = Instance.new("Frame", ctrl)
     toggleBg.Size = UDim2.new(0, 50, 0, 24)
-    toggleBg.Position = UDim2.new(1, -50, 0, 0)
+    toggleBg.Position = UDim2.new(1, -50, 0.5, -12)
     toggleBg.BackgroundColor3 = COLORS.offBg
     toggleBg.BorderSizePixel = 0
     Instance.new("UICorner", toggleBg).CornerRadius = UDim.new(0.5, 0)
-    
-    -- Toggle Ball (Inner Circle)
+
     local toggleBall = Instance.new("Frame", toggleBg)
     toggleBall.Size = UDim2.new(0, 20, 0, 20)
     toggleBall.Position = UDim2.new(0, 2, 0.5, -10)
     toggleBall.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
     toggleBall.BorderSizePixel = 0
     Instance.new("UICorner", toggleBall).CornerRadius = UDim.new(1, 0)
-    
+
     local state = defaultState or false
-    
-    local function updateToggle(newState)
+
+    local function updateToggle(newState, silent)
         state = newState
         if state then
-            -- ON state: green background, ball slides right
             toggleBg.BackgroundColor3 = COLORS.green
-            toggleBall.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            toggleBall.BackgroundColor3 = Color3.new(1, 1, 1)
             toggleBall.Position = UDim2.new(1, -22, 0.5, -10)
         else
-            -- OFF state: dark background, ball on left
             toggleBg.BackgroundColor3 = COLORS.offBg
             toggleBall.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
             toggleBall.Position = UDim2.new(0, 2, 0.5, -10)
         end
-        if onToggle then onToggle(state) end
+        if not silent and onToggle then onToggle(state) end
     end
-    
-    -- Click handler
+
     local clickRegion = Instance.new("TextButton", toggleBg)
     clickRegion.Size = UDim2.new(1, 0, 1, 0)
     clickRegion.BackgroundTransparency = 1
@@ -331,36 +333,20 @@ local function mkToggle(parent, label, defaultState, onToggle)
     clickRegion.MouseButton1Click:Connect(function()
         updateToggle(not state)
     end)
-    
-    -- Expose methods
+
     return {
         ctrl = ctrl,
-        setState = updateToggle,
+        setState = function(s) updateToggle(s, true) end,  -- ⭐ silent (không gọi onToggle)
         getState = function() return state end
     }
 end
 
--- ═══════════════════════════════════════════════════════════════
--- PAGE: MAIN
--- ═══════════════════════════════════════════════════════════════
-local pageMain = Instance.new("Frame", content)
-pageMain.Size = UDim2.new(1, 0, 1, 0)
-pageMain.BackgroundTransparency = 1
-pages.main = pageMain
-
-local mainLayout = Instance.new("UIListLayout", pageMain)
-mainLayout.Padding = UDim.new(0, 12)
-mainLayout.FillDirection = Enum.FillDirection.Vertical
-
-local mainPad = Instance.new("UIPadding", pageMain)
-mainPad.PaddingTop = UDim.new(0, 0)
-
--- ⭐ SELECT MAP (dropdown)
+-- ⭐ CONTROL WRAPPER
 local function mkControl(parent, label)
     local ctrl = Instance.new("Frame", parent)
-    ctrl.Size = UDim2.new(1, 0, 0, 0)
+    ctrl.Size = UDim2.new(1, 0, 0, 58)   -- ✅ FIX: có height
     ctrl.BackgroundTransparency = 1
-    
+
     local lbl = Instance.new("TextLabel", ctrl)
     lbl.Size = UDim2.new(1, 0, 0, 16)
     lbl.BackgroundTransparency = 1
@@ -369,10 +355,27 @@ local function mkControl(parent, label)
     lbl.Font = Enum.Font.GothamBold
     lbl.TextSize = 10
     lbl.TextXAlignment = Enum.TextXAlignment.Left
-    
+
     return ctrl, lbl
 end
 
+-- ═══════════════════════════════════════════════════════════════
+-- PAGE: MAIN
+-- ═══════════════════════════════════════════════════════════════
+local pageMain = Instance.new("Frame", content)
+pageMain.Size = UDim2.new(1, 0, 1, 0)
+pageMain.BackgroundTransparency = 1
+pageMain.ClipsDescendants = true
+pages.main = pageMain
+
+local mainPad = Instance.new("UIPadding", pageMain)
+mainPad.PaddingTop = UDim.new(0, 0)
+
+local mainLayout = Instance.new("UIListLayout", pageMain)
+mainLayout.Padding = UDim.new(0, 10)
+mainLayout.FillDirection = Enum.FillDirection.Vertical
+
+-- ⭐ MAP SELECT
 local mapCtrl, mapLabel = mkControl(pageMain, "🎯 SELECT MAP")
 local mapSelect = Instance.new("TextButton", mapCtrl)
 mapSelect.Size = UDim2.new(1, 0, 0, 32)
@@ -383,26 +386,29 @@ mapSelect.TextColor3 = COLORS.text
 mapSelect.Font = Enum.Font.GothamBold
 mapSelect.TextSize = 11
 mapSelect.AutoButtonColor = false
-mapSelect.Parent = mapCtrl
 Instance.new("UICorner", mapSelect).CornerRadius = UDim.new(0, 6)
 
--- Dropdown list
-local mapScroll = Instance.new("ScrollingFrame", pageMain)
-mapScroll.Size = UDim2.new(1, 0, 0, 120)
-mapScroll.Position = UDim2.new(0, 0, 0, 0)
+-- Dropdown
+local mapDropdown = Instance.new("Frame", mapCtrl)
+mapDropdown.Size = UDim2.new(1, 0, 0, 0)
+mapDropdown.Position = UDim2.new(0, 0, 0, 56)
+mapDropdown.BackgroundTransparency = 1
+mapDropdown.Visible = false
+
+local mapScroll = Instance.new("ScrollingFrame", mapDropdown)
+mapScroll.Size = UDim2.new(1, 0, 0, 180)
 mapScroll.BackgroundColor3 = COLORS.bg3
 mapScroll.BorderSizePixel = 0
 mapScroll.ScrollBarThickness = 2
 mapScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 mapScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-mapScroll.Visible = false
-mapScroll.Parent = pageMain
 Instance.new("UICorner", mapScroll).CornerRadius = UDim.new(0, 6)
 
 local mPad = Instance.new("UIPadding", mapScroll)
 mPad.PaddingTop = UDim.new(0, 4)
 mPad.PaddingLeft = UDim.new(0, 4)
 mPad.PaddingRight = UDim.new(0, 4)
+mPad.PaddingBottom = UDim.new(0, 4)
 
 local mLayout = Instance.new("UIListLayout", mapScroll)
 mLayout.Padding = UDim.new(0, 3)
@@ -410,11 +416,25 @@ mLayout.Padding = UDim.new(0, 3)
 local selectedMaps = {}
 local mapRowBtns = {}
 
--- Add "Select All" button
+local function updateSelectedMaps()
+    local targets = {}
+    for _, m in ipairs(ALL_MAPS) do
+        if selectedMaps[m.name] then
+            table.insert(targets, m)
+        end
+    end
+    if #targets == 0 then
+        -- Nếu không chọn map nào → dùng tất cả
+        targets = ALL_MAPS
+    end
+    API.SetTargets(targets)
+end
+
+-- "All Maps" button
 local selAllBtn = Instance.new("TextButton", mapScroll)
-selAllBtn.Size = UDim2.new(1, -8, 0, 22)
+selAllBtn.Size = UDim2.new(1, -8, 0, 24)
 selAllBtn.BackgroundColor3 = COLORS.gold
-selAllBtn.Text = "All Maps"
+selAllBtn.Text = "✓ All Maps"
 selAllBtn.TextColor3 = Color3.new(0, 0, 0)
 selAllBtn.Font = Enum.Font.GothamBold
 selAllBtn.TextSize = 10
@@ -423,57 +443,59 @@ selAllBtn.AutoButtonColor = false
 Instance.new("UICorner", selAllBtn).CornerRadius = UDim.new(0, 4)
 
 selAllBtn.MouseButton1Click:Connect(function()
-    for _, m in ipairs(ALL_MAPS) do selectedMaps[m] = true end
+    for _, m in ipairs(ALL_MAPS) do selectedMaps[m.name] = true end
     mapSelect.Text = "All Maps  ▼"
     for _, item in ipairs(mapRowBtns) do
         item.btn.BackgroundColor3 = COLORS.green
         item.btn.TextColor3 = Color3.new(0, 0, 0)
     end
-    mapScroll.Visible = false
+    updateSelectedMaps()
+    mapDropdown.Visible = false
 end)
 
--- Add map items
+-- Map rows
 for _, m in ipairs(ALL_MAPS) do
     local b = Instance.new("TextButton", mapScroll)
-    b.Size = UDim2.new(1, -8, 0, 22)
+    b.Size = UDim2.new(1, -8, 0, 24)
     b.BackgroundColor3 = COLORS.bg3
-    b.Text = m
+    b.Text = m.name
     b.TextColor3 = COLORS.text
     b.Font = Enum.Font.GothamBold
     b.TextSize = 10
     b.TextXAlignment = Enum.TextXAlignment.Left
     b.AutoButtonColor = false
     Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
-    
-    table.insert(mapRowBtns, { btn = b, name = m })
-    
+
+    table.insert(mapRowBtns, { btn = b, name = m.name })
+
     b.MouseButton1Click:Connect(function()
-        selectedMaps[m] = not selectedMaps[m]
-        if selectedMaps[m] then
+        selectedMaps[m.name] = not selectedMaps[m.name]
+        if selectedMaps[m.name] then
             b.BackgroundColor3 = COLORS.green
             b.TextColor3 = Color3.new(0, 0, 0)
         else
             b.BackgroundColor3 = COLORS.bg3
             b.TextColor3 = COLORS.text
         end
-        
+
         local count = 0
         for _ in pairs(selectedMaps) do count = count + 1 end
         if count == 0 then
-            mapSelect.Text = "No Maps  ▼"
+            mapSelect.Text = "All Maps (default)  ▼"
         elseif count == #ALL_MAPS then
             mapSelect.Text = "All Maps  ▼"
         else
             mapSelect.Text = count .. " Maps  ▼"
         end
+        updateSelectedMaps()
     end)
 end
 
 mapSelect.MouseButton1Click:Connect(function()
-    mapScroll.Visible = not mapScroll.Visible
+    mapDropdown.Visible = not mapDropdown.Visible
 end)
 
--- ⭐ AUTO STEAL (Toggle Switch Pill)
+-- ⭐ AUTO STEAL
 local stealToggle = mkToggle(pageMain, "🔄 AUTO STEAL", false, function(state)
     if state then
         API.Start()
@@ -482,23 +504,49 @@ local stealToggle = mkToggle(pageMain, "🔄 AUTO STEAL", false, function(state)
     end
 end)
 
--- ⭐ SELECT VALUE (input)
-local valCtrl, valLabel = mkControl(pageMain, "💵 SELECT VALUE")
+-- ⭐ PRIORITY INCOME
+local bestToggle = mkToggle(pageMain, "⭐ ƯU TIÊN TIỀN CAO", false, function(state)
+    API.SetPriorityIncome(state)
+end)
+
+-- ⭐ THRESHOLD INPUT
+local valCtrl, valLabel = mkControl(pageMain, "💵 NGƯỠNG TIỀN ($/s)")
 local valInput = Instance.new("TextBox", valCtrl)
 valInput.Size = UDim2.new(1, 0, 0, 32)
 valInput.Position = UDim2.new(0, 0, 0, 20)
 valInput.BackgroundColor3 = COLORS.bg2
-valInput.Text = "100000"
+valInput.Text = "1000000"
 valInput.TextColor3 = COLORS.text
 valInput.Font = Enum.Font.GothamBold
 valInput.TextSize = 12
-valInput.PlaceholderText = "Enter value..."
-valInput.Parent = valCtrl
+valInput.PlaceholderText = "VD: 1000000"
+valInput.ClearTextOnFocus = false
 Instance.new("UICorner", valInput).CornerRadius = UDim.new(0, 6)
 
--- ⭐ STEAL BEST EGG (Toggle Switch Pill)
-local bestToggle = mkToggle(pageMain, "⭐ STEAL BEST EGG", false, function(state)
-    -- Custom logic here
+valInput.FocusLost:Connect(function()
+    local n = tonumber(valInput.Text)
+    if n and n > 0 then
+        API.SetPriorityThreshold(n)
+    else
+        valInput.Text = "1000000"
+    end
+end)
+
+-- ⭐ SYNC STATE với module mỗi 1s
+task.spawn(function()
+    while task.wait(1) do
+        -- Sync auto steal
+        local running = API.IsRunning()
+        if running ~= stealToggle.getState() then
+            stealToggle.setState(running)
+        end
+
+        -- Sync priority income
+        local prio = API.IsPriorityIncome()
+        if prio ~= bestToggle.getState() then
+            bestToggle.setState(prio)
+        end
+    end
 end)
 
 -- ═══════════════════════════════════════════════════════════════
@@ -510,26 +558,36 @@ pageESP.BackgroundTransparency = 1
 pageESP.Visible = false
 pages.esp = pageESP
 
-local espLabel = Instance.new("TextLabel", pageESP)
-espLabel.Size = UDim2.new(1, 0, 0, 30)
-espLabel.BackgroundTransparency = 1
-espLabel.Text = "👁 ESP SETTINGS"
-espLabel.TextColor3 = COLORS.text
-espLabel.Font = Enum.Font.GothamBold
-espLabel.TextSize = 12
+local espLayout = Instance.new("UIListLayout", pageESP)
+espLayout.Padding = UDim.new(0, 10)
 
--- ⭐ ESP Toggle (Toggle Switch Pill)
+local espHeader = Instance.new("TextLabel", pageESP)
+espHeader.Size = UDim2.new(1, 0, 0, 30)
+espHeader.BackgroundTransparency = 1
+espHeader.Text = "👁 ESP SETTINGS"
+espHeader.TextColor3 = COLORS.text
+espHeader.Font = Enum.Font.GothamBold
+espHeader.TextSize = 13
+espHeader.TextXAlignment = Enum.TextXAlignment.Left
+
 local espToggle = mkToggle(pageESP, "Enable ESP", false, function(state)
-    if state then
-        API.ESP_Enable()
-    else
-        API.ESP_Disable()
-    end
+    if state then API.ESP_Enable() else API.ESP_Disable() end
 end)
-espToggle.ctrl.Position = UDim2.new(0, 0, 0, 40)
 
 -- ══════════ INIT ══════════
 setTab("main")
-icon.MouseButton1Click:Connect(function() panel.Visible = not panel.Visible end)
 
-print("[Main] ✅ Ready v7 - Toggle Switch Edition!")
+-- ⭐ Mở/đóng panel
+icon.MouseButton1Click:Connect(function()
+    panel.Visible = not panel.Visible
+end)
+
+-- ⭐ RightShift để toggle panel
+UIS.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.RightShift then
+        panel.Visible = not panel.Visible
+    end
+end)
+
+print("[Main] ✅ Ready v9.3 - Fixed UI + Hooked!")
