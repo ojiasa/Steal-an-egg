@@ -35,7 +35,7 @@ _G.StealEgg = {
 
     SetPriorityIncome = function(on) if Steal then return Steal.setPriorityIncome(on) end end,
     IsPriorityIncome = function() return Steal and Steal.isPriorityIncome() or false end,
-    TogglePriorityIncome = function() if Steal then return Steal.togglePriorityIncome() end end,
+    TogglePriorityIncome = function() if Steal then Steal.togglePriorityIncome() end end,
     SetPriorityThreshold = function(n) if Steal then Steal.setPriorityThreshold(n) end end,
     GetPriorityThreshold = function() return Steal and Steal.getPriorityThreshold() or 1000000 end,
     ClearIncomeCache = function() if Steal then Steal.clearIncomeCache() end end,
@@ -46,7 +46,7 @@ _G.StealEgg = {
     ESP_IsEnabled = function() return ESP and ESP.isEnabled() or false end,
     ESP_SetMapFilter = function(list) if ESP then ESP.setMapFilter(list) end end,
 
-    Version = "2.3.0",
+    Version = "2.4.0",
 }
 local API = _G.StealEgg
 _G.MyScript = API
@@ -64,18 +64,18 @@ local function getParent()
 end
 local PARENT = getParent()
 
--- 1. BẢNG MÀU TRẮNG - XÁM (Đã loại bỏ hoàn toàn màu xanh nước biển)
+-- 1. BẢNG MÀU TRẮNG XÁM (Độ trong suốt trong kính mờ chuẩn ảnh 3)
 local COLORS = {
-    bg          = Color3.fromRGB(225, 228, 233), -- Nền khung chính xám sáng
-    card        = Color3.fromRGB(245, 247, 250), -- Ô tính năng trắng mờ
-    cardBorder  = Color3.fromRGB(200, 205, 212), -- Viền xám nhẹ
-    sidebar     = Color3.fromRGB(210, 214, 222), -- Nền sidebar xám vừa
-    activeBtn   = Color3.fromRGB(130, 135, 145), -- Xám sẫm khi chọn nút
+    bg          = Color3.fromRGB(215, 220, 228),
+    card        = Color3.fromRGB(255, 255, 255),
+    cardBorder  = Color3.fromRGB(180, 185, 195),
+    sidebar     = Color3.fromRGB(195, 200, 210),
+    activeBtn   = Color3.fromRGB(110, 115, 125),
     activeText  = Color3.fromRGB(255, 255, 255),
-    textBold    = Color3.fromRGB(25, 28, 35),    -- Chữ đen / xám đậm nổi bật
-    textDim     = Color3.fromRGB(90, 95, 105),
-    toggleOn    = Color3.fromRGB(80, 85, 95),    -- Nút gạt màu xám đậm khi bật
-    toggleOff   = Color3.fromRGB(190, 195, 202),   -- Nút gạt xám nhạt khi tắt
+    textBold    = Color3.fromRGB(15, 18, 25),    -- Chữ Đen/Xám đậm nổi bật
+    textDim     = Color3.fromRGB(80, 85, 95),
+    toggleOn    = Color3.fromRGB(70, 75, 85),
+    toggleOff   = Color3.fromRGB(190, 195, 205),
     white       = Color3.fromRGB(255, 255, 255),
 }
 
@@ -99,9 +99,9 @@ sg.ResetOnSpawn = false
 sg.DisplayOrder = 999999
 sg.Parent = PARENT
 
--- 2. Icon nổi ngoài màn hình (Tăng kích thước to hơn: 48x48)
+-- 4. Icon mở UI nổi (Tăng kích thước lên 44x44)
 local icon = Instance.new("ImageButton")
-icon.Size = UDim2.new(0, 48, 0, 48)
+icon.Size = UDim2.new(0, 44, 0, 44)
 icon.Position = UDim2.new(0, 15, 0.4, 0)
 icon.BackgroundColor3 = COLORS.bg
 icon.BorderSizePixel = 0
@@ -113,12 +113,12 @@ local istk = Instance.new("UIStroke", icon)
 istk.Color = COLORS.cardBorder
 istk.Thickness = 2
 
--- 2. Khung chính MainFrame (Kéo dài 440px, giảm chiều cao 210px)
+-- 1 & 4. Khung chính MainFrame (Hình chữ nhật 460x195, BackgroundTransparency = 0.55)
 local panel = Instance.new("Frame")
-panel.Size = UDim2.new(0, 440, 0, 210)
-panel.Position = UDim2.new(0.5, -220, 0.35, -105)
+panel.Size = UDim2.new(0, 460, 0, 195)
+panel.Position = UDim2.new(0.5, -230, 0.35, -97)
 panel.BackgroundColor3 = COLORS.bg
-panel.BackgroundTransparency = 0.18 -- Độ mờ Transparency khoảng 0.15 - 0.2
+panel.BackgroundTransparency = 0.55 -- Tăng độ trong suốt để lộ ảnh nền ở dưới
 panel.BorderSizePixel = 0
 panel.ClipsDescendants = false
 panel.Visible = false
@@ -130,28 +130,28 @@ local pstk = Instance.new("UIStroke", panel)
 pstk.Color = COLORS.cardBorder
 pstk.Thickness = 1.5
 
--- Background Image
+-- 1. Ảnh nền hiển thị rõ ràng (ImageTransparency = 0.25)
 local bgImg = Instance.new("ImageLabel", panel)
 bgImg.Size = UDim2.new(1, 0, 1, 0)
 bgImg.BackgroundTransparency = 1
 bgImg.ScaleType = Enum.ScaleType.Crop
 bgImg.Image = BACKGROUND_ID
-bgImg.ImageTransparency = 0.6
+bgImg.ImageTransparency = 0.25 -- Giảm mờ để hiện ảnh rõ ràng như ảnh 3
 bgImg.ZIndex = 0
 Instance.new("UICorner", bgImg).CornerRadius = UDim.new(0, 10)
 
--- Icon góc trên trái (To hơn: 24x24)
+-- 4. Icon ở góc trên trái (Kích thước 36x36)
 local topIcon = Instance.new("ImageLabel", panel)
-topIcon.Size = UDim2.new(0, 24, 0, 24)
-topIcon.Position = UDim2.new(0, 10, 0, 6)
+topIcon.Size = UDim2.new(0, 26, 0, 26)
+topIcon.Position = UDim2.new(0, 8, 0, 5)
 topIcon.BackgroundTransparency = 1
 topIcon.Image = ICON_ID
 topIcon.ZIndex = 2
 
--- Tiêu đề chữ Đen/Xám đậm, In đậm
+-- 1. Tiêu đề Đen/Xám đậm In đậm
 local title = Instance.new("TextLabel", panel)
-title.Size = UDim2.new(1, -40, 0, 24)
-title.Position = UDim2.new(0, 40, 0, 6)
+title.Size = UDim2.new(1, -45, 0, 26)
+title.Position = UDim2.new(0, 38, 0, 5)
 title.BackgroundTransparency = 1
 title.Text = "STEAL AN EGG HUB"
 title.Font = Enum.Font.GothamBold
@@ -160,12 +160,12 @@ title.TextColor3 = COLORS.textBold
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.ZIndex = 2
 
--- 2. Sidebar (Tăng chiều rộng lên 115px cho dễ bấm)
+-- 4. Cột bên trái (Sidebar) tăng chiều rộng lên 125px cho dễ bấm
 local sidebar = Instance.new("Frame", panel)
 sidebar.Position = UDim2.new(0, 10, 0, 36)
-sidebar.Size = UDim2.new(0, 115, 1, -46)
+sidebar.Size = UDim2.new(0, 125, 1, -44)
 sidebar.BackgroundColor3 = COLORS.sidebar
-sidebar.BackgroundTransparency = 0.3
+sidebar.BackgroundTransparency = 0.4
 sidebar.BorderSizePixel = 0
 sidebar.ZIndex = 2
 Instance.new("UICorner", sidebar).CornerRadius = UDim.new(0, 8)
@@ -179,10 +179,10 @@ sidePad.PaddingBottom = UDim.new(0, 4)
 local sideLayout = Instance.new("UIListLayout", sidebar)
 sideLayout.Padding = UDim.new(0, 4)
 
--- Content Area
+-- Khu vực nội dung bên phải
 local content = Instance.new("Frame", panel)
-content.Position = UDim2.new(0, 132, 0, 36)
-content.Size = UDim2.new(1, -142, 1, -46)
+content.Position = UDim2.new(0, 142, 0, 36)
+content.Size = UDim2.new(1, -152, 1, -44)
 content.BackgroundTransparency = 1
 content.ZIndex = 2
 
@@ -206,6 +206,7 @@ local function mkTab(id, text)
     local b = Instance.new("TextButton", sidebar)
     b.Size = UDim2.new(1, 0, 0, 32)
     b.BackgroundColor3 = COLORS.card
+    b.BackgroundTransparency = 0.2
     b.Text = text
     b.Font = Enum.Font.GothamBold
     b.TextSize = 11
@@ -216,7 +217,7 @@ local function mkTab(id, text)
     local bStk = Instance.new("UIStroke", b)
     bStk.Color = COLORS.cardBorder
     bStk.Thickness = 1
-    
+
     b.MouseButton1Click:Connect(function() setTab(id) end)
     table.insert(tabBtns, { btn = b, id = id })
     return b
@@ -227,12 +228,12 @@ mkTab("esp",  "ESP")
 
 -- ══════════ TÍNH NĂNG GIAO DIỆN ══════════
 
--- 1 & 4. Toggle Switch Mảnh + TextBox (Ô tính năng trắng mờ viền xám nhẹ)
-local function createToggleRow(parent, labelText, defaultState, hasTextBox, defaultVal, onToggle, onInputChanged)
+-- 3. Ô tính năng Steal Best Egg (value m) + Ô TextBox nhập số (Tự động nhân 1M)
+local function createToggleRow(parent, labelText, defaultState, hasTextBox, onToggle, onInputChanged)
     local container = Instance.new("Frame", parent)
     container.Size = UDim2.new(1, -6, 0, 32)
     container.BackgroundColor3 = COLORS.card
-    container.BackgroundTransparency = 0.2
+    container.BackgroundTransparency = 0.45 -- Trắng mờ đẹp mắt
     container.ZIndex = 3
     Instance.new("UICorner", container).CornerRadius = UDim.new(0, 6)
     local cStk = Instance.new("UIStroke", container)
@@ -255,11 +256,12 @@ local function createToggleRow(parent, labelText, defaultState, hasTextBox, defa
         box.Size = UDim2.new(0, 50, 0, 20)
         box.Position = UDim2.new(1, -95, 0.5, -10)
         box.BackgroundColor3 = COLORS.white
+        box.BackgroundTransparency = 0.2
         box.TextColor3 = COLORS.textBold
         box.Font = Enum.Font.GothamBold
         box.TextSize = 10
-        box.Text = tostring(defaultVal or "1M")
-        box.PlaceholderText = "1M"
+        box.Text = "" -- Xóa chữ "1M" cố định
+        box.PlaceholderText = "1"
         box.ZIndex = 4
         Instance.new("UICorner", box).CornerRadius = UDim.new(0, 4)
         local bStk = Instance.new("UIStroke", box)
@@ -267,7 +269,10 @@ local function createToggleRow(parent, labelText, defaultState, hasTextBox, defa
         bStk.Thickness = 1
 
         box.FocusLost:Connect(function()
-            if onInputChanged then onInputChanged(box.Text) end
+            local num = tonumber(box.Text)
+            if num and onInputChanged then
+                onInputChanged(num * 1000000) -- Tự động hiểu nhập 1 là 1M, 10 là 10M
+            end
         end)
     end
 
@@ -309,7 +314,7 @@ local function createToggleRow(parent, labelText, defaultState, hasTextBox, defa
     return container
 end
 
--- 3. Select Map nằm hoàn toàn bên trong khung, gọn gàng, Multi-select + Xác nhận
+-- 2. Dropdown Select Map chuẩn kích thước, neo chính xác bên dưới "All Maps --"
 local function createMultiSelectDropdown(parent, labelText, options, callback)
     local container = Instance.new("Frame", parent)
     container.Size = UDim2.new(1, -6, 0, 32)
@@ -331,6 +336,7 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     dropBtn.Size = UDim2.new(1, -85, 1, 0)
     dropBtn.Position = UDim2.new(0, 85, 0, 0)
     dropBtn.BackgroundColor3 = COLORS.card
+    dropBtn.BackgroundTransparency = 0.3
     dropBtn.Text = "All Maps --"
     dropBtn.TextColor3 = COLORS.textDim
     dropBtn.Font = Enum.Font.GothamBold
@@ -342,14 +348,14 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     dStk.Color = COLORS.cardBorder
     dStk.Thickness = 1
 
-    -- Dropdown Menu (Khóa cố định bên trong MainFrame)
+    -- Bảng xổ xuống Dropdown (Parented vào panel để không bị che clip)
     local dropMenu = Instance.new("Frame", panel)
-    dropMenu.Size = UDim2.new(0, 160, 0, 130)
     dropMenu.BackgroundColor3 = COLORS.card
+    dropMenu.BackgroundTransparency = 0.1
     dropMenu.BorderSizePixel = 0
     dropMenu.Visible = false
     dropMenu.ZIndex = 100
-    Instance.new("UICorner", dropMenu).CornerRadius = UDim.new(0, 8)
+    Instance.new("UICorner", dropMenu).CornerRadius = UDim.new(0, 6)
     local dstk = Instance.new("UIStroke", dropMenu)
     dstk.Color = COLORS.activeBtn
     dstk.Thickness = 1.5
@@ -370,8 +376,9 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
 
     for _, opt in ipairs(options) do
         local optBtn = Instance.new("TextButton", scroll)
-        optBtn.Size = UDim2.new(1, 0, 0, 22)
+        optBtn.Size = UDim2.new(1, 0, 0, 22) -- Giãn full chiều rộng
         optBtn.BackgroundColor3 = selectedMaps[opt] and COLORS.sidebar or COLORS.card
+        optBtn.BackgroundTransparency = 0.2
         optBtn.Text = "  " .. opt .. (selectedMaps[opt] and "  ✓" or "")
         optBtn.TextColor3 = COLORS.textBold
         optBtn.Font = Enum.Font.GothamMedium
@@ -387,6 +394,7 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
         end)
     end
 
+    -- Nút "Xác nhận" ở dưới cùng
     local confirmBtn = Instance.new("TextButton", dropMenu)
     confirmBtn.Size = UDim2.new(1, 0, 0, 24)
     confirmBtn.Position = UDim2.new(0, 0, 1, -24)
@@ -396,7 +404,7 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     confirmBtn.Font = Enum.Font.GothamBold
     confirmBtn.TextSize = 10
     confirmBtn.ZIndex = 102
-    Instance.new("UICorner", confirmBtn).CornerRadius = UDim.new(0, 6)
+    Instance.new("UICorner", confirmBtn).CornerRadius = UDim.new(0, 4)
 
     confirmBtn.MouseButton1Click:Connect(function()
         dropMenu.Visible = false
@@ -419,8 +427,10 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     dropBtn.MouseButton1Click:Connect(function()
         dropMenu.Visible = not dropMenu.Visible
         if dropMenu.Visible then
-            local pos = container.AbsolutePosition - panel.AbsolutePosition
-            dropMenu.Position = UDim2.new(0, pos.X + 85, 0, pos.Y + 34)
+            -- Neo chính xác vị trí và đồng nhất chiều rộng với nút "All Maps --"
+            local absPos = dropBtn.AbsolutePosition - panel.AbsolutePosition
+            dropMenu.Position = UDim2.new(0, absPos.X, 0, absPos.Y + dropBtn.AbsoluteSize.Y + 3)
+            dropMenu.Size = UDim2.new(0, dropBtn.AbsoluteSize.X, 0, 120)
         end
     end)
 
@@ -440,20 +450,22 @@ pages.main = pageMain
 local mainLayout = Instance.new("UIListLayout", pageMain)
 mainLayout.Padding = UDim.new(0, 6)
 
+-- Select Map đưa lên đầu
 local mapDrop = createMultiSelectDropdown(pageMain, "Select Map", ALL_MAPS, function(list)
     API.SetTargets(list)
 end)
 mapDrop.LayoutOrder = 1
 
-local bestEggToggle = createToggleRow(pageMain, "Steal Best Egg", API.IsPriorityIncome(), true, "1M", function(state)
+-- 3. Steal Best Egg (value m)
+local bestEggToggle = createToggleRow(pageMain, "Steal Best Egg (value m)", API.IsPriorityIncome(), true, function(state)
     API.SetPriorityIncome(state)
-end, function(val)
-    local num = tonumber(val)
-    if num then API.SetPriorityThreshold(num) end
+end, function(value)
+    API.SetPriorityThreshold(value)
 end)
 bestEggToggle.LayoutOrder = 2
 
-local autoFarmToggle = createToggleRow(pageMain, "Auto Steal Egg", false, false, nil, function(state)
+-- Auto Steal Egg
+local autoFarmToggle = createToggleRow(pageMain, "Auto Steal Egg", false, false, function(state)
     if state then API.Start() else API.Stop() end
 end, nil)
 autoFarmToggle.LayoutOrder = 3
@@ -472,22 +484,18 @@ pages.esp = pageESP
 local espLayout = Instance.new("UIListLayout", pageESP)
 espLayout.Padding = UDim.new(0, 6)
 
-createToggleRow(pageESP, "ESP Egg", API.ESP_IsEnabled(), false, nil, function(state)
+createToggleRow(pageESP, "ESP Egg", API.ESP_IsEnabled(), false, function(state)
     API.ESP_Toggle()
 end, nil)
 
--- 5. TAY NẮM KÉO DÃN (RESIZE HANDLE) Ở GÓC DƯỚI CÙNG BÊN PHẢI
+-- TAY NẮM KÉO DÃN (RESIZE HANDLE) TÀNG HÌNH HOÀN TOÀN
 local resizeBtn = Instance.new("TextButton", panel)
-resizeBtn.Size = UDim2.new(0, 16, 0, 16)
-resizeBtn.Position = UDim2.new(1, -16, 1, -16)
-resizeBtn.BackgroundColor3 = COLORS.cardBorder
-resizeBtn.Text = "◢"
-resizeBtn.TextColor3 = COLORS.textBold
-resizeBtn.Font = Enum.Font.GothamBold
-resizeBtn.TextSize = 10
+resizeBtn.Size = UDim2.new(0, 20, 0, 20)
+resizeBtn.Position = UDim2.new(1, -20, 1, -20)
+resizeBtn.BackgroundTransparency = 1 -- Tàn hình hoàn toàn
+resizeBtn.Text = "" -- Không hiển thị biểu tượng
 resizeBtn.AutoButtonColor = false
 resizeBtn.ZIndex = 10
-Instance.new("UICorner", resizeBtn).CornerRadius = UDim.new(0, 4)
 
 local resizing = false
 local startSize, startMousePos
@@ -503,8 +511,8 @@ end)
 UserInputService.InputChanged:Connect(function(input)
     if resizing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         local delta = input.Position - startMousePos
-        local newWidth = math.max(350, startSize.X.Offset + delta.X)
-        local newHeight = math.max(180, startSize.Y.Offset + delta.Y)
+        local newWidth = math.max(360, startSize.X.Offset + delta.X)
+        local newHeight = math.max(160, startSize.Y.Offset + delta.Y)
         panel.Size = UDim2.new(0, newWidth, 0, newHeight)
     end
 end)
@@ -530,13 +538,13 @@ icon.MouseButton1Click:Connect(function()
         panel.Size = UDim2.new(0, 100, 0, 60)
         panel.BackgroundTransparency = 1
         TweenService:Create(panel, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-            Size = UDim2.new(0, 440, 0, 210),
-            BackgroundTransparency = 0.18
+            Size = UDim2.new(0, 460, 0, 195),
+            BackgroundTransparency = 0.55
         }):Play()
     end
 end)
 
 API.OnLog(function(msg) print("[StealEgg] " .. msg) end)
 
-print("[Main] ✅ Ready v2.3 - White-Gray Theme & Resize Support!")
+print("[Main] ✅ Ready v2.4 - Fully Fixed Dropdown, Glass Effect & Invisible Resize!")
 
