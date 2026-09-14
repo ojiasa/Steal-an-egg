@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v8 — Priority Income + Threshold 1M/s
+-- STEAL MODULE v8.1 — Fix Priority Income (đọc fresh data, no cache)
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -30,11 +30,9 @@ local config = {
     TARGETS        = { { name = "Snow", pos = Vector3.new(1405.1, 68.0, -363.8) } },
     PREFER_FAR     = true,
 
-    -- ⭐ Priority Income
     PRIORITY_INCOME    = false,
-    PRIORITY_THRESHOLD = 1000000,   -- 1M/s
+    PRIORITY_THRESHOLD = 1000000,
 
-    -- Core
     SPEED          = 1500,
     SPEED_CAP      = 500,
     MAP_RADIUS     = 800,
@@ -59,7 +57,6 @@ end
 
 function M.onLog(cb) if type(cb) == "function" then table.insert(logCallbacks, cb) end end
 
--- ══════════ HELPERS ══════════
 local function getHRP() local c = P.Character; return c and c:FindFirstChild("HumanoidRootPart") end
 local function getHum() local c = P.Character; return c and c:FindFirstChildOfClass("Humanoid") end
 
@@ -99,7 +96,6 @@ end
 
 -- ══════════ INCOME MODULES ══════════
 local AssetEarnings, EggState
-local incomeCache = {}
 
 pcall(function()
     local s = RS:WaitForChild("Shared", 5)
@@ -116,65 +112,113 @@ pcall(function()
     end
 end)
 
-local function getEggIncomeByUid(uid)
-    if not AssetEarnings or not EggState or not uid then return 0 end
-    if incomeCache[uid] ~= nil then return incomeCache[uid] end
-
-    local ok, fd = pcall(EggState.ReadFieldEggs)
-    if not ok or type(fd) ~= "table" or type(fd.Records) ~= "table" then
-        return 0
+-- ⭐ Tính income (không cache)
+local function calcIncome(eggData)
+    if not AssetEarnings then return 0 end
+    local input = {
+        Category = eggData.AssetCategory,
+        Scale = eggData.AssetScale or 1,
+        Mutations = eggData.Mutations or {},
+    }
+    local income = 0
+    local ok, val = pcall(AssetEarnings.LiveRatePerSecond, input)
+    if ok and type(val) == "number" and val > 0 then income = val end
+    if income == 0 then
+        ok, val = pcall(AssetEarnings.RatePerSecond, input)
+        if ok and type(val) == "number" and val > 0 then income = val end
     end
-
-    for _, eggData in pairs(fd.Records) do
-        if eggData.Uid == uid then
-            local input = {
-                Category = eggData.AssetCategory,
-                Scale = eggData.AssetScale or 1,
-                Mutations = eggData.Mutations or {},
-            }
-            local r
-            local ok2, val = pcall(AssetEarnings.LiveRatePerSecond, input)
-            if ok2 and type(val) == "number" and val > 0 then r = val end
-            if not r then
-                ok2, val = pcall(AssetEarnings.RatePerSecond, input)
-                if ok2 and type(val) == "number" and val > 0 then r = val end
-            end
-            incomeCache[uid] = r or 0
-            return r or 0
-        end
-    end
-    return 0
+    return income
 end
 
-local function getEggUidFromPrompt(prompt)
-    local part = prompt.Parent
-    if part and part:IsA("Attachment") then part = part.Parent end
-    if not part or not part:IsA("BasePart") then return nil end
-
-    local ppos = part.Position
-    local slots = W:FindFirstChild("AreaEggSlotsClient")
-    if not slots then return nil end
-
-    local closestSlot, closestDist = nil, 10
-    for _, slot in ipairs(slots:GetChildren()) do
-        local hitbox = slot:FindFirstChild("Hitbox")
-        if hitbox and hitbox:IsA("BasePart") then
-            local d = (hitbox.Position - ppos).Magnitude
-            if d < closestDist then
-                closestSlot, closestDist = slot, d
-            end
-        end
-    end
-    return closestSlot and closestSlot.Name or nil
+local function formatIncome(n)
+    if n >= 1e9 then return string.format("%.2fB", n / 1e9) end
+    if n >= 1e6 then return string.format("%.2fM", n / 1e6) end
+    if n >= 1e3 then return string.format("%.2fK", n / 1e3) end
+    return string.format("%.0f", n)
 end
 
--- ⭐⭐⭐ FIND EGG INCOME CAO NHẤT
+-- ⭐⭐⭐⭐⭐ FIND EGG INCOME CAO NHẤT — FIX HOÀN TOÀN
 local function findHighestIncomeEgg()
     local hrp = getHRP()
     if not hrp then return nil, nil, nil, nil end
 
-    local best = nil
-    local bestIncome = config.PRIORITY_THRESHOLD or 0
+    if not EggState or not AssetEarnings then
+        log("❌ EggState/AssetEarnings nil")
+        return nil, nil, nil, nil
+    end
+
+    -- ⭐ BƯỚC 1: Đọc fresh data từ ReadFieldEggs
+    local ok, fd = pcall(EggState.ReadFieldEggs)
+    if not ok or type(fd) ~= "table" or type(fd.Records) ~= "table" then
+        log("❌ ReadFieldEggs fail")
+        return nil, nil, nil, nil
+    end
+
+    -- ⭐ BƯỚC 2: Build list egg + income + pos + map
+    local candidates = {}
+    local threshold = config.PRIORITY_THRESHOLD or 0
+
+    for uid, eggData in pairs(fd.Records) do
+        local cf = eggData.BoundsCFrame
+        if cf then
+            local pos = cf.Position
+            -- Bỏ egg ở lobby
+            if dist(pos, config.HOME_POS) > 150 then
+                local income = calcIncome(eggData)
+
+                -- ⭐ Filter theo threshold
+                if income >= threshold then
+                    -- Tìm map gần nhất
+                    local nearestMap, nearestDist = nil, 99999
+                    for _, m in ipairs(ALL_MAPS) do
+                        local d = dist(pos, m.pos)
+                        if d < nearestDist then
+                            nearestMap = m
+                            nearestDist = d
+                        end
+                    end
+
+                    if nearestMap then
+                        table.insert(candidates, {
+                            uid = uid,
+                            pos = pos,
+                            income = income,
+                            map = nearestMap,
+                            category = eggData.AssetCategory,
+                            scale = eggData.AssetScale,
+                            mutation = eggData.BaseMutation,
+                        })
+                    end
+                end
+            end
+        end
+    end
+
+    if #candidates == 0 then
+        log(string.format("⚠ Không có egg >= $%s/s", formatIncome(threshold)))
+        return nil, nil, nil, nil
+    end
+
+    -- ⭐ BƯỚC 3: Sort DESC theo income
+    table.sort(candidates, function(a, b)
+        return a.income > b.income
+    end)
+
+    -- ⭐ BƯỚC 4: Log top 5
+    log("💰 TOP egg income (>= $" .. formatIncome(threshold) .. "/s):")
+    for i = 1, math.min(5, #candidates) do
+        local c = candidates[i]
+        local mut = c.mutation and (" [" .. c.mutation .. "]") or ""
+        log(string.format("  [%d] %s%s @ %s = $%s/s",
+            i, c.category, mut, c.map.name, formatIncome(c.income)))
+    end
+
+    -- ⭐ BƯỚC 5: Chọn egg top 1
+    local best = candidates[1]
+
+    -- ⭐ BƯỚC 6: Tìm prompt gần vị trí egg best (trong 20 studs)
+    local bestPrompt = nil
+    local bestDist = 20
 
     for _, v in ipairs(W:GetDescendants()) do
         if v:IsA("ProximityPrompt") and v.Enabled and not stolenPrompts[v] then
@@ -189,45 +233,29 @@ local function findHighestIncomeEgg()
                 elseif part and part.Parent and part.Parent:IsA("BasePart") then
                     ppos = part.Parent.Position end
 
-                if ppos and dist(ppos, config.HOME_POS) > 150 then
-                    local uid = getEggUidFromPrompt(v)
-                    if uid then
-                        local income = getEggIncomeByUid(uid)
-                        if income > bestIncome then
-                            local nearestMap, nearestDist = nil, 99999
-                            for _, m in ipairs(ALL_MAPS) do
-                                local d = dist(ppos, m.pos)
-                                if d < nearestDist then
-                                    nearestMap = m
-                                    nearestDist = d
-                                end
-                            end
-                            if nearestMap then
-                                bestIncome = income
-                                best = {
-                                    prompt = v,
-                                    pos = ppos,
-                                    map = nearestMap,
-                                    income = income,
-                                    uid = uid,
-                                }
-                            end
-                        end
+                if ppos then
+                    local d = (ppos - best.pos).Magnitude
+                    if d < bestDist then
+                        bestPrompt = v
+                        bestDist = d
                     end
                 end
             end
         end
     end
 
-    if best then
-        log(string.format("🎯 Best income: %s @ %s = $%.2f/s",
-            best.uid:sub(1, 20), best.map.name, best.income))
-        return best.prompt, best.pos, best.income, best.map
+    if not bestPrompt then
+        log(string.format("⚠ Không tìm prompt cho %s (tìm trong 20 studs)", best.category))
+        return nil, nil, nil, nil
     end
-    return nil, nil, nil, nil
+
+    log(string.format("🎯 CHỌN: %s @ %s = $%s/s",
+        best.category, best.map.name, formatIncome(best.income)))
+
+    return bestPrompt, best.pos, best.income, best.map
 end
 
--- ⭐⭐⭐ FIND EGG TRONG TARGET MAPS (multi-map)
+-- ⭐ FIND EGG trong TARGET MAPS (multi-map)
 local function findEggInTargets()
     local hrp = getHRP()
     if not hrp then return nil, nil, nil, nil end
@@ -266,16 +294,7 @@ local function findEggInTargets()
 
     if #candidates == 0 then return nil, nil, nil, nil end
 
-    -- ⭐ Sort theo mode
-    if config.PRIORITY_INCOME then
-        for _, c in ipairs(candidates) do
-            local uid = getEggUidFromPrompt(c.prompt)
-            c.income = uid and getEggIncomeByUid(uid) or 0
-        end
-        table.sort(candidates, function(a, b)
-            return a.income > b.income
-        end)
-    elseif config.PREFER_FAR then
+    if config.PREFER_FAR then
         table.sort(candidates, function(a, b)
             return a.dFromHome > b.dFromHome
         end)
@@ -466,7 +485,6 @@ local function firePromptOnce(prompt)
     return true
 end
 
--- ══════════ MOVEMENT ══════════
 local function velocityMoveTo(targetPos, timeout, manual)
     timeout = timeout or 20
     local hum, hrp = getHum(), getHRP()
@@ -630,7 +648,6 @@ local function stealAtPos(targetPos, label)
     return false
 end
 
--- ══════════ MAIN LOOP ══════════
 local function mainLoop()
     while isRunning do
         log("═══════════════════════")
@@ -682,18 +699,15 @@ local function mainLoop()
                     local gotKnockback = baitBoss(config.BAIT_TIMEOUT)
 
                     if gotKnockback then
-                        -- ⭐ KIỂM TRA MODE
                         local eggPrompt, eggPos, eggDist, eggMap
 
                         if config.PRIORITY_INCOME then
                             log("💰 Mode: ƯU TIÊN TIỀN CAO (min $" ..
-                                (config.PRIORITY_THRESHOLD / 1e6) .. "M/s)")
+                                formatIncome(config.PRIORITY_THRESHOLD) .. "/s)")
                             eggPrompt, eggPos, eggDist, eggMap = findHighestIncomeEgg()
 
-                            -- ⭐ Nếu không có egg nào > ngưỡng → DỪNG
                             if not eggPos then
-                                log("⚠ Không có egg nào đạt ngưỡng $" ..
-                                    (config.PRIORITY_THRESHOLD / 1e6) .. "M/s → DỪNG")
+                                log("⚠ Không có egg đạt ngưỡng → DỪNG")
                                 isRunning = false
                                 break
                             end
@@ -756,7 +770,6 @@ local function mainLoop()
     end
 end
 
--- ══════════ BYPASS ══════════
 local bypassInstalled = false
 local function installBypass()
     if bypassInstalled then return end
@@ -794,7 +807,6 @@ function M.start()
     installBypass()
     stolenPrompts = {}
     deliveryFailed = false
-    incomeCache = {}
     isRunning = true
     log("▶ START — " .. #config.TARGETS .. " map(s)")
     task.spawn(mainLoop)
@@ -816,34 +828,21 @@ function M.setTarget(name, pos)
     log("🎯 Target: " .. name)
 end
 
--- ⭐ Priority Income API
 function M.setPriorityIncome(enabled)
     config.PRIORITY_INCOME = enabled and true or false
     log("💰 Ưu tiên tiền cao: " .. (enabled and "BẬT" or "TẮT"))
     return config.PRIORITY_INCOME
 end
 
-function M.isPriorityIncome()
-    return config.PRIORITY_INCOME
-end
-
-function M.togglePriorityIncome()
-    return M.setPriorityIncome(not config.PRIORITY_INCOME)
-end
+function M.isPriorityIncome() return config.PRIORITY_INCOME end
+function M.togglePriorityIncome() return M.setPriorityIncome(not config.PRIORITY_INCOME) end
 
 function M.setPriorityThreshold(amount)
     config.PRIORITY_THRESHOLD = amount or 1000000
-    log("💰 Ngưỡng: $" .. (config.PRIORITY_THRESHOLD / 1e6) .. "M/s")
+    log("💰 Ngưỡng: $" .. formatIncome(config.PRIORITY_THRESHOLD) .. "/s")
 end
 
-function M.getPriorityThreshold()
-    return config.PRIORITY_THRESHOLD
-end
-
-function M.clearIncomeCache()
-    incomeCache = {}
-    log("🔄 Income cache cleared")
-end
+function M.getPriorityThreshold() return config.PRIORITY_THRESHOLD end
 
 function M.getAllMaps() return ALL_MAPS end
 function M.setHome(p) if p then config.HOME_POS = p; log("📍 Home") end end
