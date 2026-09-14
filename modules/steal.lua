@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v9 — Đơn giản, tele thẳng tới egg $/s cao nhất
+-- STEAL MODULE v9.1 — FIX văng trời + stop không dừng
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -43,6 +43,11 @@ local config = {
     MAX_RETRY      = 3,
     STEAL_VERIFY_WAIT = 0.35,
     CHAT_WAIT      = 2.0,
+
+    -- ⭐ Anti-launch
+    ANTI_LAUNCH_TIME = 2.5,
+    ANTI_LAUNCH_Y    = 15,
+    ANTI_LAUNCH_MAG  = 250,
 }
 
 local isRunning      = false
@@ -136,10 +141,8 @@ local function formatIncome(n)
     return string.format("%.0f", n)
 end
 
--- ⭐⭐⭐⭐⭐ LẤY DANH SÁCH EGG (dùng chung cho cả 2 mode)
 local function getEggCandidates()
     local candidates = {}
-
     if not EggState then return candidates end
 
     local ok, fd = pcall(EggState.ReadFieldEggs)
@@ -153,8 +156,6 @@ local function getEggCandidates()
             local pos = cf.Position
             if dist(pos, config.HOME_POS) > 150 then
                 local income = calcIncome(eggData)
-
-                -- Tìm map gần nhất
                 local nearestMap, nearestDist = nil, 99999
                 for _, m in ipairs(ALL_MAPS) do
                     local d = dist(pos, m.pos)
@@ -163,7 +164,6 @@ local function getEggCandidates()
                         nearestDist = d
                     end
                 end
-
                 if nearestMap then
                     table.insert(candidates, {
                         uid = uid,
@@ -178,41 +178,37 @@ local function getEggCandidates()
             end
         end
     end
-
     return candidates
 end
 
--- ⭐ Chọn egg tốt nhất (theo mode)
 local function pickBestEgg()
-    local candidates = getEggCandidates()
+    if not isRunning then return nil end
 
+    local candidates = getEggCandidates()
     if #candidates == 0 then
         log("⚠ Không có egg nào trên field")
         return nil
     end
 
-    -- Filter theo target maps (nếu không phải priority income)
+    -- Filter theo target maps (dùng dist thay vì name để chính xác)
     if not config.PRIORITY_INCOME then
         local filtered = {}
         for _, c in ipairs(candidates) do
             for _, tgt in ipairs(config.TARGETS) do
-                if c.map.name == tgt.name then
+                if dist(c.pos, tgt.pos) < 500 then
                     table.insert(filtered, c)
                     break
                 end
             end
         end
         candidates = filtered
-
         if #candidates == 0 then
             log("⚠ Không có egg trong map target")
             return nil
         end
     end
 
-    -- ⭐ Sort
     if config.PRIORITY_INCOME then
-        -- Filter threshold
         local filtered = {}
         for _, c in ipairs(candidates) do
             if c.income >= config.PRIORITY_THRESHOLD then
@@ -220,7 +216,6 @@ local function pickBestEgg()
             end
         end
         candidates = filtered
-
         if #candidates == 0 then
             log("⚠ Không có egg >= $" .. formatIncome(config.PRIORITY_THRESHOLD) .. "/s")
             return nil
@@ -228,7 +223,6 @@ local function pickBestEgg()
 
         table.sort(candidates, function(a, b) return a.income > b.income end)
 
-        -- Log top 3
         log("💰 TOP 3 egg:")
         for i = 1, math.min(3, #candidates) do
             local c = candidates[i]
@@ -255,7 +249,6 @@ local function pickBestEgg()
     return best
 end
 
--- ⭐ TÌM PROMPT GẦN VỊ TRÍ EGG
 local function findPromptNear(pos, radius)
     radius = radius or 20
     local best, bestDist = nil, radius
@@ -281,7 +274,7 @@ local function findPromptNear(pos, radius)
     return best, bestDist
 end
 
--- ⭐ ANIMATION
+-- ══════════ ANIMATION ══════════
 local function restoreAnimations()
     local c = P.Character
     if not c then return end
@@ -343,63 +336,63 @@ local function resetAnimateScript()
     end)
 end
 
+-- ⭐ FIX: KHÔNG destroy Humanoid, chỉ reset state
 local function replaceHumanoidDirect()
     local c = P.Character
     if not c then return false end
-    local old = c:FindFirstChildOfClass("Humanoid")
-    if not old then return false end
-    local savedHip = old.HipHeight or 2
-    local savedJump = old.JumpPower or 50
-    local savedMax = old.MaxHealth or 100
-    local savedHP = old.Health or 100
-    local savedRig = old.RigType or Enum.HumanoidRigType.R15
-    local savedSlope = old.MaxSlopeAngle or 89
-    pcall(function() old:Destroy() end)
-    local new = Instance.new("Humanoid")
-    new.Parent = c
+    local hum = c:FindFirstChildOfClass("Humanoid")
+    if not hum then return false end
+
     pcall(function()
-        new.HipHeight = savedHip
-        new.JumpPower = savedJump
-        new.MaxHealth = savedMax
-        new.Health = savedHP
-        new.WalkSpeed = 60
-        new.RigType = savedRig
-        new.MaxSlopeAngle = savedSlope
-        new.AutoRotate = true
-        new:SetStateEnabled(Enum.HumanoidStateType.Dying, false)
-        new:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
-        new:SetStateEnabled(Enum.HumanoidStateType.Running, true)
-        new:SetStateEnabled(Enum.HumanoidStateType.RunningNoPhysics, true)
-        new:SetStateEnabled(Enum.HumanoidStateType.Landed, true)
-        new:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
-        new:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-    end)
-    pcall(function()
-        if not c:FindFirstChildOfClass("Animator") then
-            local a = Instance.new("Animator")
-            a.Parent = new
+        hum.PlatformStand = false
+        hum.Sit = false
+        hum:SetStateEnabled(Enum.HumanoidStateType.Dying, false)
+        hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+        hum:SetStateEnabled(Enum.HumanoidStateType.Physics, true)
+        hum.MaxHealth = 99999
+        hum.Health = 99999
+        hum.WalkSpeed = 60
+        if hum:GetState() ~= Enum.HumanoidStateType.Running
+            and hum:GetState() ~= Enum.HumanoidStateType.Freefall
+            and hum:GetState() ~= Enum.HumanoidStateType.Jumping
+            and hum:GetState() ~= Enum.HumanoidStateType.Landed then
+            hum:ChangeState(Enum.HumanoidStateType.Running)
         end
     end)
-    task.spawn(restoreAnimations)
-    task.spawn(function()
-        task.wait(0.1)
-        resetAnimateScript()
-        task.wait(0.2)
-        local h = c:FindFirstChildOfClass("Humanoid")
-        if h then pcall(function() h:ChangeState(Enum.HumanoidStateType.Running) end) end
+
+    -- Đảm bảo có Animator
+    pcall(function()
+        if not hum:FindFirstChildOfClass("Animator") then
+            local a = Instance.new("Animator")
+            a.Parent = hum
+        end
     end)
+
+    -- Reset velocity ngay
+    local hrp = getHRP()
+    if hrp then pcall(function()
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+    end) end
+
     return true
 end
 
 local function teleToPos(targetPos)
+    if not isRunning then return end  -- ⭐ FIX stop
+
     local hrp = getHRP()
     if hrp then pcall(function()
         hrp.CFrame = CFrame.new(targetPos)
         hrp.AssemblyLinearVelocity = Vector3.zero
         hrp.AssemblyAngularVelocity = Vector3.zero
     end) end
+
+    if not isRunning then return end  -- ⭐ FIX stop
     replaceHumanoidDirect()
+
     for i = 1, 6 do
+        if not isRunning then return end  -- ⭐ FIX stop
         local r2 = getHRP()
         if r2 then pcall(function()
             r2.CFrame = CFrame.new(targetPos)
@@ -431,6 +424,25 @@ local function firePromptOnce(prompt)
         prompt.Triggered:Fire(P)
     end)
     return true
+end
+
+-- ⭐ FIX VĂNG TRỜI: chống launch trong lúc chạy về home
+local function antiLaunch(duration)
+    duration = duration or config.ANTI_LAUNCH_TIME
+    local t0 = os.clock()
+    while os.clock() - t0 < duration and isRunning do
+        local hrp = getHRP()
+        if hrp then
+            pcall(function()
+                local v = hrp.AssemblyLinearVelocity
+                if v.Y > config.ANTI_LAUNCH_Y or v.Magnitude > config.ANTI_LAUNCH_MAG then
+                    hrp.AssemblyLinearVelocity = Vector3.new(v.X * 0.2, 0, v.Z * 0.2)
+                    hrp.AssemblyAngularVelocity = Vector3.zero
+                end
+            end)
+        end
+        task.wait()
+    end
 end
 
 -- ══════════ MOVEMENT ══════════
@@ -483,17 +495,26 @@ local function goHomeFast()
     local t0 = startTime
     local lastPos = nil
     local stuckTime = os.clock()
-    while os.clock() - t0 < 30 do
+
+    while os.clock() - t0 < 30 and isRunning do  -- ⭐ FIX stop
         local hum, r = getHum(), getHRP()
         if not hum or not r then break end
         keepHealth()
+
         local d = dist(r.Position, config.HOME_POS)
         if d < config.ARRIVE_DIST then
             pcall(function() r.AssemblyLinearVelocity = Vector3.zero end)
             log(string.format("✅ Về home (%.2fs)", os.clock() - startTime))
             return true
         end
+
         pcall(function()
+            -- ⭐ FIX văng trời: ép Y xuống nếu đang bay lên
+            local v = r.AssemblyLinearVelocity
+            if v.Y > config.ANTI_LAUNCH_Y then
+                r.AssemblyLinearVelocity = Vector3.new(v.X, 0, v.Z)
+            end
+
             local dir = config.HOME_POS - r.Position
             if dir.Magnitude > 0 then
                 local nrm = dir.Unit
@@ -505,6 +526,7 @@ local function goHomeFast()
                 end
             end
         end)
+
         if lastPos then
             local moved = dist(r.Position, lastPos)
             if moved < 0.5 then
@@ -522,7 +544,6 @@ local function goHomeFast()
     return false
 end
 
--- ⭐ BAIT BOSS — ĐƠN GIẢN, chờ đến khi bị đánh
 local function waitForBossHit(timeout)
     timeout = timeout or config.BAIT_TIMEOUT
     log("🎯 Chờ boss Forest đánh...")
@@ -561,7 +582,6 @@ local function waitForBossHit(timeout)
     return false
 end
 
--- ⭐ STEAL
 local function stealAtPos(eggPos, label)
     log("═══════")
     log("STEAL TẠI " .. label)
@@ -573,7 +593,14 @@ local function stealAtPos(eggPos, label)
         task.wait(0.1)
     end
 
-    local prompt = findPromptNear(eggPos, 150)
+    -- ⭐ FIX: chờ prompt load (5 lần x 0.2s = 1s)
+    local prompt
+    for i = 1, 5 do
+        if not isRunning then return false end
+        prompt = findPromptNear(eggPos, 150)
+        if prompt then break end
+        task.wait(0.2)
+    end
     if not prompt then
         log("⚠ Không có prompt")
         return false
@@ -643,10 +670,8 @@ local function mainLoop()
                     stolenPrompts[prompt] = true
                     task.wait(0.1)
 
-                    -- ⭐ CHỜ BOSS ĐÁNH
                     log("PHASE 3: Chờ boss")
                     if waitForBossHit(config.BAIT_TIMEOUT) then
-                        -- ⭐ CHỌN EGG & TELE
                         log("PHASE 4: Chọn egg & tele")
 
                         local best = pickBestEgg()
@@ -656,22 +681,39 @@ local function mainLoop()
 
                             local targetPos = best.pos + Vector3.new(0, 3, 0)
 
-                            -- ⭐ TELE ngay tới egg
-                            teleToPos(targetPos)
-                            task.wait(0.15)
+                            -- ⭐ RETRY loop
+                            local success = false
+                            for attempt = 1, config.MAX_RETRY do
+                                if not isRunning then break end
+                                log(string.format("🔄 Attempt %d/%d", attempt, config.MAX_RETRY))
+                                deliveryFailed = false
 
-                            -- ⭐ STEAL
-                            local stolen = stealAtPos(best.pos, best.category)
-                            if stolen then
-                                goHomeFast()
-                                task.wait(config.CHAT_WAIT)
-                                if deliveryFailed then
-                                    log("❌ Chat fail")
+                                teleToPos(targetPos)
+                                task.wait(0.15)
+
+                                if not isRunning then break end
+
+                                if stealAtPos(best.pos, best.category) then
+                                    -- ⭐ FIX VĂNG TRỜI: bật antiLaunch song song
+                                    task.spawn(antiLaunch, config.ANTI_LAUNCH_TIME)
+                                    goHomeFast()
+                                    task.wait(config.CHAT_WAIT)
+                                    if deliveryFailed then
+                                        log("❌ Chat fail — retry")
+                                        task.wait(0.3)
+                                    else
+                                        log("🎉 SUCCESS")
+                                        success = true
+                                        break
+                                    end
                                 else
-                                    log("🎉 SUCCESS")
+                                    log("⚠ Steal fail — retry")
+                                    task.wait(0.3)
                                 end
-                            else
-                                log("⚠ Steal fail")
+                            end
+
+                            if not success then
+                                log("❌ Hết " .. config.MAX_RETRY .. " lần retry")
                             end
                         else
                             log("⚠ Không có egg để steal")
@@ -724,11 +766,24 @@ function M.start()
     stolenPrompts = {}
     deliveryFailed = false
     isRunning = true
-    log("▶ START")
+    log("▶ START v9.1")
     task.spawn(mainLoop)
 end
 
-function M.stop() isRunning = false; log("■ STOP") end
+function M.stop()
+    isRunning = false
+    log("■ STOP")
+    -- ⭐ FIX: dọn state ngay
+    task.spawn(function()
+        task.wait(0.1)
+        local hrp = getHRP()
+        if hrp then pcall(function()
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+        end) end
+    end)
+end
+
 function M.isRunning() return isRunning end
 
 function M.setTargets(targetList)
