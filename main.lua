@@ -1,22 +1,23 @@
 -- ═══════════════════════════════════════════════════════════════
--- MAIN.LUA v5 — UI style Shadow Glade (2 tab, multi-select map)
+-- MAIN.LUA v6 — Priority Income UI
 -- ═══════════════════════════════════════════════════════════════
 
-local BASE = "https://raw.githubusercontent.com/ojiasa/Steal-an-egg/main"
+local BASE_URL = "https://raw.githubusercontent.com/ojiasa/Steal-an-egg/main"
 local FALLBACK = "https://cdn.jsdelivr.net/gh/ojiasa/Steal-an-egg@main"
 
-local function fetch(p)
-    for _, url in ipairs({ BASE .. "/" .. p, FALLBACK .. "/" .. p }) do
+local function fetch(path)
+    local urls = { BASE_URL .. "/" .. path, FALLBACK .. "/" .. path }
+    for _, url in ipairs(urls) do
         local ok, src = pcall(function() return game:HttpGet(url) end)
         if ok and src and #src > 100 then
-            local fn = loadstring(src, "=" .. p)
+            local fn = loadstring(src, "=" .. path)
             if fn then
-                local s, r = pcall(fn)
-                if s then return r end
+                local success, result = pcall(fn)
+                if success then return result end
             end
         end
     end
-    warn("[Main] ❌ " .. p)
+    warn("[Main] ❌ " .. path)
     return nil
 end
 
@@ -34,11 +35,22 @@ _G.StealEgg = {
     SetForest = function(p) if Steal then Steal.setForest(p) end end,
     GetAllMaps = function() return Steal and Steal.getAllMaps() or {} end,
     OnLog = function(cb) if Steal then Steal.onLog(cb) end end,
+
+    -- ⭐ Priority Income
+    SetPriorityIncome = function(on) if Steal then return Steal.setPriorityIncome(on) end end,
+    IsPriorityIncome = function() return Steal and Steal.isPriorityIncome() or false end,
+    TogglePriorityIncome = function() if Steal then return Steal.togglePriorityIncome() end end,
+    SetPriorityThreshold = function(n) if Steal then Steal.setPriorityThreshold(n) end end,
+    GetPriorityThreshold = function() return Steal and Steal.getPriorityThreshold() or 1000000 end,
+    ClearIncomeCache = function() if Steal then Steal.clearIncomeCache() end end,
+
+    -- ⭐ ESP
     ESP_Enable = function() if ESP then ESP.enable() end end,
     ESP_Disable = function() if ESP then ESP.disable() end end,
     ESP_Toggle = function() if ESP then return ESP.toggle() end end,
     ESP_IsEnabled = function() return ESP and ESP.isEnabled() or false end,
     ESP_SetMapFilter = function(list) if ESP then ESP.setMapFilter(list) end end,
+
     Version = "2.0.0",
 }
 local API = _G.StealEgg
@@ -48,14 +60,12 @@ local P = game:GetService("Players").LocalPlayer
 local UIS = game:GetService("UserInputService")
 local CoreGui = game:GetService("CoreGui")
 
--- Parent
 local function getParent()
     local ok = pcall(function()
         local t = Instance.new("Folder"); t.Parent = CoreGui; t:Destroy()
     end)
     return ok and CoreGui or P:WaitForChild("PlayerGui")
 end
-
 local PARENT = getParent()
 
 local COLORS = {
@@ -69,6 +79,7 @@ local COLORS = {
     green   = Color3.fromRGB(0, 200, 120),
     red     = Color3.fromRGB(220, 60, 80),
     purple  = Color3.fromRGB(120, 90, 220),
+    gold    = Color3.fromRGB(255, 200, 50),
 }
 
 local ALL_MAPS = {
@@ -108,10 +119,10 @@ istk.Thickness = 2.5
 
 -- Panel
 local panel = Instance.new("Frame")
-panel.Size = UDim2.new(0, 480, 0, 340)
-panel.Position = UDim2.new(0.5, -240, 0.5, -170)
+panel.Size = UDim2.new(0, 460, 0, 400)
+panel.Position = UDim2.new(0.5, -230, 0.5, -200)
 panel.BackgroundColor3 = COLORS.bg
-panel.BackgroundTransparency = 0.15
+panel.BackgroundTransparency = 0.1
 panel.BorderSizePixel = 0
 panel.ClipsDescendants = true
 panel.Visible = false
@@ -121,19 +132,17 @@ panel.Parent = sg
 Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 12)
 local pstk = Instance.new("UIStroke", panel)
 pstk.Color = COLORS.accent
-pstk.Thickness = 1.8
+pstk.Thickness = 1.5
 
--- Background image
 local bgImg = Instance.new("ImageLabel", panel)
 bgImg.Size = UDim2.new(1, 0, 1, 0)
 bgImg.BackgroundTransparency = 1
 bgImg.ScaleType = Enum.ScaleType.Crop
 bgImg.Image = "rbxassetid://116222439691339"
-bgImg.ImageTransparency = 0.45
+bgImg.ImageTransparency = 0.5
 bgImg.ZIndex = 0
 Instance.new("UICorner", bgImg).CornerRadius = UDim.new(0, 12)
 
--- Title
 local title = Instance.new("TextLabel", panel)
 title.Size = UDim2.new(1, -20, 0, 32)
 title.Position = UDim2.new(0, 15, 0, 4)
@@ -163,7 +172,6 @@ sidePad.PaddingBottom = UDim.new(0, 8)
 
 local sideLayout = Instance.new("UIListLayout", sidebar)
 sideLayout.Padding = UDim.new(0, 6)
-sideLayout.SortOrder = Enum.SortOrder.LayoutOrder
 sideLayout.Parent = sidebar
 
 -- Content
@@ -173,10 +181,9 @@ content.Size = UDim2.new(1, -142, 1, -55)
 content.BackgroundTransparency = 1
 content.ZIndex = 2
 
--- ══════════ TABS ══════════
+-- Tabs
 local currentTab = "main"
 local pages = {}
-
 local tabBtns = {}
 
 local function setTab(id)
@@ -190,9 +197,7 @@ local function setTab(id)
             item.btn.TextColor3 = COLORS.text
         end
     end
-    for tid, page in pairs(pages) do
-        page.Visible = (tid == id)
-    end
+    for tid, page in pairs(pages) do page.Visible = (tid == id) end
 end
 
 local function mkTab(id, text)
@@ -221,9 +226,9 @@ pageMain.BackgroundTransparency = 1
 pageMain.ZIndex = 3
 pages.main = pageMain
 
-local function mkLabel(parent, text, y, h)
+local function mkLabel(parent, text, y)
     local l = Instance.new("TextLabel", parent)
-    l.Size = UDim2.new(1, 0, 0, h or 18)
+    l.Size = UDim2.new(1, 0, 0, 18)
     l.Position = UDim2.new(0, 0, 0, y)
     l.BackgroundTransparency = 1
     l.Text = text
@@ -235,12 +240,90 @@ local function mkLabel(parent, text, y, h)
     return l
 end
 
--- Select map
-mkLabel(pageMain, "🎯 CHỌN MAP FARM (multi)", 0, 18)
+-- ⭐ FARM BUTTON
+mkLabel(pageMain, "🤖 AUTO FARM", 0)
+
+local farmBtn = Instance.new("TextButton", pageMain)
+farmBtn.Size = UDim2.new(1, 0, 0, 36)
+farmBtn.Position = UDim2.new(0, 0, 0, 22)
+farmBtn.BackgroundColor3 = COLORS.green
+farmBtn.Text = "▶  BẮT ĐẦU FARM"
+farmBtn.TextColor3 = Color3.new(0,0,0)
+farmBtn.Font = Enum.Font.GothamBold
+farmBtn.TextSize = 12
+farmBtn.AutoButtonColor = false
+farmBtn.ZIndex = 3
+Instance.new("UICorner", farmBtn).CornerRadius = UDim.new(0, 6)
+
+farmBtn.MouseButton1Click:Connect(function()
+    if API.IsRunning() then
+        API.Stop()
+        farmBtn.Text = "▶  BẮT ĐẦU FARM"
+        farmBtn.BackgroundColor3 = COLORS.green
+    else
+        API.Start()
+        farmBtn.Text = "⏹  DỪNG FARM"
+        farmBtn.BackgroundColor3 = COLORS.red
+    end
+end)
+
+-- ⭐⭐ PRIORITY INCOME TOGGLE
+mkLabel(pageMain, "💰 ƯU TIÊN TIỀN CAO", 68)
+
+local prioBtn = Instance.new("TextButton", pageMain)
+prioBtn.Size = UDim2.new(1, 0, 0, 36)
+prioBtn.Position = UDim2.new(0, 0, 0, 90)
+prioBtn.BackgroundColor3 = COLORS.bg3
+prioBtn.Text = "💰 Ưu tiên tiền cao: TẮT (min $1M/s)"
+prioBtn.TextColor3 = COLORS.text
+prioBtn.Font = Enum.Font.GothamBold
+prioBtn.TextSize = 11
+prioBtn.AutoButtonColor = false
+prioBtn.ZIndex = 3
+Instance.new("UICorner", prioBtn).CornerRadius = UDim.new(0, 6)
+
+prioBtn.MouseButton1Click:Connect(function()
+    local on = not API.IsPriorityIncome()
+    API.SetPriorityIncome(on)
+    if on then
+        prioBtn.Text = "💰 Ưu tiên tiền cao: BẬT (min $1M/s)"
+        prioBtn.BackgroundColor3 = COLORS.gold
+        prioBtn.TextColor3 = Color3.new(0, 0, 0)
+    else
+        prioBtn.Text = "💰 Ưu tiên tiền cao: TẮT (min $1M/s)"
+        prioBtn.BackgroundColor3 = COLORS.bg3
+        prioBtn.TextColor3 = COLORS.text
+    end
+end)
+
+-- ⭐ THRESHOLD INPUT
+mkLabel(pageMain, "💵 Ngưỡng tối thiểu (M/s)", 132)
+
+local threshBox = Instance.new("TextBox", pageMain)
+threshBox.Size = UDim2.new(1, 0, 0, 30)
+threshBox.Position = UDim2.new(0, 0, 0, 152)
+threshBox.BackgroundColor3 = COLORS.bg2
+threshBox.Text = "1"
+threshBox.TextColor3 = COLORS.text
+threshBox.Font = Enum.Font.GothamBold
+threshBox.TextSize = 12
+threshBox.PlaceholderText = "1"
+threshBox.ZIndex = 3
+Instance.new("UICorner", threshBox).CornerRadius = UDim.new(0, 6)
+
+threshBox.FocusLost:Connect(function()
+    local n = tonumber(threshBox.Text) or 1
+    n = math.max(n, 0)
+    API.SetPriorityThreshold(n * 1e6)
+    threshBox.Text = tostring(n)
+end)
+
+-- ⭐ MAP SELECT
+mkLabel(pageMain, "🎯 CHỌN MAP FARM (multi)", 192)
 
 local mapSelectBtn = Instance.new("TextButton", pageMain)
 mapSelectBtn.Size = UDim2.new(1, 0, 0, 30)
-mapSelectBtn.Position = UDim2.new(0, 0, 0, 20)
+mapSelectBtn.Position = UDim2.new(0, 0, 0, 212)
 mapSelectBtn.BackgroundColor3 = COLORS.bg3
 mapSelectBtn.Text = "All Maps  ▼"
 mapSelectBtn.TextColor3 = COLORS.text
@@ -250,10 +333,9 @@ mapSelectBtn.AutoButtonColor = false
 mapSelectBtn.ZIndex = 3
 Instance.new("UICorner", mapSelectBtn).CornerRadius = UDim.new(0, 6)
 
--- Map list (ẩn)
 local mapScroll = Instance.new("ScrollingFrame", pageMain)
 mapScroll.Size = UDim2.new(1, 0, 0, 130)
-mapScroll.Position = UDim2.new(0, 0, 0, 54)
+mapScroll.Position = UDim2.new(0, 0, 0, 246)
 mapScroll.BackgroundColor3 = COLORS.bg2
 mapScroll.BorderSizePixel = 0
 mapScroll.ScrollBarThickness = 3
@@ -273,13 +355,10 @@ mPad.PaddingBottom = UDim.new(0, 4)
 local mLayout = Instance.new("UIListLayout", mapScroll)
 mLayout.Padding = UDim.new(0, 3)
 
--- State
-local selectedMaps = {}   -- {[name] = true}
-local allSelected = true
-
+local selectedMaps = {}
 local mapRowBtns = {}
+for _, m in ipairs(ALL_MAPS) do selectedMaps[m] = true end
 
--- "All" button
 local allBtn = Instance.new("TextButton", mapScroll)
 allBtn.Size = UDim2.new(1, -8, 0, 24)
 allBtn.BackgroundColor3 = COLORS.accent2
@@ -293,14 +372,12 @@ allBtn.ZIndex = 6
 Instance.new("UICorner", allBtn).CornerRadius = UDim.new(0, 4)
 
 allBtn.MouseButton1Click:Connect(function()
-    allSelected = true
-    selectedMaps = {}
     for _, m in ipairs(ALL_MAPS) do selectedMaps[m] = true end
     allBtn.BackgroundColor3 = COLORS.accent2
     for _, item in ipairs(mapRowBtns) do
         item.btn.BackgroundColor3 = COLORS.accent2
+        item.btn.Text = "  ✓ " .. item.name
     end
-    -- Apply
     local list = {}
     for _, m in ipairs(ALL_MAPS) do
         if MAP_POS[m] then table.insert(list, { name = m, pos = MAP_POS[m] }) end
@@ -308,9 +385,6 @@ allBtn.MouseButton1Click:Connect(function()
     API.SetTargets(list)
     mapSelectBtn.Text = "All Maps  ▼"
 end)
-
--- Init all selected
-for _, m in ipairs(ALL_MAPS) do selectedMaps[m] = true end
 
 for _, m in ipairs(ALL_MAPS) do
     local b = Instance.new("TextButton", mapScroll)
@@ -332,14 +406,11 @@ for _, m in ipairs(ALL_MAPS) do
             selectedMaps[m] = nil
             b.BackgroundColor3 = COLORS.bg3
             b.Text = "    " .. m
-            allSelected = false
-            allBtn.BackgroundColor3 = COLORS.bg3
         else
             selectedMaps[m] = true
             b.BackgroundColor3 = COLORS.accent2
             b.Text = "  ✓ " .. m
         end
-        -- Update select btn text
         local count = 0
         local list = {}
         for _, name in ipairs(ALL_MAPS) do
@@ -350,7 +421,6 @@ for _, m in ipairs(ALL_MAPS) do
         end
         if count == #ALL_MAPS then
             mapSelectBtn.Text = "All Maps  ▼"
-            allSelected = true
             allBtn.BackgroundColor3 = COLORS.accent2
         else
             mapSelectBtn.Text = count .. " Maps  ▼"
@@ -359,42 +429,14 @@ for _, m in ipairs(ALL_MAPS) do
     end)
 end
 
--- Toggle map list
 mapSelectBtn.MouseButton1Click:Connect(function()
     mapScroll.Visible = not mapScroll.Visible
-end)
-
--- Auto farm toggle
-mkLabel(pageMain, "🤖 AUTO FARM", 190, 18)
-
-local farmBtn = Instance.new("TextButton", pageMain)
-farmBtn.Size = UDim2.new(1, 0, 0, 34)
-farmBtn.Position = UDim2.new(0, 0, 0, 210)
-farmBtn.BackgroundColor3 = COLORS.green
-farmBtn.Text = "▶  BẬT AUTO FARM"
-farmBtn.TextColor3 = Color3.new(0,0,0)
-farmBtn.Font = Enum.Font.GothamBold
-farmBtn.TextSize = 12
-farmBtn.AutoButtonColor = false
-farmBtn.ZIndex = 3
-Instance.new("UICorner", farmBtn).CornerRadius = UDim.new(0, 6)
-
-farmBtn.MouseButton1Click:Connect(function()
-    if API.IsRunning() then
-        API.Stop()
-        farmBtn.Text = "▶  BẬT AUTO FARM"
-        farmBtn.BackgroundColor3 = COLORS.green
-    else
-        API.Start()
-        farmBtn.Text = "⏹  TẮT AUTO FARM"
-        farmBtn.BackgroundColor3 = COLORS.red
-    end
 end)
 
 -- Set Home/Forest
 local homeBtn = Instance.new("TextButton", pageMain)
 homeBtn.Size = UDim2.new(0.5, -3, 0, 26)
-homeBtn.Position = UDim2.new(0, 0, 0, 250)
+homeBtn.Position = UDim2.new(0, 0, 0, 380)  -- tạm thời
 homeBtn.BackgroundColor3 = COLORS.bg3
 homeBtn.Text = "📍 HOME"
 homeBtn.TextColor3 = COLORS.text
@@ -406,7 +448,7 @@ Instance.new("UICorner", homeBtn).CornerRadius = UDim.new(0, 6)
 
 local forestBtn = Instance.new("TextButton", pageMain)
 forestBtn.Size = UDim2.new(0.5, -3, 0, 26)
-forestBtn.Position = UDim2.new(0.5, 3, 0, 250)
+forestBtn.Position = UDim2.new(0.5, 3, 0, 380)
 forestBtn.BackgroundColor3 = COLORS.bg3
 forestBtn.Text = "📍 FOREST"
 forestBtn.TextColor3 = COLORS.text
@@ -433,120 +475,11 @@ pageESP.Visible = false
 pageESP.ZIndex = 3
 pages.esp = pageESP
 
-mkLabel(pageESP, "👁 CHỌN MAP ESP (multi)", 0, 18)
-
-local espMapBtn = Instance.new("TextButton", pageESP)
-espMapBtn.Size = UDim2.new(1, 0, 0, 30)
-espMapBtn.Position = UDim2.new(0, 0, 0, 20)
-espMapBtn.BackgroundColor3 = COLORS.bg3
-espMapBtn.Text = "All Maps  ▼"
-espMapBtn.TextColor3 = COLORS.text
-espMapBtn.Font = Enum.Font.GothamBold
-espMapBtn.TextSize = 11
-espMapBtn.AutoButtonColor = false
-espMapBtn.ZIndex = 3
-Instance.new("UICorner", espMapBtn).CornerRadius = UDim.new(0, 6)
-
-local espMapScroll = Instance.new("ScrollingFrame", pageESP)
-espMapScroll.Size = UDim2.new(1, 0, 0, 130)
-espMapScroll.Position = UDim2.new(0, 0, 0, 54)
-espMapScroll.BackgroundColor3 = COLORS.bg2
-espMapScroll.BorderSizePixel = 0
-espMapScroll.ScrollBarThickness = 3
-espMapScroll.ScrollBarImageColor3 = COLORS.accent
-espMapScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-espMapScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-espMapScroll.Visible = false
-espMapScroll.ZIndex = 5
-Instance.new("UICorner", espMapScroll).CornerRadius = UDim.new(0, 6)
-
-local ePad = Instance.new("UIPadding", espMapScroll)
-ePad.PaddingTop = UDim.new(0, 4)
-ePad.PaddingLeft = UDim.new(0, 4)
-ePad.PaddingRight = UDim.new(0, 4)
-ePad.PaddingBottom = UDim.new(0, 4)
-
-local eLayout = Instance.new("UIListLayout", espMapScroll)
-eLayout.Padding = UDim.new(0, 3)
-
-local espSelected = {}
-for _, m in ipairs(ALL_MAPS) do espSelected[m] = true end
-
-local espRowBtns = {}
-
-local espAllBtn = Instance.new("TextButton", espMapScroll)
-espAllBtn.Size = UDim2.new(1, -8, 0, 24)
-espAllBtn.BackgroundColor3 = COLORS.accent2
-espAllBtn.Text = "  ✓ ALL MAPS"
-espAllBtn.TextColor3 = Color3.new(1,1,1)
-espAllBtn.Font = Enum.Font.GothamBold
-espAllBtn.TextSize = 10
-espAllBtn.TextXAlignment = Enum.TextXAlignment.Left
-espAllBtn.AutoButtonColor = false
-espAllBtn.ZIndex = 6
-Instance.new("UICorner", espAllBtn).CornerRadius = UDim.new(0, 4)
-
-espAllBtn.MouseButton1Click:Connect(function()
-    for _, m in ipairs(ALL_MAPS) do espSelected[m] = true end
-    espAllBtn.BackgroundColor3 = COLORS.accent2
-    for _, item in ipairs(espRowBtns) do
-        item.btn.BackgroundColor3 = COLORS.accent2
-        item.btn.Text = "  ✓ " .. item.name
-    end
-    API.ESP_SetMapFilter(nil)
-    espMapBtn.Text = "All Maps  ▼"
-end)
-
-for _, m in ipairs(ALL_MAPS) do
-    local b = Instance.new("TextButton", espMapScroll)
-    b.Size = UDim2.new(1, -8, 0, 24)
-    b.BackgroundColor3 = COLORS.accent2
-    b.Text = "  ✓ " .. m
-    b.TextColor3 = Color3.new(1,1,1)
-    b.Font = Enum.Font.GothamBold
-    b.TextSize = 10
-    b.TextXAlignment = Enum.TextXAlignment.Left
-    b.AutoButtonColor = false
-    b.ZIndex = 6
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
-
-    table.insert(espRowBtns, { btn = b, name = m })
-
-    b.MouseButton1Click:Connect(function()
-        if espSelected[m] then
-            espSelected[m] = nil
-            b.BackgroundColor3 = COLORS.bg3
-            b.Text = "    " .. m
-            espAllBtn.BackgroundColor3 = COLORS.bg3
-        else
-            espSelected[m] = true
-            b.BackgroundColor3 = COLORS.accent2
-            b.Text = "  ✓ " .. m
-        end
-        local list = {}
-        for _, name in ipairs(ALL_MAPS) do
-            if espSelected[name] then table.insert(list, name) end
-        end
-        if #list == #ALL_MAPS or #list == 0 then
-            API.ESP_SetMapFilter(nil)
-            espMapBtn.Text = "All Maps  ▼"
-        else
-            API.ESP_SetMapFilter(list)
-            espMapBtn.Text = #list .. " Maps  ▼"
-        end
-    end)
-end
-
-espMapBtn.MouseButton1Click:Connect(function()
-    espMapScroll.Visible = not espMapScroll.Visible
-end)
-
--- ESP toggle
-mkLabel(pageESP, "👁 ESP EGG", 190, 18)
+mkLabel(pageESP, "👁 ESP EGG", 0)
 
 local espBtn = Instance.new("TextButton", pageESP)
 espBtn.Size = UDim2.new(1, 0, 0, 34)
-espBtn.Position = UDim2.new(0, 0, 0, 210)
+espBtn.Position = UDim2.new(0, 0, 0, 22)
 espBtn.BackgroundColor3 = COLORS.purple
 espBtn.Text = "👁  BẬT ESP EGG"
 espBtn.TextColor3 = Color3.new(1,1,1)
@@ -570,7 +503,6 @@ end)
 -- ══════════ INIT ══════════
 setTab("main")
 
--- Set all maps ban đầu cho steal
 local initList = {}
 for _, m in ipairs(ALL_MAPS) do
     if MAP_POS[m] then table.insert(initList, { name = m, pos = MAP_POS[m] }) end
@@ -583,4 +515,4 @@ end)
 
 API.OnLog(function(msg) print("[StealEgg] " .. msg) end)
 
-print("[Main] ✅ Ready v2")
+print("[Main] ✅ Ready v6")
