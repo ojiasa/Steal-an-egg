@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- MAIN.LUA FOXNAME STYLE — Steal Egg UI (FIXED + HOOKED)
+-- MAIN.LUA FOXNAME STYLE v3 — Select Map Overlay + Trắng Nhạt
 -- ═══════════════════════════════════════════════════════════════
 
 local BASE_URL = "https://raw.githubusercontent.com/ojiasa/Steal-an-egg/main"
@@ -33,19 +33,17 @@ _G.StealEgg = {
     SetHome = function(p) if Steal then Steal.setHome(p) end end,
     SetForest = function(p) if Steal then Steal.setForest(p) end end,
     OnLog = function(cb) if Steal then Steal.onLog(cb) end end,
-    -- ⭐ Priority Income API
     SetPriorityIncome = function(b) if Steal then return Steal.setPriorityIncome(b) end end,
     TogglePriorityIncome = function() if Steal then return Steal.togglePriorityIncome() end end,
     SetPriorityThreshold = function(n) if Steal then Steal.setPriorityThreshold(n) end end,
     GetPriorityThreshold = function() if Steal then return Steal.getPriorityThreshold() end end,
     IsPriorityIncome = function() return Steal and Steal.isPriorityIncome() or false end,
     ClearIncomeCache = function() if Steal then Steal.clearIncomeCache() end end,
-    -- ESP
     ESP_Enable = function() if ESP then ESP.enable() end end,
     ESP_Disable = function() if ESP then ESP.disable() end end,
     ESP_Toggle = function() if ESP then return ESP.toggle() end end,
     ESP_IsEnabled = function() return ESP and ESP.isEnabled() or false end,
-    Version = "9.3.0",
+    Version = "9.5.0",
 }
 local API = _G.StealEgg
 _G.MyScript = API
@@ -54,23 +52,26 @@ local P = game:GetService("Players").LocalPlayer
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
--- ⭐ GỌI LOG RA CONSOLE (bạn có thể log lên UI sau)
-API.OnLog(function(msg)
-    print("[UI-Log] " .. tostring(msg))
-end)
+API.OnLog(function(msg) print("[UI-Log] " .. tostring(msg)) end)
 
+-- ⭐ MÀU — chỉ chữ trắng nhạt, button không tô trắng
 local COLORS = {
     bg      = Color3.fromRGB(12, 14, 22),
-    bg2     = Color3.fromRGB(18, 22, 32),
-    bg3     = Color3.fromRGB(28, 34, 48),
+    bg2     = Color3.fromRGB(22, 26, 36),
+    bg3     = Color3.fromRGB(30, 36, 50),
+
+    -- Trắng nhạt cho CHỮ (không phải nền button)
+    white   = Color3.fromRGB(225, 232, 245),
+    whiteDim= Color3.fromRGB(180, 195, 215),
+
     accent  = Color3.fromRGB(0, 220, 255),
-    accent2 = Color3.fromRGB(100, 150, 255),
-    text    = Color3.fromRGB(220, 240, 255),
-    textDim = Color3.fromRGB(150, 180, 200),
-    green   = Color3.fromRGB(100, 200, 120),
+    text    = Color3.fromRGB(230, 240, 255),
+    textDim = Color3.fromRGB(150, 165, 185),
+
     red     = Color3.fromRGB(220, 80, 100),
-    gold    = Color3.fromRGB(255, 200, 50),
-    offBg   = Color3.fromRGB(40, 45, 55),
+    offBg   = Color3.fromRGB(45, 52, 68),
+    btnBg   = Color3.fromRGB(28, 34, 48),
+    btnHover= Color3.fromRGB(42, 50, 68),
 }
 
 local ALL_MAPS = {
@@ -100,9 +101,9 @@ sg.Parent = P:WaitForChild("PlayerGui")
 
 -- ⭐ ICON
 local icon = Instance.new("ImageButton")
-icon.Size = UDim2.new(0, 50, 0, 50)
+icon.Size = UDim2.new(0, 44, 0, 44)
 icon.Position = UDim2.new(0, 15, 0, 150)
-icon.BackgroundColor3 = COLORS.bg
+icon.BackgroundColor3 = COLORS.bg2
 icon.BorderSizePixel = 0
 icon.Image = "rbxassetid://86285862396979"
 icon.ScaleType = Enum.ScaleType.Fit
@@ -111,171 +112,143 @@ icon.Draggable = true
 icon.Parent = sg
 Instance.new("UICorner", icon).CornerRadius = UDim.new(1, 0)
 local istk = Instance.new("UIStroke", icon)
-istk.Color = COLORS.accent
-istk.Thickness = 2
-
-local iconText = Instance.new("TextLabel", icon)
-iconText.Size = UDim2.new(1, 0, 1, 0)
-iconText.BackgroundTransparency = 1
-iconText.Text = "⚙"
-iconText.TextColor3 = COLORS.accent
-iconText.Font = Enum.Font.GothamBold
-iconText.TextSize = 22
+istk.Color = COLORS.whiteDim
+istk.Thickness = 1.5
 
 -- ⭐ MAIN PANEL
+local PANEL_W, PANEL_H = 320, 380
+
 local panel = Instance.new("Frame")
-panel.Size = UDim2.new(0, 500, 0, 520)
-panel.Position = UDim2.new(0.5, -250, 0.5, -260)
+panel.Size = UDim2.new(0, PANEL_W, 0, PANEL_H)
+panel.Position = UDim2.new(0.5, -PANEL_W/2, 0.5, -PANEL_H/2)
 panel.BackgroundColor3 = COLORS.bg
-panel.BackgroundTransparency = 0.35
+panel.BackgroundTransparency = 0.1
 panel.BorderSizePixel = 0
 panel.Visible = false
 panel.Parent = sg
 panel.Active = true
-Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 12)
+panel.ClipsDescendants = false               -- ⭐ Cho dropdown overflow
+Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
 local pstk = Instance.new("UIStroke", panel)
-pstk.Color = COLORS.accent
-pstk.Thickness = 1.5
+pstk.Color = COLORS.whiteDim
+pstk.Thickness = 1
+pstk.Transparency = 0.5
 
--- ⭐ BG IMAGE
-local bgImg = Instance.new("ImageLabel", panel)
-bgImg.Size = UDim2.new(1, 0, 1, 0)
-bgImg.BackgroundTransparency = 0.25
-bgImg.ScaleType = Enum.ScaleType.Crop
-bgImg.Image = "rbxassetid://116222439691339"
-bgImg.ImageTransparency = 0.55
-bgImg.ZIndex = 0
-Instance.new("UICorner", bgImg).CornerRadius = UDim.new(0, 12)
+-- ⭐ HEADER với TABS NGANG
+local header = Instance.new("Frame", panel)
+header.Size = UDim2.new(1, 0, 0, 38)
+header.BackgroundColor3 = COLORS.bg2
+header.BackgroundTransparency = 0.2
+header.BorderSizePixel = 0
+header.ZIndex = 2
+Instance.new("UICorner", header).CornerRadius = UDim.new(0, 10)
+
+-- Che góc dưới header
+local headerFix = Instance.new("Frame", header)
+headerFix.Size = UDim2.new(1, 0, 0, 10)
+headerFix.Position = UDim2.new(0, 0, 1, -10)
+headerFix.BackgroundColor3 = COLORS.bg2
+headerFix.BackgroundTransparency = 0.2
+headerFix.BorderSizePixel = 0
+headerFix.ZIndex = 2
+
+-- ⭐ TAB BAR ngang
+local tabBar = Instance.new("Frame", header)
+tabBar.Size = UDim2.new(1, -70, 1, 0)
+tabBar.Position = UDim2.new(0, 8, 0, 0)
+tabBar.BackgroundTransparency = 1
+tabBar.ZIndex = 3
+
+local tabLayout = Instance.new("UIListLayout", tabBar)
+tabLayout.FillDirection = Enum.FillDirection.Horizontal
+tabLayout.Padding = UDim.new(0, 6)
+tabLayout.VerticalAlignment = Enum.VerticalAlignment.Center
 
 -- ⭐ CLOSE
-local closeBtn = Instance.new("TextButton", panel)
-closeBtn.Size = UDim2.new(0, 28, 0, 28)
-closeBtn.Position = UDim2.new(1, -35, 0, 7)
-closeBtn.BackgroundColor3 = COLORS.red
+local closeBtn = Instance.new("TextButton", header)
+closeBtn.Size = UDim2.new(0, 24, 0, 24)
+closeBtn.Position = UDim2.new(1, -30, 0.5, -12)
+closeBtn.BackgroundColor3 = COLORS.bg3
 closeBtn.Text = "✕"
-closeBtn.TextColor3 = Color3.new(1, 1, 1)
+closeBtn.TextColor3 = COLORS.white
 closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextSize = 16
+closeBtn.TextSize = 13
 closeBtn.AutoButtonColor = false
 closeBtn.ZIndex = 10
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
 
 closeBtn.MouseButton1Click:Connect(function() panel.Visible = false end)
-closeBtn.MouseEnter:Connect(function() closeBtn.BackgroundColor3 = Color3.fromRGB(255, 120, 140) end)
-closeBtn.MouseLeave:Connect(function() closeBtn.BackgroundColor3 = COLORS.red end)
-
--- ⭐ SIDEBAR
-local sidebar = Instance.new("Frame")
-sidebar.Size = UDim2.new(0, 80, 1, 0)
-sidebar.BackgroundColor3 = Color3.fromRGB(8, 10, 16)
-sidebar.BackgroundTransparency = 0.5
-sidebar.BorderSizePixel = 0
-sidebar.Parent = panel
-sidebar.ZIndex = 2
-Instance.new("UICorner", sidebar).CornerRadius = UDim.new(0, 12)
-
-local sidebarPad = Instance.new("UIPadding", sidebar)
-sidebarPad.PaddingTop = UDim.new(0, 8)
-
-local sidebarLayout = Instance.new("UIListLayout", sidebar)
-sidebarLayout.Padding = UDim.new(0, 4)
-sidebarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+closeBtn.MouseEnter:Connect(function() closeBtn.BackgroundColor3 = COLORS.red end)
+closeBtn.MouseLeave:Connect(function() closeBtn.BackgroundColor3 = COLORS.bg3 end)
 
 -- ⭐ CONTENT
-local content = Instance.new("Frame")
-content.Size = UDim2.new(1, -80, 1, 0)
-content.Position = UDim2.new(0, 80, 0, 0)
+local content = Instance.new("Frame", panel)
+content.Size = UDim2.new(1, -16, 1, -48)
+content.Position = UDim2.new(0, 8, 0, 44)
 content.BackgroundTransparency = 1
 content.Parent = panel
+content.ClipsDescendants = false
+content.ZIndex = 1
 
-local contentPad = Instance.new("UIPadding", content)
-contentPad.PaddingTop = UDim.new(0, 15)
-contentPad.PaddingLeft = UDim.new(0, 15)
-contentPad.PaddingRight = UDim.new(0, 15)
-contentPad.PaddingBottom = UDim.new(0, 15)
-
--- ⭐ RESIZE
-local resizeHandle = Instance.new("Frame", panel)
-resizeHandle.Size = UDim2.new(0, 16, 0, 16)
-resizeHandle.Position = UDim2.new(1, -16, 1, -16)
-resizeHandle.BackgroundColor3 = COLORS.accent
-resizeHandle.BorderSizePixel = 0
-resizeHandle.ZIndex = 10
-Instance.new("UICorner", resizeHandle).CornerRadius = UDim.new(0, 4)
-
-local resizing = false
-local startSize, startMouse
-resizeHandle.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        resizing = true
-        startSize = panel.Size
-        startMouse = UIS:GetMouseLocation()
-    end
-end)
-UIS.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        resizing = false
-    end
-end)
-RunService.RenderStepped:Connect(function()
-    if resizing then
-        local cm = UIS:GetMouseLocation()
-        local dx = cm.X - startMouse.X
-        local dy = cm.Y - startMouse.Y
-        local newW = math.clamp(startSize.X.Offset + dx, 300, 1200)
-        local newH = math.clamp(startSize.Y.Offset + dy, 250, 900)
-        panel.Size = UDim2.new(0, newW, 0, newH)
-    end
-end)
-
--- ⭐ PAGES
-local currentTab = "main"
 local pages = {}
 local tabBtns = {}
+local currentTab = "main"
 
-local function setTab(id)
-    currentTab = id
-    for _, item in ipairs(tabBtns) do
-        if item.id == id then
-            item.label.TextColor3 = COLORS.accent
-            item.bg.BackgroundColor3 = COLORS.bg3
-            item.bg.BackgroundTransparency = 0.3
-        else
-            item.label.TextColor3 = COLORS.textDim
-            item.bg.BackgroundColor3 = COLORS.bg2
-            item.bg.BackgroundTransparency = 0.7
-        end
-    end
-    for tid, page in pairs(pages) do page.Visible = (tid == id) end
-end
+-- ⭐ TAB CREATOR — chữ trắng nhạt, button không tô
+local function mkTab(id, iconText, labelText)
+    local bg = Instance.new("TextButton", tabBar)
+    bg.Size = UDim2.new(0, 88, 0, 26)
+    bg.BackgroundColor3 = COLORS.bg3
+    bg.BackgroundTransparency = 0.5
+    bg.Text = ""
+    bg.AutoButtonColor = false
+    bg.ZIndex = 4
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 6)
+    local stk = Instance.new("UIStroke", bg)
+    stk.Color = COLORS.whiteDim
+    stk.Thickness = 1
+    stk.Transparency = 0.7
 
--- ⭐ TAB CREATOR (FIX: 1 label thôi)
-local function mkTab(id, iconChar, text)
-    local bg = Instance.new("Frame", sidebar)
-    bg.Size = UDim2.new(0, 70, 0, 50)
-    bg.BackgroundColor3 = COLORS.bg2
-    bg.BackgroundTransparency = 0.7
-    bg.BorderSizePixel = 0
-    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 8)
-
-    local btn = Instance.new("TextButton", bg)
-    btn.Size = UDim2.new(1, 0, 1, 0)
-    btn.BackgroundTransparency = 1
-    btn.Text = ""
-    btn.AutoButtonColor = false
+    local ic = Instance.new("TextLabel", bg)
+    ic.Size = UDim2.new(0, 22, 1, 0)
+    ic.Position = UDim2.new(0, 4, 0, 0)
+    ic.BackgroundTransparency = 1
+    ic.Text = iconText
+    ic.TextColor3 = COLORS.whiteDim
+    ic.Font = Enum.Font.GothamBold
+    ic.TextSize = 12
+    ic.ZIndex = 5
 
     local lbl = Instance.new("TextLabel", bg)
-    lbl.Size = UDim2.new(1, 0, 1, 0)
+    lbl.Size = UDim2.new(1, -28, 1, 0)
+    lbl.Position = UDim2.new(0, 26, 0, 0)
     lbl.BackgroundTransparency = 1
-    lbl.Text = iconChar .. "\n" .. text
-    lbl.TextColor3 = COLORS.textDim
+    lbl.Text = labelText
+    lbl.TextColor3 = COLORS.whiteDim
     lbl.Font = Enum.Font.GothamBold
-    lbl.TextSize = 9
-    lbl.ZIndex = 2
+    lbl.TextSize = 10
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.ZIndex = 5
 
-    btn.MouseButton1Click:Connect(function() setTab(id) end)
-    table.insert(tabBtns, { btn = btn, label = lbl, bg = bg, id = id })
-    return bg
+    bg.MouseButton1Click:Connect(function()
+        currentTab = id
+        for _, item in ipairs(tabBtns) do
+            if item.id == id then
+                item.bg.BackgroundTransparency = 0.15
+                item.stk.Transparency = 0.3
+                item.ic.TextColor3 = COLORS.white
+                item.lbl.TextColor3 = COLORS.white
+            else
+                item.bg.BackgroundTransparency = 0.5
+                item.stk.Transparency = 0.7
+                item.ic.TextColor3 = COLORS.whiteDim
+                item.lbl.TextColor3 = COLORS.whiteDim
+            end
+        end
+        for tid, page in pairs(pages) do page.Visible = (tid == id) end
+    end)
+
+    table.insert(tabBtns, { bg = bg, ic = ic, lbl = lbl, stk = stk, id = id })
 end
 
 mkTab("main", "🏠", "Main")
@@ -284,11 +257,11 @@ mkTab("esp", "👁", "ESP")
 -- ⭐ TOGGLE SWITCH
 local function mkToggle(parent, label, defaultState, onToggle)
     local ctrl = Instance.new("Frame", parent)
-    ctrl.Size = UDim2.new(1, 0, 0, 32)
+    ctrl.Size = UDim2.new(1, 0, 0, 30)
     ctrl.BackgroundTransparency = 1
 
     local lbl = Instance.new("TextLabel", ctrl)
-    lbl.Size = UDim2.new(0.6, 0, 1, 0)
+    lbl.Size = UDim2.new(0.65, 0, 1, 0)
     lbl.BackgroundTransparency = 1
     lbl.Text = label
     lbl.TextColor3 = COLORS.text
@@ -297,16 +270,20 @@ local function mkToggle(parent, label, defaultState, onToggle)
     lbl.TextXAlignment = Enum.TextXAlignment.Left
 
     local toggleBg = Instance.new("Frame", ctrl)
-    toggleBg.Size = UDim2.new(0, 50, 0, 24)
-    toggleBg.Position = UDim2.new(1, -50, 0.5, -12)
+    toggleBg.Size = UDim2.new(0, 42, 0, 22)
+    toggleBg.Position = UDim2.new(1, -42, 0.5, -11)
     toggleBg.BackgroundColor3 = COLORS.offBg
     toggleBg.BorderSizePixel = 0
     Instance.new("UICorner", toggleBg).CornerRadius = UDim.new(0.5, 0)
+    local tgStk = Instance.new("UIStroke", toggleBg)
+    tgStk.Color = COLORS.whiteDim
+    tgStk.Thickness = 1
+    tgStk.Transparency = 0.6
 
     local toggleBall = Instance.new("Frame", toggleBg)
-    toggleBall.Size = UDim2.new(0, 20, 0, 20)
-    toggleBall.Position = UDim2.new(0, 2, 0.5, -10)
-    toggleBall.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+    toggleBall.Size = UDim2.new(0, 18, 0, 18)
+    toggleBall.Position = UDim2.new(0, 2, 0.5, -9)
+    toggleBall.BackgroundColor3 = COLORS.whiteDim
     toggleBall.BorderSizePixel = 0
     Instance.new("UICorner", toggleBall).CornerRadius = UDim.new(1, 0)
 
@@ -315,16 +292,21 @@ local function mkToggle(parent, label, defaultState, onToggle)
     local function updateToggle(newState, silent)
         state = newState
         if state then
-            toggleBg.BackgroundColor3 = COLORS.green
-            toggleBall.BackgroundColor3 = Color3.new(1, 1, 1)
-            toggleBall.Position = UDim2.new(1, -22, 0.5, -10)
+            -- ⭐ ON: nền sáng nhạt (không phải trắng đục)
+            toggleBg.BackgroundColor3 = COLORS.whiteDim
+            tgStk.Transparency = 0.3
+            toggleBall.BackgroundColor3 = COLORS.bg
+            toggleBall.Position = UDim2.new(1, -20, 0.5, -9)
         else
             toggleBg.BackgroundColor3 = COLORS.offBg
-            toggleBall.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
-            toggleBall.Position = UDim2.new(0, 2, 0.5, -10)
+            tgStk.Transparency = 0.6
+            toggleBall.BackgroundColor3 = COLORS.whiteDim
+            toggleBall.Position = UDim2.new(0, 2, 0.5, -9)
         end
         if not silent and onToggle then onToggle(state) end
     end
+
+    updateToggle(state, true)
 
     local clickRegion = Instance.new("TextButton", toggleBg)
     clickRegion.Size = UDim2.new(1, 0, 1, 0)
@@ -336,22 +318,22 @@ local function mkToggle(parent, label, defaultState, onToggle)
 
     return {
         ctrl = ctrl,
-        setState = function(s) updateToggle(s, true) end,  -- ⭐ silent (không gọi onToggle)
+        setState = function(s) updateToggle(s, true) end,
         getState = function() return state end
     }
 end
 
 -- ⭐ CONTROL WRAPPER
-local function mkControl(parent, label)
+local function mkControl(parent, label, h)
     local ctrl = Instance.new("Frame", parent)
-    ctrl.Size = UDim2.new(1, 0, 0, 58)   -- ✅ FIX: có height
+    ctrl.Size = UDim2.new(1, 0, 0, h or 50)
     ctrl.BackgroundTransparency = 1
 
     local lbl = Instance.new("TextLabel", ctrl)
-    lbl.Size = UDim2.new(1, 0, 0, 16)
+    lbl.Size = UDim2.new(1, 0, 0, 14)
     lbl.BackgroundTransparency = 1
     lbl.Text = label
-    lbl.TextColor3 = COLORS.textDim
+    lbl.TextColor3 = COLORS.whiteDim
     lbl.Font = Enum.Font.GothamBold
     lbl.TextSize = 10
     lbl.TextXAlignment = Enum.TextXAlignment.Left
@@ -365,50 +347,60 @@ end
 local pageMain = Instance.new("Frame", content)
 pageMain.Size = UDim2.new(1, 0, 1, 0)
 pageMain.BackgroundTransparency = 1
-pageMain.ClipsDescendants = true
 pages.main = pageMain
 
-local mainPad = Instance.new("UIPadding", pageMain)
-mainPad.PaddingTop = UDim.new(0, 0)
-
 local mainLayout = Instance.new("UIListLayout", pageMain)
-mainLayout.Padding = UDim.new(0, 10)
+mainLayout.Padding = UDim.new(0, 8)
 mainLayout.FillDirection = Enum.FillDirection.Vertical
 
--- ⭐ MAP SELECT
-local mapCtrl, mapLabel = mkControl(pageMain, "🎯 SELECT MAP")
+-- ⭐ MAP SELECT — chỉ có 1 button, KHÔNG dropdown bên trong
+local mapCtrl, mapLabel = mkControl(pageMain, "🎯 SELECT MAP", 50)
+
 local mapSelect = Instance.new("TextButton", mapCtrl)
-mapSelect.Size = UDim2.new(1, 0, 0, 32)
-mapSelect.Position = UDim2.new(0, 0, 0, 20)
+mapSelect.Size = UDim2.new(1, 0, 0, 30)
+mapSelect.Position = UDim2.new(0, 0, 0, 16)
 mapSelect.BackgroundColor3 = COLORS.bg2
-mapSelect.Text = "All Maps  ▼"
-mapSelect.TextColor3 = COLORS.text
+mapSelect.Text = "All Maps   ▾"
+mapSelect.TextColor3 = COLORS.white
 mapSelect.Font = Enum.Font.GothamBold
 mapSelect.TextSize = 11
 mapSelect.AutoButtonColor = false
 Instance.new("UICorner", mapSelect).CornerRadius = UDim.new(0, 6)
+local msStk = Instance.new("UIStroke", mapSelect)
+msStk.Color = COLORS.whiteDim
+msStk.Thickness = 1
+msStk.Transparency = 0.6
 
--- Dropdown
-local mapDropdown = Instance.new("Frame", mapCtrl)
-mapDropdown.Size = UDim2.new(1, 0, 0, 0)
-mapDropdown.Position = UDim2.new(0, 0, 0, 56)
-mapDropdown.BackgroundTransparency = 1
+mapSelect.MouseEnter:Connect(function()
+    mapSelect.BackgroundColor3 = COLORS.btnHover
+end)
+mapSelect.MouseLeave:Connect(function()
+    mapSelect.BackgroundColor3 = COLORS.bg2
+end)
+
+-- ⭐ DROPDOWN — OVERLAY HIỆN BÊN PHẢI NÚT (hoặc đè lên trên)
+local mapDropdown = Instance.new("Frame", panel)   -- ⭐ child của PANEL, không phải control
+mapDropdown.Size = UDim2.new(0, 180, 0, 220)
+mapDropdown.BackgroundColor3 = COLORS.bg2
+mapDropdown.BackgroundTransparency = 0.05
+mapDropdown.BorderSizePixel = 0
 mapDropdown.Visible = false
+mapDropdown.ZIndex = 100                             -- ⭐ Trên tất cả
+Instance.new("UICorner", mapDropdown).CornerRadius = UDim.new(0, 8)
+local ddStk = Instance.new("UIStroke", mapDropdown)
+ddStk.Color = COLORS.whiteDim
+ddStk.Thickness = 1
+ddStk.Transparency = 0.4
 
+-- ⭐ Vị trí: bên phải nút "Select Map" (được set lại khi click)
 local mapScroll = Instance.new("ScrollingFrame", mapDropdown)
-mapScroll.Size = UDim2.new(1, 0, 0, 180)
-mapScroll.BackgroundColor3 = COLORS.bg3
+mapScroll.Size = UDim2.new(1, -8, 1, -8)
+mapScroll.Position = UDim2.new(0, 4, 0, 4)
+mapScroll.BackgroundTransparency = 1
 mapScroll.BorderSizePixel = 0
 mapScroll.ScrollBarThickness = 2
 mapScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 mapScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-Instance.new("UICorner", mapScroll).CornerRadius = UDim.new(0, 6)
-
-local mPad = Instance.new("UIPadding", mapScroll)
-mPad.PaddingTop = UDim.new(0, 4)
-mPad.PaddingLeft = UDim.new(0, 4)
-mPad.PaddingRight = UDim.new(0, 4)
-mPad.PaddingBottom = UDim.new(0, 4)
 
 local mLayout = Instance.new("UIListLayout", mapScroll)
 mLayout.Padding = UDim.new(0, 3)
@@ -423,19 +415,16 @@ local function updateSelectedMaps()
             table.insert(targets, m)
         end
     end
-    if #targets == 0 then
-        -- Nếu không chọn map nào → dùng tất cả
-        targets = ALL_MAPS
-    end
+    if #targets == 0 then targets = ALL_MAPS end
     API.SetTargets(targets)
 end
 
--- "All Maps" button
+-- "All Maps" button (chỉ chữ trắng nhạt, nền xám)
 local selAllBtn = Instance.new("TextButton", mapScroll)
-selAllBtn.Size = UDim2.new(1, -8, 0, 24)
-selAllBtn.BackgroundColor3 = COLORS.gold
-selAllBtn.Text = "✓ All Maps"
-selAllBtn.TextColor3 = Color3.new(0, 0, 0)
+selAllBtn.Size = UDim2.new(1, 0, 0, 24)
+selAllBtn.BackgroundColor3 = COLORS.btnBg
+selAllBtn.Text = "✓  All Maps"
+selAllBtn.TextColor3 = COLORS.white
 selAllBtn.Font = Enum.Font.GothamBold
 selAllBtn.TextSize = 10
 selAllBtn.TextXAlignment = Enum.TextXAlignment.Left
@@ -444,22 +433,21 @@ Instance.new("UICorner", selAllBtn).CornerRadius = UDim.new(0, 4)
 
 selAllBtn.MouseButton1Click:Connect(function()
     for _, m in ipairs(ALL_MAPS) do selectedMaps[m.name] = true end
-    mapSelect.Text = "All Maps  ▼"
+    mapSelect.Text = "All Maps   ▾"
     for _, item in ipairs(mapRowBtns) do
-        item.btn.BackgroundColor3 = COLORS.green
-        item.btn.TextColor3 = Color3.new(0, 0, 0)
+        item.btn.BackgroundColor3 = COLORS.btnBg
+        item.btn.TextColor3 = COLORS.white
     end
     updateSelectedMaps()
     mapDropdown.Visible = false
 end)
 
--- Map rows
 for _, m in ipairs(ALL_MAPS) do
     local b = Instance.new("TextButton", mapScroll)
-    b.Size = UDim2.new(1, -8, 0, 24)
-    b.BackgroundColor3 = COLORS.bg3
-    b.Text = m.name
-    b.TextColor3 = COLORS.text
+    b.Size = UDim2.new(1, 0, 0, 24)
+    b.BackgroundColor3 = COLORS.btnBg
+    b.Text = "     " .. m.name
+    b.TextColor3 = COLORS.textDim
     b.Font = Enum.Font.GothamBold
     b.TextSize = 10
     b.TextXAlignment = Enum.TextXAlignment.Left
@@ -471,37 +459,62 @@ for _, m in ipairs(ALL_MAPS) do
     b.MouseButton1Click:Connect(function()
         selectedMaps[m.name] = not selectedMaps[m.name]
         if selectedMaps[m.name] then
-            b.BackgroundColor3 = COLORS.green
-            b.TextColor3 = Color3.new(0, 0, 0)
+            -- ⭐ Không tô trắng — chỉ đổi chữ + đổi nền nhẹ
+            b.BackgroundColor3 = COLORS.btnHover
+            b.TextColor3 = COLORS.white
+            b.Text = "  ✓  " .. m.name
         else
-            b.BackgroundColor3 = COLORS.bg3
-            b.TextColor3 = COLORS.text
+            b.BackgroundColor3 = COLORS.btnBg
+            b.TextColor3 = COLORS.textDim
+            b.Text = "     " .. m.name
         end
 
         local count = 0
         for _ in pairs(selectedMaps) do count = count + 1 end
         if count == 0 then
-            mapSelect.Text = "All Maps (default)  ▼"
+            mapSelect.Text = "All Maps (default)   ▾"
         elseif count == #ALL_MAPS then
-            mapSelect.Text = "All Maps  ▼"
+            mapSelect.Text = "All Maps   ▾"
         else
-            mapSelect.Text = count .. " Maps  ▼"
+            mapSelect.Text = count .. " Maps   ▾"
         end
         updateSelectedMaps()
     end)
 end
 
+-- ⭐ Bấm select → hiện dropdown BÊN PHẢI nút
 mapSelect.MouseButton1Click:Connect(function()
-    mapDropdown.Visible = not mapDropdown.Visible
+    if mapDropdown.Visible then
+        mapDropdown.Visible = false
+        return
+    end
+
+    -- ⭐ Đặt vị trí: bên phải nút Select Map
+    local posBtn = mapSelect.AbsolutePosition
+    local posPanel = panel.AbsolutePosition
+    local sizeBtn = mapSelect.AbsoluteSize
+
+    -- Tọa độ tương đối trong panel
+    local relX = posBtn.X - posPanel.X + sizeBtn.X + 6  -- bên phải + 6px
+    local relY = posBtn.Y - posPanel.Y
+
+    -- Nếu không đủ chỗ bên phải → hiện bên trái
+    if relX + 180 > PANEL_W then
+        relX = posBtn.X - posPanel.X - 180 - 6
+    end
+
+    -- Nếu tràn xuống → dịch lên
+    if relY + 220 > PANEL_H then
+        relY = PANEL_H - 220 - 10
+    end
+
+    mapDropdown.Position = UDim2.new(0, relX, 0, relY)
+    mapDropdown.Visible = true
 end)
 
 -- ⭐ AUTO STEAL
 local stealToggle = mkToggle(pageMain, "🔄 AUTO STEAL", false, function(state)
-    if state then
-        API.Start()
-    else
-        API.Stop()
-    end
+    if state then API.Start() else API.Stop() end
 end)
 
 -- ⭐ PRIORITY INCOME
@@ -510,18 +523,23 @@ local bestToggle = mkToggle(pageMain, "⭐ ƯU TIÊN TIỀN CAO", false, functio
 end)
 
 -- ⭐ THRESHOLD INPUT
-local valCtrl, valLabel = mkControl(pageMain, "💵 NGƯỠNG TIỀN ($/s)")
+local valCtrl, valLabel = mkControl(pageMain, "💵 NGƯỠNG TIỀN ($/s)", 50)
+
 local valInput = Instance.new("TextBox", valCtrl)
-valInput.Size = UDim2.new(1, 0, 0, 32)
-valInput.Position = UDim2.new(0, 0, 0, 20)
+valInput.Size = UDim2.new(1, 0, 0, 30)
+valInput.Position = UDim2.new(0, 0, 0, 16)
 valInput.BackgroundColor3 = COLORS.bg2
 valInput.Text = "1000000"
-valInput.TextColor3 = COLORS.text
+valInput.TextColor3 = COLORS.white
 valInput.Font = Enum.Font.GothamBold
 valInput.TextSize = 12
 valInput.PlaceholderText = "VD: 1000000"
 valInput.ClearTextOnFocus = false
 Instance.new("UICorner", valInput).CornerRadius = UDim.new(0, 6)
+local viStk = Instance.new("UIStroke", valInput)
+viStk.Color = COLORS.whiteDim
+viStk.Thickness = 1
+viStk.Transparency = 0.6
 
 valInput.FocusLost:Connect(function()
     local n = tonumber(valInput.Text)
@@ -532,16 +550,13 @@ valInput.FocusLost:Connect(function()
     end
 end)
 
--- ⭐ SYNC STATE với module mỗi 1s
+-- ⭐ SYNC STATE
 task.spawn(function()
     while task.wait(1) do
-        -- Sync auto steal
         local running = API.IsRunning()
         if running ~= stealToggle.getState() then
             stealToggle.setState(running)
         end
-
-        -- Sync priority income
         local prio = API.IsPriorityIncome()
         if prio ~= bestToggle.getState() then
             bestToggle.setState(prio)
@@ -559,15 +574,15 @@ pageESP.Visible = false
 pages.esp = pageESP
 
 local espLayout = Instance.new("UIListLayout", pageESP)
-espLayout.Padding = UDim.new(0, 10)
+espLayout.Padding = UDim.new(0, 8)
 
 local espHeader = Instance.new("TextLabel", pageESP)
-espHeader.Size = UDim2.new(1, 0, 0, 30)
+espHeader.Size = UDim2.new(1, 0, 0, 24)
 espHeader.BackgroundTransparency = 1
 espHeader.Text = "👁 ESP SETTINGS"
-espHeader.TextColor3 = COLORS.text
+espHeader.TextColor3 = COLORS.white
 espHeader.Font = Enum.Font.GothamBold
-espHeader.TextSize = 13
+espHeader.TextSize = 12
 espHeader.TextXAlignment = Enum.TextXAlignment.Left
 
 local espToggle = mkToggle(pageESP, "Enable ESP", false, function(state)
@@ -575,19 +590,55 @@ local espToggle = mkToggle(pageESP, "Enable ESP", false, function(state)
 end)
 
 -- ══════════ INIT ══════════
-setTab("main")
+for _, item in ipairs(tabBtns) do
+    if item.id == "main" then
+        item.bg.BackgroundTransparency = 0.15
+        item.stk.Transparency = 0.3
+        item.ic.TextColor3 = COLORS.white
+        item.lbl.TextColor3 = COLORS.white
+    else
+        item.bg.BackgroundTransparency = 0.5
+        item.stk.Transparency = 0.7
+        item.ic.TextColor3 = COLORS.whiteDim
+        item.lbl.TextColor3 = COLORS.whiteDim
+    end
+end
 
--- ⭐ Mở/đóng panel
 icon.MouseButton1Click:Connect(function()
     panel.Visible = not panel.Visible
+    if not panel.Visible then mapDropdown.Visible = false end
 end)
 
--- ⭐ RightShift để toggle panel
+-- ⭐ Click ra ngoài dropdown → đóng
+UIS.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        -- Nếu click không phải vào dropdown hoặc nút select → đóng
+        if mapDropdown.Visible then
+            local mx, my = input.Position.X, input.Position.Y
+            local ddPos = mapDropdown.AbsolutePosition
+            local ddSize = mapDropdown.AbsoluteSize
+            local btnPos = mapSelect.AbsolutePosition
+            local btnSize = mapSelect.AbsoluteSize
+
+            local inDropdown = mx >= ddPos.X and mx <= ddPos.X + ddSize.X
+                            and my >= ddPos.Y and my <= ddPos.Y + ddSize.Y
+            local inBtn = mx >= btnPos.X and mx <= btnPos.X + btnSize.X
+                       and my >= btnPos.Y and my <= btnPos.Y + btnSize.Y
+
+            if not inDropdown and not inBtn then
+                mapDropdown.Visible = false
+            end
+        end
+    end
+end)
+
 UIS.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.KeyCode == Enum.KeyCode.RightShift then
         panel.Visible = not panel.Visible
+        if not panel.Visible then mapDropdown.Visible = false end
     end
 end)
 
-print("[Main] ✅ Ready v9.3 - Fixed UI + Hooked!")
+print("[Main] ✅ Ready v9.5 - Overlay dropdown!")
