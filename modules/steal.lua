@@ -1,13 +1,11 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v8.4 — Cross-platform (Mobile + PC)
+-- STEAL MODULE v8.5 — Cross-platform (PC + Mobile) — NO VIM
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
 local RS                 = game:GetService("ReplicatedStorage")
 local W                  = workspace
 local ProximityPromptSvc = game:GetService("ProximityPromptService")
-local UIS                = game:GetService("UserInputService")
-local VIM                = game:GetService("VirtualInputManager")
 
 local M = {}
 
@@ -35,6 +33,7 @@ local config = {
     PRIORITY_INCOME    = false,
     PRIORITY_THRESHOLD = 1000000,
 
+    -- ⭐ v8.5: Fly home velocity
     HOME_FLY_OFFSET    = 60,
     FLY_HOME_SPEED     = 500,
     DROP_SPEED         = 250,
@@ -53,10 +52,6 @@ local config = {
     STEAL_VERIFY_WAIT = 0.35,
     CHAT_WAIT      = 2.0,
 }
-
--- ⭐ DETECT PLATFORM
-local IS_PC     = UIS.KeyboardEnabled and not UIS.TouchEnabled
-local IS_MOBILE = UIS.TouchEnabled
 
 local isRunning      = false
 local stolenPrompts  = {}
@@ -454,7 +449,7 @@ local function teleToMap(targetPos)
     end
 end
 
--- ⭐⭐⭐ CROSS-PLATFORM firePrompt
+-- ⭐⭐⭐ CROSS-PLATFORM firePrompt (KHÔNG dùng VIM)
 local function firePromptOnce(prompt)
     if not prompt or not prompt.Parent then return false end
 
@@ -465,34 +460,25 @@ local function firePromptOnce(prompt)
         prompt.RequiresLineOfSight = false
     end)
 
-    -- ⭐ 1. fireproximityprompt (executor có hỗ trợ)
+    -- 1. fireproximityprompt (nếu executor có)
     if type(fireproximityprompt) == "function" then
         pcall(fireproximityprompt, prompt)
     end
 
-    -- ⭐ 2. InputHoldBegin/End (mobile + PC)
+    -- 2. InputHoldBegin/End (mobile + PC)
     pcall(function()
         prompt:InputHoldBegin()
         task.wait(0.02)
         prompt:InputHoldEnd()
     end)
 
-    -- ⭐ 3. Fire events (universal)
+    -- 3. Fire events (universal)
     pcall(function()
         prompt.PromptButtonHoldBegan:Fire()
         task.wait(0.02)
         prompt.PromptButtonHoldEnded:Fire()
         prompt.Triggered:Fire(P)
     end)
-
-    -- ⭐ 4. PC fallback: VirtualInputManager (E key)
-    if IS_PC then
-        pcall(function()
-            VIM:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-            task.wait(0.05)
-            VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
-        end)
-    end
 
     return true
 end
@@ -937,14 +923,12 @@ function M.start()
     deliveryFailed = false
     incomeCache = {}
     isRunning = true
-    log("▶ START v8.4 — " .. #config.TARGETS .. " map(s) — " ..
-        (IS_PC and "PC" or "Mobile"))
+    log("▶ START v8.5 — " .. #config.TARGETS .. " map(s)")
     task.spawn(mainLoop)
 end
 
 function M.stop() isRunning = false; log("■ STOP") end
 function M.isRunning() return isRunning end
-function M.getPlatform() return IS_PC and "PC" or (IS_MOBILE and "Mobile" or "Unknown") end
 
 function M.setTargets(targetList)
     if type(targetList) ~= "table" then return end
