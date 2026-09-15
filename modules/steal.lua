@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v8.1 — Lift + Velocity Home + Recovery
+-- STEAL MODULE v8.3 — Fly home velocity only
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -30,20 +30,17 @@ local config = {
     TARGETS        = { { name = "Snow", pos = Vector3.new(1405.1, 68.0, -363.8) } },
     PREFER_FAR     = true,
 
-    -- ⭐ Priority Income
     PRIORITY_INCOME    = false,
     PRIORITY_THRESHOLD = 1000000,
 
-    -- ⭐ v8.1: Lift + Recovery
-    LIFT_HEIGHT        = 120,    -- bay cao thêm bao nhiêu
-    LIFT_SPEED         = 300,    -- tốc độ bay lên
-    FLY_HOME_SPEED     = 500,    -- tốc độ bay về home
-    DROP_SPEED         = 250,    -- tốc độ rớt cuối
-    RECOVERY_RADIUS    = 500,    -- tìm egg rớt trong 500 studs
-    MAX_RECOVERY       = 3,      -- tối đa 3 lần recovery
-    RECOVERY_WAIT      = 0.3,    -- chờ ổn định sau knockback
+    -- ⭐ v8.3: Fly home velocity
+    HOME_FLY_OFFSET    = 60,
+    FLY_HOME_SPEED     = 500,
+    DROP_SPEED         = 250,
+    RECOVERY_RADIUS    = 500,
+    MAX_RECOVERY       = 3,
+    RECOVERY_WAIT      = 0.3,
 
-    -- Core
     SPEED          = 1500,
     SPEED_CAP      = 500,
     MAP_RADIUS     = 800,
@@ -224,13 +221,8 @@ local function findHighestIncomeEgg()
                             end
                             if nearestMap then
                                 bestIncome = income
-                                best = {
-                                    prompt = v,
-                                    pos = ppos,
-                                    map = nearestMap,
-                                    income = income,
-                                    uid = uid,
-                                }
+                                best = { prompt = v, pos = ppos, map = nearestMap,
+                                         income = income, uid = uid }
                             end
                         end
                     end
@@ -272,9 +264,7 @@ local function findEggInTargets()
                         for _, tgt in ipairs(config.TARGETS) do
                             if tgt.name == realMap.name then
                                 table.insert(candidates, {
-                                    prompt = v,
-                                    pos = ppos,
-                                    map = realMap,
+                                    prompt = v, pos = ppos, map = realMap,
                                     dFromPlayer = dist(ppos, hrp.Position),
                                     dFromHome = dist(realMap.pos, config.HOME_POS),
                                 })
@@ -294,17 +284,11 @@ local function findEggInTargets()
             local uid = getEggUidFromPrompt(c.prompt)
             c.income = uid and getEggIncomeByUid(uid) or 0
         end
-        table.sort(candidates, function(a, b)
-            return a.income > b.income
-        end)
+        table.sort(candidates, function(a, b) return a.income > b.income end)
     elseif config.PREFER_FAR then
-        table.sort(candidates, function(a, b)
-            return a.dFromHome > b.dFromHome
-        end)
+        table.sort(candidates, function(a, b) return a.dFromHome > b.dFromHome end)
     else
-        table.sort(candidates, function(a, b)
-            return a.dFromPlayer < b.dFromPlayer
-        end)
+        table.sort(candidates, function(a, b) return a.dFromPlayer < b.dFromPlayer end)
     end
 
     local best = candidates[1]
@@ -489,6 +473,7 @@ local function firePromptOnce(prompt)
 end
 
 -- ══════════ MOVEMENT ══════════
+-- ⭐ velocityMoveTo: có nudge (dùng cho chạy bộ tới egg/Forest)
 local function velocityMoveTo(targetPos, timeout, manual)
     timeout = timeout or 20
     local hum, hrp = getHum(), getHRP()
@@ -537,119 +522,61 @@ local function velocityMoveTo(targetPos, timeout, manual)
     return false
 end
 
--- ⭐ v8.1: Bay LÊN CAO bằng velocity (không dùng CFrame nudge)
-local function liftUp()
-    local r0 = getHRP()
-    if not r0 then return false end
-    local startY = r0.Position.Y
-    local targetY = startY + (config.LIFT_HEIGHT or 120)
-    log(string.format("⬆ LIFT Y: %.1f → %.1f", startY, targetY))
+-- ⭐⭐⭐ v8.3 NEW: velocityFlyTo — THUẦN velocity, KHÔNG nudge CFrame
+local function velocityFlyTo(targetPos, timeout, speed)
+    timeout = timeout or 20
+    speed = speed or config.FLY_HOME_SPEED or 500
+    local hum, hrp = getHum(), getHRP()
+    if not hum or not hrp then return false end
+    keepHealth()
 
     local t0 = os.clock()
-    while os.clock() - t0 < 4 do
-        local hum, r = getHum(), getHRP()
-        if not hum or not r then break end
-        keepHealth()
-        if r.Position.Y >= targetY then break end
-        pcall(function()
-            r.AssemblyLinearVelocity = Vector3.new(0, config.LIFT_SPEED or 300, 0)
-        end)
-        task.wait(0.01)
-    end
-    return true
-end
-
--- ⭐ v8.1: Bay về home bằng velocity (giữ Y cao) + rớt xuống
-local function flyHomeAndDrop()
-    log("🏃 BAY VỀ HOME")
-    local startTime = os.clock()
-
-    -- Bước 1: Lift lên cao
-    liftUp()
-
-    -- Bước 2: Bay ngang về home, giữ Y cao
-    local r1 = getHRP()
-    if not r1 then return false end
-    local flyY = r1.Position.Y
-    log(string.format("🏃 Bay về home (giữ Y=%.1f)", flyY))
-
-    local t1 = os.clock()
-    while os.clock() - t1 < 25 do
-        local hum, r = getHum(), getHRP()
-        if not hum or not r then break end
+    while os.clock() - t0 < timeout do
+        hum, hrp = getHum(), getHRP()
+        if not hum or not hrp then break end
         keepHealth()
 
-        -- Đo khoảng cách ngang
-        local dx = config.HOME_POS.X - r.Position.X
-        local dz = config.HOME_POS.Z - r.Position.Z
-        local hd = math.sqrt(dx*dx + dz*dz)
-
-        if hd < 30 then
-            log("📍 Đến home → rớt xuống")
-            break
-        end
-
-        pcall(function()
-            -- ⭐ Chỉ velocity, hướng về home-air (giữ Y cao)
-            local targetAir = Vector3.new(config.HOME_POS.X, flyY, config.HOME_POS.Z)
-            local dir = targetAir - r.Position
-            if dir.Magnitude > 0 then
-                r.AssemblyLinearVelocity = dir.Unit * (config.FLY_HOME_SPEED or 500)
-            end
-        end)
-        task.wait(0.01)
-    end
-
-    -- Bước 3: Rớt xuống cơ
-    log("⬇ Rớt xuống home")
-    local t2 = os.clock()
-    while os.clock() - t2 < 5 do
-        local hum, r = getHum(), getHRP()
-        if not hum or not r then break end
-        keepHealth()
-        local d = dist(r.Position, config.HOME_POS)
+        local d = dist(hrp.Position, targetPos)
         if d < config.ARRIVE_DIST then
-            pcall(function()
-                r.AssemblyLinearVelocity = Vector3.zero
-                r.AssemblyAngularVelocity = Vector3.zero
-            end)
-            log(string.format("✅ Đáp home (%.2fs)", os.clock() - startTime))
+            pcall(function() hrp.AssemblyLinearVelocity = Vector3.zero end)
             return true
         end
+
         pcall(function()
-            local dir = config.HOME_POS - r.Position
+            local dir = targetPos - hrp.Position
             if dir.Magnitude > 0 then
-                r.AssemblyLinearVelocity = dir.Unit * (config.DROP_SPEED or 250)
+                -- ⭐ CHỈ velocity, KHÔNG nudge CFrame
+                hrp.AssemblyLinearVelocity = dir.Unit * speed
             end
         end)
         task.wait(0.01)
     end
+
+    pcall(function() local r = getHRP(); if r then r.AssemblyLinearVelocity = Vector3.zero end end)
     return false
 end
 
--- ⭐⭐⭐ v8.1: Bay về home + RECOVERY egg rớt
+-- ⭐⭐⭐ v8.3: Bay về home THUẦN velocity + recovery
 local function goHomeWithRecovery()
-    log("🏃 BAY VỀ HOME (có recovery)")
+    log("🏃 BAY VỀ HOME (velocity)")
     local startTime = os.clock()
     local lastHealth = nil
     local recoveryAttempts = 0
     local MAX_RECOVERY = config.MAX_RECOVERY or 3
 
-    -- Bước 1: Lift
-    liftUp()
+    -- Bước 1: Bay về home-air (giữ Y cao hơn +60)
+    local r0 = getHRP()
+    if not r0 then return false end
+    local flyY = r0.Position.Y + (config.HOME_FLY_OFFSET or 60)
+    log(string.format("🏃 Bay về (Y %.1f → %.1f)", r0.Position.Y, flyY))
 
-    local r1 = getHRP()
-    if not r1 then return false end
-    local flyY = r1.Position.Y
-
-    -- Bước 2: Bay về home, detect knockback
     local t1 = os.clock()
     while os.clock() - t1 < 40 do
         local hum, r = getHum(), getHRP()
         if not hum or not r then break end
         keepHealth()
 
-        -- ⭐ DETECT KNOCKBACK
+        -- DETECT KNOCKBACK
         local vel = r.AssemblyLinearVelocity
         local speed = vel.Magnitude
         local state = hum:GetState()
@@ -665,7 +592,7 @@ local function goHomeWithRecovery()
         end
         lastHealth = hpNow
 
-        -- ⭐ RECOVERY: bị đánh → tìm egg rớt gần đó
+        -- ⭐ RECOVERY: chạy lại lượm egg rớt (velocity)
         if gotHit and recoveryAttempts < MAX_RECOVERY then
             recoveryAttempts = recoveryAttempts + 1
             log(string.format("💥 KNOCKBACK về home (attempt %d/%d)",
@@ -698,8 +625,9 @@ local function goHomeWithRecovery()
                 end
 
                 if nearestPrompt and nearestPos then
-                    log(string.format("🎯 Egg rớt cách %.0f studs → LƯỢM LẠI", nearestDist))
-                    teleToMap(nearestPos)
+                    log(string.format("🎯 Egg rớt cách %.0f studs → CHẠY LẠI", nearestDist))
+                    -- ⭐ v8.3: DÙNG VELOCITY thuần (không nudge, không tele)
+                    velocityFlyTo(nearestPos, 20, config.SPEED_CAP)
                     task.wait(0.1)
                     for i = 1, config.MAX_FIRES do
                         if not isRunning then break end
@@ -712,18 +640,16 @@ local function goHomeWithRecovery()
                     end
                     log("✅ Đã lượm lại egg rớt")
 
-                    -- ⭐ Sau khi lượm → bay lên lại → tiếp tục về home
-                    liftUp()
+                    -- Bay lại lên cao → tiếp tục về
                     local r4 = getHRP()
-                    if r4 then flyY = r4.Position.Y end
-                    t1 = os.clock() - 5  -- reset timer cho thêm thời gian
+                    if r4 then flyY = r4.Position.Y + (config.HOME_FLY_OFFSET or 60) end
+                    t1 = os.clock() - 5
                 else
                     log("⚠ Không tìm thấy egg rớt → tiếp tục về")
                 end
             end
         end
 
-        -- Đo khoảng cách ngang tới home
         local dx = config.HOME_POS.X - r.Position.X
         local dz = config.HOME_POS.Z - r.Position.Z
         local hd = math.sqrt(dx*dx + dz*dz)
@@ -734,6 +660,7 @@ local function goHomeWithRecovery()
         end
 
         pcall(function()
+            -- ⭐ CHỈ velocity thuần
             local targetAir = Vector3.new(config.HOME_POS.X, flyY, config.HOME_POS.Z)
             local dir = targetAir - r.Position
             if dir.Magnitude > 0 then
@@ -743,32 +670,20 @@ local function goHomeWithRecovery()
         task.wait(0.01)
     end
 
-    -- Bước 3: Rớt xuống cơ
+    -- Bước 2: Rớt xuống cơ bằng velocity
     log("⬇ Rớt xuống home")
-    local t2 = os.clock()
-    while os.clock() - t2 < 5 do
-        local hum, r = getHum(), getHRP()
-        if not hum or not r then break end
-        keepHealth()
-        local d = dist(r.Position, config.HOME_POS)
-        if d < config.ARRIVE_DIST then
-            pcall(function()
-                r.AssemblyLinearVelocity = Vector3.zero
-                r.AssemblyAngularVelocity = Vector3.zero
-            end)
-            log(string.format("✅ Về home an toàn (%.2fs, recovery x%d)",
-                os.clock() - startTime, recoveryAttempts))
-            return true
-        end
-        pcall(function()
-            local dir = config.HOME_POS - r.Position
-            if dir.Magnitude > 0 then
-                r.AssemblyLinearVelocity = dir.Unit * (config.DROP_SPEED or 250)
-            end
-        end)
-        task.wait(0.01)
-    end
-    return false
+    velocityFlyTo(config.HOME_POS, 5, config.DROP_SPEED or 250)
+
+    -- Dừng
+    local rEnd = getHRP()
+    if rEnd then pcall(function()
+        rEnd.AssemblyLinearVelocity = Vector3.zero
+        rEnd.AssemblyAngularVelocity = Vector3.zero
+    end) end
+
+    log(string.format("✅ Về home (%.2fs, recovery x%d)",
+        os.clock() - startTime, recoveryAttempts))
+    return true
 end
 
 local function baitBoss(timeout)
@@ -811,15 +726,22 @@ local function stealAtPos(targetPos, label)
     log("═══════")
     log("STEAL TẠI " .. label)
     task.wait(0.05)
+
     local hrp = getHRP()
-    if not hrp or dist(hrp.Position, targetPos) > 50 then
-        teleToMap(targetPos)
-        task.wait(0.05)
+    if not hrp then return false end
+
+    local d = dist(hrp.Position, targetPos)
+    if d > config.ARRIVE_DIST then
+        log(string.format("🏃 Cách %.0f studs → VELOCITY chạy tới", d))
+        velocityMoveTo(targetPos, 25)
     end
+
     local prompt = findPromptSteal(targetPos, 150)
     if not prompt then log("⚠ Không có prompt"); return false end
+
     local slotsBefore, countBefore = getSlotSet()
     log("📊 Global slots trước: " .. countBefore)
+
     for i = 1, config.MAX_FIRES do
         if not isRunning then return false end
         local h2 = getHRP()
@@ -925,7 +847,7 @@ local function mainLoop()
 
                                 local stolen = stealAtPos(eggPos, eggMap.name)
                                 if stolen then
-                                    -- ⭐ v8.1: Bay lên cao + velocity về home + recovery
+                                    -- ⭐ v8.3: Bay về velocity thuần
                                     goHomeWithRecovery()
                                     task.wait(config.CHAT_WAIT)
                                     if deliveryFailed then
@@ -1003,7 +925,7 @@ function M.start()
     deliveryFailed = false
     incomeCache = {}
     isRunning = true
-    log("▶ START v8.1 — " .. #config.TARGETS .. " map(s)")
+    log("▶ START v8.3 — " .. #config.TARGETS .. " map(s)")
     task.spawn(mainLoop)
 end
 
@@ -1040,10 +962,9 @@ end
 function M.getPriorityThreshold() return config.PRIORITY_THRESHOLD end
 function M.clearIncomeCache() incomeCache = {}; log("🔄 Cache cleared") end
 
--- ⭐ v8.1 API mới
-function M.setLiftHeight(n)
-    config.LIFT_HEIGHT = n or 120
-    log("📏 Lift height: " .. config.LIFT_HEIGHT)
+function M.setHomeFlyOffset(n)
+    config.HOME_FLY_OFFSET = n or 60
+    log("📏 Home fly offset: +" .. config.HOME_FLY_OFFSET)
 end
 
 function M.setFlyHomeSpeed(n)
