@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v8 — Priority Income + Threshold 1M/s
+-- STEAL MODULE v8 — Priority Income + Threshold 1M/s [FIXED]
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -95,6 +95,21 @@ local function hasStolenSlot(beforeSet)
         if not now[name] then return true, name end
     end
     return false, nil
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- ✅ FIX: Hàm verify map thực tế của egg
+-- ═══════════════════════════════════════════════════════════════
+local function getEggRealMap(eggPos)
+    local closestMap, closestDist = nil, 999999
+    for _, m in ipairs(ALL_MAPS) do
+        local d = dist(eggPos, m.pos)
+        if d < closestDist then
+            closestMap = m
+            closestDist = d
+        end
+    end
+    return closestMap
 end
 
 -- ══════════ INCOME MODULES ══════════
@@ -227,7 +242,9 @@ local function findHighestIncomeEgg()
     return nil, nil, nil, nil
 end
 
--- ⭐⭐⭐ FIND EGG TRONG TARGET MAPS (multi-map)
+-- ═══════════════════════════════════════════════════════════════
+-- ✅ FIX: FIND EGG TRONG TARGET MAPS (multi-map) - VERIFIED
+-- ═══════════════════════════════════════════════════════════════
 local function findEggInTargets()
     local hrp = getHRP()
     if not hrp then return nil, nil, nil, nil end
@@ -246,17 +263,24 @@ local function findEggInTargets()
                 elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
                 elseif part and part.Parent and part.Parent:IsA("BasePart") then
                     ppos = part.Parent.Position end
+                
                 if ppos then
-                    for _, tgt in ipairs(config.TARGETS) do
-                        if dist(ppos, tgt.pos) < 500 then
-                            table.insert(candidates, {
-                                prompt = v,
-                                pos = ppos,
-                                map = tgt,
-                                dFromPlayer = dist(ppos, hrp.Position),
-                                dFromHome = dist(tgt.pos, config.HOME_POS),
-                            })
-                            break
+                    -- ✅ GET REAL MAP của egg này (verify)
+                    local realMap = getEggRealMap(ppos)
+                    
+                    if realMap then
+                        -- ✅ Check if this REAL MAP is in targets
+                        for _, tgt in ipairs(config.TARGETS) do
+                            if tgt.name == realMap.name then
+                                table.insert(candidates, {
+                                    prompt = v,
+                                    pos = ppos,
+                                    map = realMap,  -- ✅ Dùng MAP THỰC TẾ, không phải tgt
+                                    dFromPlayer = dist(ppos, hrp.Position),
+                                    dFromHome = dist(realMap.pos, config.HOME_POS),
+                                })
+                                break
+                            end
                         end
                     end
                 end
@@ -851,3 +875,4 @@ function M.setForest(p) if p then config.FOREST_POS = p; log("📍 Forest") end 
 function M.getConfig() return config end
 
 return M
+
