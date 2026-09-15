@@ -1,11 +1,13 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v8.3 — Fly home velocity only
+-- STEAL MODULE v8.4 — Cross-platform (Mobile + PC)
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
 local RS                 = game:GetService("ReplicatedStorage")
 local W                  = workspace
 local ProximityPromptSvc = game:GetService("ProximityPromptService")
+local UIS                = game:GetService("UserInputService")
+local VIM                = game:GetService("VirtualInputManager")
 
 local M = {}
 
@@ -33,7 +35,6 @@ local config = {
     PRIORITY_INCOME    = false,
     PRIORITY_THRESHOLD = 1000000,
 
-    -- ⭐ v8.3: Fly home velocity
     HOME_FLY_OFFSET    = 60,
     FLY_HOME_SPEED     = 500,
     DROP_SPEED         = 250,
@@ -52,6 +53,10 @@ local config = {
     STEAL_VERIFY_WAIT = 0.35,
     CHAT_WAIT      = 2.0,
 }
+
+-- ⭐ DETECT PLATFORM
+local IS_PC     = UIS.KeyboardEnabled and not UIS.TouchEnabled
+local IS_MOBILE = UIS.TouchEnabled
 
 local isRunning      = false
 local stolenPrompts  = {}
@@ -449,31 +454,50 @@ local function teleToMap(targetPos)
     end
 end
 
+-- ⭐⭐⭐ CROSS-PLATFORM firePrompt
 local function firePromptOnce(prompt)
     if not prompt or not prompt.Parent then return false end
+
     pcall(function()
         prompt.Enabled = true
         prompt.HoldDuration = 0
         prompt.MaxActivationDistance = 999
         prompt.RequiresLineOfSight = false
     end)
-    if type(fireproximityprompt) == "function" then pcall(fireproximityprompt, prompt) end
+
+    -- ⭐ 1. fireproximityprompt (executor có hỗ trợ)
+    if type(fireproximityprompt) == "function" then
+        pcall(fireproximityprompt, prompt)
+    end
+
+    -- ⭐ 2. InputHoldBegin/End (mobile + PC)
     pcall(function()
         prompt:InputHoldBegin()
         task.wait(0.02)
         prompt:InputHoldEnd()
     end)
+
+    -- ⭐ 3. Fire events (universal)
     pcall(function()
         prompt.PromptButtonHoldBegan:Fire()
         task.wait(0.02)
         prompt.PromptButtonHoldEnded:Fire()
         prompt.Triggered:Fire(P)
     end)
+
+    -- ⭐ 4. PC fallback: VirtualInputManager (E key)
+    if IS_PC then
+        pcall(function()
+            VIM:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+            task.wait(0.05)
+            VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+        end)
+    end
+
     return true
 end
 
 -- ══════════ MOVEMENT ══════════
--- ⭐ velocityMoveTo: có nudge (dùng cho chạy bộ tới egg/Forest)
 local function velocityMoveTo(targetPos, timeout, manual)
     timeout = timeout or 20
     local hum, hrp = getHum(), getHRP()
@@ -522,7 +546,6 @@ local function velocityMoveTo(targetPos, timeout, manual)
     return false
 end
 
--- ⭐⭐⭐ v8.3 NEW: velocityFlyTo — THUẦN velocity, KHÔNG nudge CFrame
 local function velocityFlyTo(targetPos, timeout, speed)
     timeout = timeout or 20
     speed = speed or config.FLY_HOME_SPEED or 500
@@ -545,7 +568,6 @@ local function velocityFlyTo(targetPos, timeout, speed)
         pcall(function()
             local dir = targetPos - hrp.Position
             if dir.Magnitude > 0 then
-                -- ⭐ CHỈ velocity, KHÔNG nudge CFrame
                 hrp.AssemblyLinearVelocity = dir.Unit * speed
             end
         end)
@@ -556,7 +578,6 @@ local function velocityFlyTo(targetPos, timeout, speed)
     return false
 end
 
--- ⭐⭐⭐ v8.3: Bay về home THUẦN velocity + recovery
 local function goHomeWithRecovery()
     log("🏃 BAY VỀ HOME (velocity)")
     local startTime = os.clock()
@@ -564,7 +585,6 @@ local function goHomeWithRecovery()
     local recoveryAttempts = 0
     local MAX_RECOVERY = config.MAX_RECOVERY or 3
 
-    -- Bước 1: Bay về home-air (giữ Y cao hơn +60)
     local r0 = getHRP()
     if not r0 then return false end
     local flyY = r0.Position.Y + (config.HOME_FLY_OFFSET or 60)
@@ -576,7 +596,6 @@ local function goHomeWithRecovery()
         if not hum or not r then break end
         keepHealth()
 
-        -- DETECT KNOCKBACK
         local vel = r.AssemblyLinearVelocity
         local speed = vel.Magnitude
         local state = hum:GetState()
@@ -592,7 +611,6 @@ local function goHomeWithRecovery()
         end
         lastHealth = hpNow
 
-        -- ⭐ RECOVERY: chạy lại lượm egg rớt (velocity)
         if gotHit and recoveryAttempts < MAX_RECOVERY then
             recoveryAttempts = recoveryAttempts + 1
             log(string.format("💥 KNOCKBACK về home (attempt %d/%d)",
@@ -626,7 +644,6 @@ local function goHomeWithRecovery()
 
                 if nearestPrompt and nearestPos then
                     log(string.format("🎯 Egg rớt cách %.0f studs → CHẠY LẠI", nearestDist))
-                    -- ⭐ v8.3: DÙNG VELOCITY thuần (không nudge, không tele)
                     velocityFlyTo(nearestPos, 20, config.SPEED_CAP)
                     task.wait(0.1)
                     for i = 1, config.MAX_FIRES do
@@ -640,7 +657,6 @@ local function goHomeWithRecovery()
                     end
                     log("✅ Đã lượm lại egg rớt")
 
-                    -- Bay lại lên cao → tiếp tục về
                     local r4 = getHRP()
                     if r4 then flyY = r4.Position.Y + (config.HOME_FLY_OFFSET or 60) end
                     t1 = os.clock() - 5
@@ -660,7 +676,6 @@ local function goHomeWithRecovery()
         end
 
         pcall(function()
-            -- ⭐ CHỈ velocity thuần
             local targetAir = Vector3.new(config.HOME_POS.X, flyY, config.HOME_POS.Z)
             local dir = targetAir - r.Position
             if dir.Magnitude > 0 then
@@ -670,11 +685,9 @@ local function goHomeWithRecovery()
         task.wait(0.01)
     end
 
-    -- Bước 2: Rớt xuống cơ bằng velocity
     log("⬇ Rớt xuống home")
     velocityFlyTo(config.HOME_POS, 5, config.DROP_SPEED or 250)
 
-    -- Dừng
     local rEnd = getHRP()
     if rEnd then pcall(function()
         rEnd.AssemblyLinearVelocity = Vector3.zero
@@ -847,7 +860,6 @@ local function mainLoop()
 
                                 local stolen = stealAtPos(eggPos, eggMap.name)
                                 if stolen then
-                                    -- ⭐ v8.3: Bay về velocity thuần
                                     goHomeWithRecovery()
                                     task.wait(config.CHAT_WAIT)
                                     if deliveryFailed then
@@ -925,12 +937,14 @@ function M.start()
     deliveryFailed = false
     incomeCache = {}
     isRunning = true
-    log("▶ START v8.3 — " .. #config.TARGETS .. " map(s)")
+    log("▶ START v8.4 — " .. #config.TARGETS .. " map(s) — " ..
+        (IS_PC and "PC" or "Mobile"))
     task.spawn(mainLoop)
 end
 
 function M.stop() isRunning = false; log("■ STOP") end
 function M.isRunning() return isRunning end
+function M.getPlatform() return IS_PC and "PC" or (IS_MOBILE and "Mobile" or "Unknown") end
 
 function M.setTargets(targetList)
     if type(targetList) ~= "table" then return end
