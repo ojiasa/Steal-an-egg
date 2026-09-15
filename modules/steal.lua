@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v9 — Fix priority + Big egg + Forest filter
+-- STEAL MODULE v9.1 — Fix knockback detect + Big egg no-scale
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -30,24 +30,21 @@ local config = {
     TARGETS        = { { name = "Snow", pos = Vector3.new(1405.1, 68.0, -363.8) } },
     PREFER_FAR     = true,
 
-    -- ⭐ Priority Income
     PRIORITY_INCOME    = false,
     PRIORITY_THRESHOLD = 1000000,
 
-    -- ⭐ v9 MỚI: Big egg mode (steal egg scale to nhất)
+    -- ⭐ Big egg mode (KHÔNG cần scale input)
     BIG_EGG_MODE       = false,
-    BIG_EGG_MIN_SCALE  = 1.0,     -- scale tối thiểu (VD 1.0 = từ 1.0 trở lên)
 
-    -- ⭐ v9: Fly home — Y TUYỆT ĐỐI (không cộng dồn)
-    HOME_FLY_ABSOLUTE_Y = 130,    -- Y cố định khi bay về (HOME.Y 67 + 60 = 127)
+    -- ⭐ v9.1: Y=100
+    HOME_FLY_ABSOLUTE_Y = 100,
     FLY_HOME_SPEED      = 500,
     DROP_SPEED          = 250,
     RECOVERY_RADIUS     = 500,
     MAX_RECOVERY        = 3,
     RECOVERY_WAIT       = 0.3,
 
-    -- ⭐ v9: Forest egg filter
-    FOREST_RADIUS       = 300,    -- bán kính Forest (300 studs)
+    FOREST_RADIUS       = 300,
 
     SPEED          = 1500,
     SPEED_CAP      = 500,
@@ -143,8 +140,6 @@ pcall(function()
     end
 end)
 
--- ⭐ v9 FIX: Đọc income + scale + mutation bằng POSITION (không UID)
--- Trả về: income, scale, mutation, uid
 local function getEggInfoAtPos(eggPos, radius)
     radius = radius or 30
     if not AssetEarnings or not EggState then return 0, 0, nil, nil end
@@ -183,38 +178,106 @@ local function getEggInfoAtPos(eggPos, radius)
     return income, best.AssetScale or 1, best.BaseMutation, best.Uid or best.UID
 end
 
--- Giữ lại hàm cũ cho compat
-local function getEggIncomeByUid(uid)
-    if not AssetEarnings or not EggState or not uid then return 0 end
-    if incomeCache[uid] ~= nil then return incomeCache[uid] end
+-- ⭐⭐⭐ v9.1: Big egg KHÔNG cần scale — lấy egg to nhất rồi nhỏ dần
+local function findBiggestEgg()
+    local hrp = getHRP()
+    if not hrp then return nil, nil, nil, nil end
+
+    if not EggState then
+        log("❌ EggState nil")
+        return nil, nil, nil, nil
+    end
 
     local ok, fd = pcall(EggState.ReadFieldEggs)
     if not ok or type(fd) ~= "table" or type(fd.Records) ~= "table" then
-        return 0
+        return nil, nil, nil, nil
     end
 
-    for _, eggData in pairs(fd.Records) do
-        if eggData.Uid == uid then
-            local input = {
-                Category = eggData.AssetCategory,
-                Scale = eggData.AssetScale or 1,
-                Mutations = eggData.Mutations or {},
-            }
-            local r
-            local ok2, val = pcall(AssetEarnings.LiveRatePerSecond, input)
-            if ok2 and type(val) == "number" and val > 0 then r = val end
-            if not r then
-                ok2, val = pcall(AssetEarnings.RatePerSecond, input)
-                if ok2 and type(val) == "number" and val > 0 then r = val end
+    local candidates = {}
+
+    for uid, eggData in pairs(fd.Records) do
+        local cf = eggData.BoundsCFrame
+        if cf then
+            local pos = cf.Position
+            if dist(pos, config.HOME_POS) > 150 then
+                local scale = eggData.AssetScale or 1
+                local nearestMap, nearestDist = nil, 99999
+                for _, m in ipairs(ALL_MAPS) do
+                    local d = dist(pos, m.pos)
+                    if d < nearestDist then
+                        nearestMap = m
+                        nearestDist = d
+                    end
+                end
+                if nearestMap then
+                    table.insert(candidates, {
+                        uid = uid, pos = pos, scale = scale,
+                        map = nearestMap,
+                        category = eggData.AssetCategory,
+                        mutation = eggData.BaseMutation,
+                    })
+                end
             end
-            incomeCache[uid] = r or 0
-            return r or 0
         end
     end
-    return 0
+
+    if #candidates == 0 then
+        log("⚠ Không có egg trong map")
+        return nil, nil, nil, nil
+    end
+
+    -- ⭐ Sort DESC: to → nhỏ
+    table.sort(candidates, function(a, b)
+        if a.scale ~= b.scale then return a.scale > b.scale end
+        return a.uid < b.uid
+    end)
+
+    log("🥚 TOP egg scale:")
+    for i = 1, math.min(5, #candidates) do
+        local c = candidates[i]
+        local mut = c.mutation and (" [" .. c.mutation .. "]") or ""
+        log(string.format("  [%d] %s%s @ %s = scale %.2f",
+            i, c.category, mut, c.map.name, c.scale))
+    end
+
+    local best = candidates[1]
+
+    local bestPrompt = nil
+    local bestPromptDist = 20
+    for _, v in ipairs(W:GetDescendants()) do
+        if v:IsA("ProximityPrompt") and v.Enabled and not stolenPrompts[v] then
+            local isEgg = v.Name == "CarryAreaEgg"
+                or ((v.ObjectText or "") == "Egg"
+                    and (v.ActionText or ""):lower():find("steal", 1, true))
+            if isEgg then
+                local part = v.Parent
+                local ppos
+                if part and part:IsA("BasePart") then ppos = part.Position
+                elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
+                elseif part and part.Parent and part.Parent:IsA("BasePart") then
+                    ppos = part.Parent.Position end
+                if ppos then
+                    local d = (ppos - best.pos).Magnitude
+                    if d < bestPromptDist then
+                        bestPrompt = v
+                        bestPromptDist = d
+                    end
+                end
+            end
+        end
+    end
+
+    if not bestPrompt then
+        log(string.format("⚠ Không tìm prompt cho big egg %s", best.category))
+        return nil, nil, nil, nil
+    end
+
+    log(string.format("🎯 CHỌN BIG: %s @ %s = scale %.2f",
+        best.category, best.map.name, best.scale))
+
+    return bestPrompt, best.pos, best.scale, best.map
 end
 
--- ⭐ v9 FIX: Priority INCOME — dùng position-based, không UID
 local function findHighestIncomeEgg()
     local hrp = getHRP()
     if not hrp then return nil, nil, nil, nil end
@@ -275,8 +338,7 @@ local function findHighestIncomeEgg()
     end
 
     if #candidates == 0 then
-        log(string.format("⚠ Không có egg >= $%s/s", 
-            (threshold / 1e6) .. "M"))
+        log(string.format("⚠ Không có egg >= $%s/s", (threshold / 1e6) .. "M"))
         return nil, nil, nil, nil
     end
 
@@ -295,7 +357,6 @@ local function findHighestIncomeEgg()
 
     local best = candidates[1]
 
-    -- ⭐ Tìm prompt gần egg best (trong 20 studs)
     local bestPrompt = nil
     local bestPromptDist = 20
     for _, v in ipairs(W:GetDescendants()) do
@@ -332,106 +393,6 @@ local function findHighestIncomeEgg()
     return bestPrompt, best.pos, best.income, best.map
 end
 
--- ⭐ v9 MỚI: Big egg mode — chọn egg scale to nhất
-local function findBiggestEgg()
-    local hrp = getHRP()
-    if not hrp then return nil, nil, nil, nil end
-
-    if not EggState then
-        log("❌ EggState nil")
-        return nil, nil, nil, nil
-    end
-
-    local ok, fd = pcall(EggState.ReadFieldEggs)
-    if not ok or type(fd) ~= "table" or type(fd.Records) ~= "table" then
-        return nil, nil, nil, nil
-    end
-
-    local candidates = {}
-    local minScale = config.BIG_EGG_MIN_SCALE or 1.0
-
-    for uid, eggData in pairs(fd.Records) do
-        local cf = eggData.BoundsCFrame
-        if cf then
-            local pos = cf.Position
-            if dist(pos, config.HOME_POS) > 150 then
-                local scale = eggData.AssetScale or 1
-                if scale >= minScale then
-                    local nearestMap, nearestDist = nil, 99999
-                    for _, m in ipairs(ALL_MAPS) do
-                        local d = dist(pos, m.pos)
-                        if d < nearestDist then
-                            nearestMap = m
-                            nearestDist = d
-                        end
-                    end
-                    if nearestMap then
-                        table.insert(candidates, {
-                            uid = uid, pos = pos, scale = scale,
-                            map = nearestMap,
-                            category = eggData.AssetCategory,
-                            mutation = eggData.BaseMutation,
-                        })
-                    end
-                end
-            end
-        end
-    end
-
-    if #candidates == 0 then
-        log(string.format("⚠ Không có egg scale >= %.2f", minScale))
-        return nil, nil, nil, nil
-    end
-
-    table.sort(candidates, function(a, b) return a.scale > b.scale end)
-
-    log("🥚 TOP egg scale:")
-    for i = 1, math.min(5, #candidates) do
-        local c = candidates[i]
-        local mut = c.mutation and (" [" .. c.mutation .. "]") or ""
-        log(string.format("  [%d] %s%s @ %s = scale %.2f",
-            i, c.category, mut, c.map.name, c.scale))
-    end
-
-    local best = candidates[1]
-
-    local bestPrompt = nil
-    local bestPromptDist = 20
-    for _, v in ipairs(W:GetDescendants()) do
-        if v:IsA("ProximityPrompt") and v.Enabled and not stolenPrompts[v] then
-            local isEgg = v.Name == "CarryAreaEgg"
-                or ((v.ObjectText or "") == "Egg"
-                    and (v.ActionText or ""):lower():find("steal", 1, true))
-            if isEgg then
-                local part = v.Parent
-                local ppos
-                if part and part:IsA("BasePart") then ppos = part.Position
-                elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
-                elseif part and part.Parent and part.Parent:IsA("BasePart") then
-                    ppos = part.Parent.Position end
-                if ppos then
-                    local d = (ppos - best.pos).Magnitude
-                    if d < bestPromptDist then
-                        bestPrompt = v
-                        bestPromptDist = d
-                    end
-                end
-            end
-        end
-    end
-
-    if not bestPrompt then
-        log(string.format("⚠ Không tìm prompt cho big egg %s", best.category))
-        return nil, nil, nil, nil
-    end
-
-    log(string.format("🎯 CHỌN BIG: %s @ %s = scale %.2f",
-        best.category, best.map.name, best.scale))
-
-    return bestPrompt, best.pos, best.scale, best.map
-end
-
--- ⭐ v9 FIX: Forest chỉ steal egg Forest (không bắt egg player khác)
 local function findForestEggOnly()
     local forestMap = nil
     for _, m in ipairs(ALL_MAPS) do
@@ -454,7 +415,6 @@ local function findForestEggOnly()
                 elseif part and part.Parent and part.Parent:IsA("BasePart") then
                     ppos = part.Parent.Position end
                 if ppos then
-                    -- ⭐ CHỈ egg trong bán kính Forest
                     local dToForest = dist(ppos, forestMap.pos)
                     if dToForest < config.FOREST_RADIUS then
                         if dToForest < bestDist then
@@ -792,16 +752,15 @@ local function velocityFlyTo(targetPos, timeout, speed)
     return false
 end
 
--- ⭐ v9 FIX: Bay về Y TUYỆT ĐỐI (không cộng dồn)
+-- ⭐⭐⭐ v9.1 FIX: Bỏ detect speed > 200 (tránh nhầm với module tự bay)
 local function goHomeWithRecovery()
-    log("🏃 BAY VỀ HOME (Y tuyệt đối)")
+    log("🏃 BAY VỀ HOME (Y=100)")
     local startTime = os.clock()
     local lastHealth = nil
     local recoveryAttempts = 0
     local MAX_RECOVERY = config.MAX_RECOVERY or 3
 
-    -- ⭐ Y TUYỆT ĐỐI từ config (không cộng dồn)
-    local flyY = config.HOME_FLY_ABSOLUTE_Y or (config.HOME_POS.Y + 60)
+    local flyY = config.HOME_FLY_ABSOLUTE_Y or 100
     log(string.format("🏃 Bay về Y=%.1f (cố định)", flyY))
 
     local t1 = os.clock()
@@ -815,14 +774,14 @@ local function goHomeWithRecovery()
         local state = hum:GetState()
         local hpNow = hum.Health
 
+        -- ⭐ v9.1: CHỈ detect knockback thật
         local gotHit = false
         if state == Enum.HumanoidStateType.Physics and speed > 30 then
-            gotHit = true
-        elseif speed > 200 and vel.Y > 50 then
             gotHit = true
         elseif lastHealth and math.abs(hpNow - lastHealth) > 0.5 then
             gotHit = true
         end
+        -- ⭐ BỎ: elseif speed > 200 and vel.Y > 50
         lastHealth = hpNow
 
         if gotHit and recoveryAttempts < MAX_RECOVERY then
@@ -870,7 +829,6 @@ local function goHomeWithRecovery()
                         task.wait(config.STEAL_VERIFY_WAIT)
                     end
                     log("✅ Đã lượm lại egg rớt")
-                    -- Không đổi flyY — giữ Y tuyệt đối
                     t1 = os.clock() - 5
                 else
                     log("⚠ Không tìm thấy egg rớt → tiếp tục về")
@@ -947,7 +905,6 @@ local function baitBoss(timeout)
     return false
 end
 
--- ⭐ v9 FIX: stealAtPos — check lại sau tele
 local function stealAtPos(targetPos, label, expectedIncome)
     log("═══════")
     log("STEAL TẠI " .. label)
@@ -963,7 +920,6 @@ local function stealAtPos(targetPos, label, expectedIncome)
             teleToMap(targetPos)
             task.wait(0.1)
 
-            -- ⭐ v9 FIX: check lại sau tele, nếu vẫn xa → velocity
             local hrp2 = getHRP()
             if hrp2 then
                 local d2 = dist(hrp2.Position, targetPos)
@@ -1007,11 +963,9 @@ local function stealAtPos(targetPos, label, expectedIncome)
     return false
 end
 
--- ⭐ v9: Detect egg reset
 local function checkEggReset()
     local _, count = getSlotSet()
     if lastEggCount >= 0 and count > lastEggCount + 10 then
-        -- Egg tăng vọt → reset
         log("🔄 Phát hiện egg reset! Clear stolenPrompts")
         stolenPrompts = {}
         return true
@@ -1024,8 +978,6 @@ end
 local function mainLoop()
     while isRunning do
         log("═══════════════════════")
-        
-        -- ⭐ v9: Check reset
         pcall(checkEggReset)
 
         log("PHASE 1: Bay tới Forest")
@@ -1037,7 +989,6 @@ local function mainLoop()
         else
             log("✅ Tới Forest")
             
-            -- ⭐ v9 FIX: Chỉ steal Forest egg
             local prompt, ppos = findForestEggOnly()
 
             if prompt and ppos then
@@ -1077,8 +1028,7 @@ local function mainLoop()
                     local eggPrompt, eggPos, eggDist, eggMap
 
                     if config.BIG_EGG_MODE then
-                        log("🥚 Mode: BIG EGG (scale >= " .. 
-                            (config.BIG_EGG_MIN_SCALE or 1.0) .. ")")
+                        log("🥚 Mode: BIG EGG (không cần scale)")
                         eggPrompt, eggPos, eggDist, eggMap = findBiggestEgg()
                         if not eggPos then
                             log("⚠ Không có big egg → chuyển priority")
@@ -1194,7 +1144,7 @@ function M.start()
     incomeCache = {}
     lastEggCount = -1
     isRunning = true
-    log("▶ START v9 — " .. #config.TARGETS .. " map(s)")
+    log("▶ START v9.1 — " .. #config.TARGETS .. " map(s)")
     task.spawn(mainLoop)
 end
 
@@ -1231,7 +1181,7 @@ end
 function M.getPriorityThreshold() return config.PRIORITY_THRESHOLD end
 function M.clearIncomeCache() incomeCache = {}; log("🔄 Cache cleared") end
 
--- ⭐ v9 API MỚI
+-- ⭐ v9.1 API — Big egg KHÔNG cần scale
 function M.setBigEggMode(enabled)
     config.BIG_EGG_MODE = enabled and true or false
     log("🥚 Big egg mode: " .. (enabled and "BẬT" or "TẮT"))
@@ -1241,13 +1191,8 @@ end
 function M.isBigEggMode() return config.BIG_EGG_MODE end
 function M.toggleBigEggMode() return M.setBigEggMode(not config.BIG_EGG_MODE) end
 
-function M.setBigEggMinScale(n)
-    config.BIG_EGG_MIN_SCALE = n or 1.0
-    log("🥚 Big egg min scale: " .. config.BIG_EGG_MIN_SCALE)
-end
-
 function M.setHomeFlyY(n)
-    config.HOME_FLY_ABSOLUTE_Y = n or 130
+    config.HOME_FLY_ABSOLUTE_Y = n or 100
     log("📏 Home fly Y: " .. config.HOME_FLY_ABSOLUTE_Y)
 end
 
