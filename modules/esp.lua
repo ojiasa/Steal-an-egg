@@ -1,11 +1,11 @@
 -- ═══════════════════════════════════════════════════════════════
--- ESP MODULE v9 — Đọc từ ReadFieldEggs (đủ mọi map)
--- Fix: Prehistoric/Cosmic hiện + auto update tên sau reset
+-- ESP MODULE v10 — Cross-platform (PC + Mobile)
 -- ═══════════════════════════════════════════════════════════════
 
 local P  = game:GetService("Players").LocalPlayer
 local RS = game:GetService("ReplicatedStorage")
 local W  = workspace
+local UIS = game:GetService("UserInputService")
 
 local M = {}
 
@@ -20,12 +20,51 @@ local EggState
 local REFRESH_INTERVAL = 0.3
 local DIST_INTERVAL    = 0.15
 
+-- ⭐ DETECT PLATFORM
+local IS_PC     = UIS.KeyboardEnabled and not UIS.TouchEnabled
+local IS_MOBILE = UIS.TouchEnabled
+local PLATFORM  = IS_PC and "PC" or (IS_MOBILE and "Mobile" or "Unknown")
+
+-- ⭐⭐⭐ SAFE GUI — tự chọn nơi add GUI phù hợp
+local function getSafeGui()
+    -- Thử gethui() (mobile + executor mạnh)
+    if gethui then
+        local ok, hui = pcall(gethui)
+        if ok and hui then
+            -- Test write được không
+            local testOk = pcall(function()
+                local f = Instance.new("Folder")
+                f.Parent = hui
+                f:Destroy()
+            end)
+            if testOk then return hui end
+        end
+    end
+
+    -- Thử CoreGui
+    local ok2, cg = pcall(function() return game:GetService("CoreGui") end)
+    if ok2 and cg then
+        local testOk = pcall(function()
+            local f = Instance.new("Folder")
+            f.Parent = cg
+            f:Destroy()
+        end)
+        if testOk then return cg end
+    end
+
+    -- Fallback: PlayerGui (luôn hoạt động)
+    return P:WaitForChild("PlayerGui")
+end
+
 -- ══════════ LOAD MODULES ══════════
 pcall(function()
     local c = RS:WaitForChild("Client", 5)
     if c then
         local mod = c:WaitForChild("EggState", 5)
-        if mod then EggState = require(mod) end
+        if mod then
+            local ok, m = pcall(require, mod)
+            if ok then EggState = m end
+        end
     end
 end)
 
@@ -33,8 +72,16 @@ pcall(function()
     local s = RS:WaitForChild("Shared", 5)
     local u = s and s:FindFirstChild("Util", 5)
     local mod = u and u:FindFirstChild("AssetEarnings", 5)
-    if mod then AssetEarnings = require(mod) end
+    if mod then
+        local ok, m = pcall(require, mod)
+        if ok then AssetEarnings = m end
+    end
 end)
+
+print(string.format("[ESP] Platform: %s | EggState: %s | AssetEarnings: %s",
+    PLATFORM,
+    tostring(EggState ~= nil),
+    tostring(AssetEarnings ~= nil)))
 
 -- ══════════ HELPERS ══════════
 local function dist(a, b) return (a - b).Magnitude end
@@ -55,7 +102,6 @@ local function getPrefixAndColor(mutation)
     return "🥚", Color3.fromRGB(255, 220, 80)
 end
 
--- ⭐ Hash để detect egg mới
 local function makeHash(eggData, pos)
     return string.format("%s|%s|%.1f|%.1f|%.1f|%.2f",
         tostring(eggData.AssetCategory or ""),
@@ -82,7 +128,6 @@ local function getIncomeRate(category, scale, mutations)
     return r
 end
 
--- ⭐⭐⭐ ĐỌC EGG TỪ ReadFieldEggs (nguồn chính, có mọi map)
 local function readAllEggs()
     local result = {}
     if not EggState then return result end
@@ -219,21 +264,19 @@ local function refresh()
     if not enabled then return end
 
     if not espFolder or not espFolder.Parent then
-        parentGui = (gethui and gethui()) or P:WaitForChild("PlayerGui")
+        parentGui = getSafeGui()
         espFolder = Instance.new("Folder")
         espFolder.Name = "ESP_Eggs"
         espFolder.Parent = parentGui
         espObjects = {}
     end
 
-    -- ⭐ Đọc TẤT CẢ egg từ ReadFieldEggs
     local allEggs = readAllEggs()
     local currentUids = {}
 
     for uid, eggData in pairs(allEggs) do
         local pos = eggData.BoundsCFrame.Position
 
-        -- Filter map
         local passFilter = true
         if filterMaps and #filterMaps > 0 then
             passFilter = false
@@ -260,22 +303,18 @@ local function refresh()
             local obj = espObjects[uid]
 
             if not obj then
-                -- Tạo mới
                 obj = createESP(uid, pos, info, newHash)
                 if obj then espObjects[uid] = obj end
             elseif obj.hash ~= newHash then
-                -- ⭐ HASH ĐỔI → egg mới cùng uid → DESTROY + TẠO LẠI
                 destroyObj(obj)
                 espObjects[uid] = nil
                 obj = createESP(uid, pos, info, newHash)
                 if obj then espObjects[uid] = obj end
             else
                 if obj.attach and obj.attach.Parent then
-                    -- Update vị trí
                     pcall(function()
                         obj.attach.CFrame = CFrame.new(pos)
                     end)
-                    -- Update label phòng rate/name đổi
                     if info.rate and obj.lastRate ~= info.rate then
                         obj.lastRate = info.rate
                         pcall(function()
@@ -289,7 +328,6 @@ local function refresh()
                 end
             end
         else
-            -- Không pass filter → xóa
             if espObjects[uid] then
                 destroyObj(espObjects[uid])
                 espObjects[uid] = nil
@@ -297,7 +335,6 @@ local function refresh()
         end
     end
 
-    -- Clear ESP cho egg không còn
     for uid, obj in pairs(espObjects) do
         if not currentUids[uid] then
             destroyObj(obj)
@@ -333,10 +370,23 @@ end
 -- ══════════ API ══════════
 function M.enable()
     if enabled then return end
+    
+    -- ⭐ DEBUG khi bật
+    print("[ESP] ═══ ENABLE DEBUG ═══")
+    print("[ESP] Platform: " .. PLATFORM)
+    print("[ESP] gethui: " .. tostring(gethui ~= nil))
+    print("[ESP] EggState: " .. tostring(EggState ~= nil))
+    print("[ESP] AssetEarnings: " .. tostring(AssetEarnings ~= nil))
+    
+    local testEggs = readAllEggs()
+    local count = 0
+    for _ in pairs(testEggs) do count = count + 1 end
+    print("[ESP] Số egg đọc được: " .. count)
+    
     enabled = true
-    if not parentGui or not parentGui.Parent then
-        parentGui = (gethui and gethui()) or P:WaitForChild("PlayerGui")
-    end
+    parentGui = getSafeGui()
+    print("[ESP] parentGui: " .. tostring(parentGui))
+    
     if not espFolder or not espFolder.Parent then
         espFolder = Instance.new("Folder")
         espFolder.Name = "ESP_Eggs"
@@ -344,7 +394,7 @@ function M.enable()
     end
     incomeCache = {}
     refresh()
-    print("[ESP] ✅ Enabled")
+    print("[ESP] ✅ Enabled — count: " .. M.getCount())
 end
 
 function M.disable()
@@ -383,6 +433,8 @@ function M.getCount()
     return n
 end
 
+function M.getPlatform() return PLATFORM end
+
 -- ══════════ MAIN LOOPS ══════════
 task.spawn(function()
     while true do
@@ -398,13 +450,12 @@ task.spawn(function()
     end
 end)
 
--- Respawn rebuild
 P.CharacterAdded:Connect(function()
     if enabled then
         task.wait(1)
         forceClear()
         if not espFolder or not espFolder.Parent then
-            parentGui = (gethui and gethui()) or P:WaitForChild("PlayerGui")
+            parentGui = getSafeGui()
             espFolder = Instance.new("Folder")
             espFolder.Name = "ESP_Eggs"
             espFolder.Parent = parentGui
