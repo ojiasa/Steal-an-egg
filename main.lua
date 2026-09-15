@@ -49,7 +49,7 @@ _G.StealEgg = {
     ESP_IsEnabled = function() return ESP and ESP.isEnabled() or false end,
     ESP_SetMapFilter = function(list) if ESP then ESP.setMapFilter(list) end end,
 
-    Version = "3.0.0",
+    Version = "3.1.0",
 }
 local API = _G.StealEgg
 _G.MyScript = API
@@ -103,7 +103,7 @@ sg.ResetOnSpawn = false
 sg.DisplayOrder = 999999
 sg.Parent = PARENT
 
--- Nút Icon
+-- Icon
 local icon = Instance.new("ImageButton")
 icon.Size = UDim2.new(0, 44, 0, 44)
 icon.Position = UDim2.new(0, 15, 0.4, 0)
@@ -118,7 +118,7 @@ local istk = Instance.new("UIStroke", icon)
 istk.Color = COLORS.cardBorder
 istk.Thickness = 2
 
--- MainFrame
+-- Panel
 local panel = Instance.new("Frame")
 panel.Size = UDim2.new(0, 540, 0, 360)
 panel.Position = UDim2.new(0.5, 0, 0.5, 0)
@@ -137,7 +137,7 @@ pstk.Color = Color3.fromRGB(255, 255, 255)
 pstk.Thickness = 1.5
 pstk.Transparency = 0.5
 
--- Background
+-- Background image
 local bgImg = Instance.new("ImageLabel", panel)
 bgImg.Size = UDim2.new(1, 0, 1, 0)
 bgImg.BackgroundTransparency = 1
@@ -147,7 +147,7 @@ bgImg.ImageTransparency = 0
 bgImg.ZIndex = 0
 Instance.new("UICorner", bgImg).CornerRadius = UDim.new(0, 14)
 
--- Top Icon
+-- Top icon
 local topIcon = Instance.new("ImageLabel", panel)
 topIcon.Size = UDim2.new(0, 32, 0, 32)
 topIcon.Position = UDim2.new(0, 12, 0, 8)
@@ -155,7 +155,7 @@ topIcon.BackgroundTransparency = 1
 topIcon.Image = ICON_ID
 topIcon.ZIndex = 2
 
--- ⭐ TITLE: nửa TRÊN hồng, nửa DƯỚI xám
+-- Title: nửa trên hồng, nửa dưới xám
 local titleFrame = Instance.new("Frame", panel)
 titleFrame.Size = UDim2.new(1, -55, 0, 32)
 titleFrame.Position = UDim2.new(0, 50, 0, 8)
@@ -163,21 +163,19 @@ titleFrame.BackgroundTransparency = 1
 titleFrame.ClipsDescendants = false
 titleFrame.ZIndex = 2
 
--- LAYER 1: XÁM (full)
 local titleGray = Instance.new("TextLabel", titleFrame)
 titleGray.Size = UDim2.new(1, 0, 1, 0)
 titleGray.Position = UDim2.new(0, 0, 0, 0)
 titleGray.BackgroundTransparency = 1
 titleGray.Text = "STEAL AN EGG HUB"
-titleGray.Font = Enum.Font.GothamBold
+titleGray.Font = Enum.Font.GothamBlack
 titleGray.TextSize = 17
 titleGray.TextColor3 = COLORS.gray
 titleGray.TextXAlignment = Enum.TextXAlignment.Left
 titleGray.ZIndex = 3
 
--- LAYER 2: HỒNG (nửa trên)
 local maskFrame = Instance.new("Frame", titleFrame)
-maskFrame.Size = UDim2.new(1, 0, 0, 17)          -- = 1/2 chiều cao
+maskFrame.Size = UDim2.new(1, 0, 0, 17)
 maskFrame.Position = UDim2.new(0, 0, 0, 0)
 maskFrame.BackgroundTransparency = 1
 maskFrame.ClipsDescendants = true
@@ -188,7 +186,7 @@ titlePink.Size = UDim2.new(1, 0, 0, 32)
 titlePink.Position = UDim2.new(0, 0, 0, 0)
 titlePink.BackgroundTransparency = 1
 titlePink.Text = "STEAL AN EGG HUB"
-titlePink.Font = Enum.Font.GothamBold
+titlePink.Font = Enum.Font.GothamBlack
 titlePink.TextSize = 17
 titlePink.TextColor3 = COLORS.pink
 titlePink.TextXAlignment = Enum.TextXAlignment.Left
@@ -240,7 +238,7 @@ local function mkTab(id, text)
     b.BackgroundColor3 = COLORS.card
     b.BackgroundTransparency = 0.75
     b.Text = text
-    b.Font = Enum.Font.GothamBold
+    b.Font = Enum.Font.GothamBlack
     b.TextSize = 15
     b.TextColor3 = COLORS.textBold
     b.AutoButtonColor = false
@@ -262,7 +260,7 @@ mkTab("esp",  "ESP")
 -- Toggle Row
 local function createToggleRow(parent, labelText, defaultState, hasTextBox, onToggle, onInputChanged, boxDefault)
     local container = Instance.new("Frame", parent)
-    container.Size = UDim2.new(1, -4, 0, 44)
+    container.Size = UDim2.new(1, -4, 0, 46)
     container.BackgroundColor3 = COLORS.card
     container.BackgroundTransparency = 0.88
     container.ZIndex = 3
@@ -274,12 +272,12 @@ local function createToggleRow(parent, labelText, defaultState, hasTextBox, onTo
 
     local lbl = Instance.new("TextLabel", container)
     lbl.Size = UDim2.new(1, hasTextBox and -130 or -60, 1, 0)
-    lbl.Position = UDim2.new(0, 12, 0, 0)
+    lbl.Position = UDim2.new(0, 14, 0, 0)
     lbl.BackgroundTransparency = 1
     lbl.Text = labelText
     lbl.TextColor3 = COLORS.textBold
-    lbl.Font = Enum.Font.GothamBold
-    lbl.TextSize = 14
+    lbl.Font = Enum.Font.GothamBlack
+    lbl.TextSize = 16
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.ZIndex = 4
 
@@ -349,7 +347,7 @@ end
 -- Dropdown
 local function createMultiSelectDropdown(parent, labelText, options, callback)
     local container = Instance.new("Frame", parent)
-    container.Size = UDim2.new(1, -4, 0, 44)
+    container.Size = UDim2.new(1, -4, 0, 46)
     container.BackgroundTransparency = 1
     container.ZIndex = 3
 
@@ -359,7 +357,7 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     lbl.BackgroundTransparency = 1
     lbl.Text = labelText
     lbl.TextColor3 = COLORS.textBold
-    lbl.Font = Enum.Font.GothamBold
+    lbl.Font = Enum.Font.GothamBlack
     lbl.TextSize = 14
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.ZIndex = 3
@@ -371,7 +369,7 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     dropBtn.BackgroundTransparency = 0.75
     dropBtn.Text = "All Maps --"
     dropBtn.TextColor3 = COLORS.textBold
-    dropBtn.Font = Enum.Font.GothamBold
+    dropBtn.Font = Enum.Font.GothamBlack
     dropBtn.TextSize = 14
     dropBtn.AutoButtonColor = false
     dropBtn.ZIndex = 4
@@ -453,13 +451,13 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     return container
 end
 
--- TAB MAIN
+-- Tab MAIN
 local pageMain = Instance.new("ScrollingFrame", content)
 pageMain.Size = UDim2.new(1, 0, 1, 0)
 pageMain.BackgroundTransparency = 1
 pageMain.BorderSizePixel = 0
 pageMain.ScrollBarThickness = 2
-pageMain.CanvasSize = UDim2.new(0, 0, 0, 220)
+pageMain.CanvasSize = UDim2.new(0, 0, 0, 240)
 pageMain.ZIndex = 3
 pages.main = pageMain
 
@@ -488,7 +486,7 @@ local autoFarmToggle = createToggleRow(pageMain, "Auto Steal Egg", false, false,
 end, nil)
 autoFarmToggle.LayoutOrder = 4
 
--- TAB ESP
+-- Tab ESP
 local pageESP = Instance.new("ScrollingFrame", content)
 pageESP.Size = UDim2.new(1, 0, 1, 0)
 pageESP.BackgroundTransparency = 1
@@ -506,14 +504,20 @@ createToggleRow(pageESP, "ESP Egg", API.ESP_IsEnabled(), false, function(state)
     API.ESP_Toggle()
 end, nil)
 
--- Resize
+-- ⭐ Resize nút góc dưới phải
 local resizeBtn = Instance.new("TextButton", panel)
-resizeBtn.Size = UDim2.new(0, 24, 0, 24)
-resizeBtn.Position = UDim2.new(1, -24, 1, -24)
-resizeBtn.BackgroundTransparency = 1
-resizeBtn.Text = ""
+resizeBtn.Size = UDim2.new(0, 22, 0, 22)
+resizeBtn.Position = UDim2.new(1, -26, 1, -26)
+resizeBtn.BackgroundTransparency = 0.3
+resizeBtn.BackgroundColor3 = Color3.fromRGB(120, 125, 135)
+resizeBtn.BorderSizePixel = 0
+resizeBtn.Text = "◢"
+resizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+resizeBtn.Font = Enum.Font.GothamBold
+resizeBtn.TextSize = 14
 resizeBtn.AutoButtonColor = false
 resizeBtn.ZIndex = 10
+Instance.new("UICorner", resizeBtn).CornerRadius = UDim.new(0, 6)
 
 local resizing = false
 local startSize, startMousePos
@@ -527,12 +531,14 @@ resizeBtn.InputBegan:Connect(function(input)
 end)
 
 UserInputService.InputChanged:Connect(function(input)
-    if resizing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local delta = input.Position - startMousePos
-        local newWidth = math.max(420, startSize.X.Offset + delta.X)
-        local newHeight = math.max(250, startSize.Y.Offset + delta.Y)
-        panel.Size = UDim2.new(0, newWidth, 0, newHeight)
-    end
+    if not resizing then return end
+    if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
+
+    local delta = input.Position - startMousePos
+    -- Nhân 2 vì panel căn giữa
+    local newWidth = math.max(420, startSize.X.Offset + delta.X * 2)
+    local newHeight = math.max(250, startSize.Y.Offset + delta.Y)
+    panel.Size = UDim2.new(0, newWidth, 0, newHeight)
 end)
 
 UserInputService.InputEnded:Connect(function(input)
@@ -563,4 +569,4 @@ end)
 
 API.OnLog(function(msg) print("[StealEgg] " .. msg) end)
 
-print("[Main] ✅ Ready v3.0 — Split Title + Bolder Text")
+print("[Main] ✅ Ready v3.1 — Split Title + Bolder Text + Single Resize Corner")
