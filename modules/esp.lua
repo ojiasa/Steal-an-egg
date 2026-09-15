@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- ESP MODULE v11.3 — Board size theo BoundsSize (visual thật)
+-- ESP MODULE v11.4 — BoundsSize board + Text to hơn
 -- ═══════════════════════════════════════════════════════════════
 
 local P  = game:GetService("Players").LocalPlayer
@@ -136,11 +136,10 @@ local function readAllEggs()
     return result
 end
 
--- ⭐⭐⭐ SCALE STYLE THEO BOUNDSSIZE
+-- ⭐⭐⭐ Scale style theo BoundsSize (ngưỡng cao hơn)
 local function getScaleStyle(eggScale, boundsSize)
     eggScale = eggScale or 1
 
-    -- Tính avg size
     local avgSize = 3.5
     if boundsSize then
         avgSize = (boundsSize.X + boundsSize.Y + boundsSize.Z) / 3
@@ -148,28 +147,29 @@ local function getScaleStyle(eggScale, boundsSize)
         avgSize = 3.5 * eggScale
     end
 
-    -- Board size theo avgSize
     local boardScale = 1.0
-    local offsetY = 2
+    local offsetY = 3
 
-    if avgSize >= 6.5 then
-        boardScale = 2.5          -- Rattlesnake 6.97 → 250%
+    if avgSize >= 11.0 then
+        boardScale = 3.0
+        offsetY = 14
+    elseif avgSize >= 8.5 then
+        boardScale = 2.2
         offsetY = 10
-    elseif avgSize >= 5.5 then
-        boardScale = 2.0          -- 200%
+    elseif avgSize >= 6.5 then
+        boardScale = 1.6
         offsetY = 7
     elseif avgSize >= 4.5 then
-        boardScale = 1.5          -- 150%
-        offsetY = 5
-    elseif avgSize >= 3.5 then
-        boardScale = 1.0          -- 100% (base)
+        boardScale = 1.1
+        offsetY = 4
+    elseif avgSize >= 3.0 then
+        boardScale = 1.0
         offsetY = 3
     else
-        boardScale = 0.85         -- 85% (nhỏ)
+        boardScale = 0.85
         offsetY = 2
     end
 
-    -- Màu + icon theo KG (AssetScale)
     local scaleColor = Color3.fromRGB(180, 180, 180)
     local scaleIcon = "⚖"
     if eggScale >= 3.5 then
@@ -205,8 +205,9 @@ local function createESP(uid, pos, info, hash)
 
     local boardScale, offsetY, scaleColor, scaleIcon, avgSize = getScaleStyle(eggScale, boundsSize)
 
-    local baseW = 100
-    local baseH = 48
+    -- ⭐ Base size to hơn
+    local baseW = 115
+    local baseH = 55
     local boardW = math.floor(baseW * boardScale)
     local boardH = math.floor(baseH * boardScale)
 
@@ -242,69 +243,70 @@ local function createESP(uid, pos, info, hash)
     stroke.Transparency = 0.2
 
     local pad = Instance.new("UIPadding", bg)
-    pad.PaddingTop = UDim.new(0, 2)
-    pad.PaddingBottom = UDim.new(0, 2)
-    pad.PaddingLeft = UDim.new(0, 3)
-    pad.PaddingRight = UDim.new(0, 3)
+    pad.PaddingTop = UDim.new(0, 3)
+    pad.PaddingBottom = UDim.new(0, 3)
+    pad.PaddingLeft = UDim.new(0, 4)
+    pad.PaddingRight = UDim.new(0, 4)
 
     local layout = Instance.new("UIListLayout", bg)
     layout.FillDirection = Enum.FillDirection.Vertical
     layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Padding = UDim.new(0, 0)
+    layout.Padding = UDim.new(0, 1)
     layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
+    -- ⭐ Text to hơn
     local nameLbl = Instance.new("TextLabel")
-    nameLbl.Size = UDim2.new(1, 0, 0, math.floor(11 * boardScale))
+    nameLbl.Size = UDim2.new(1, 0, 0, math.floor(13 * boardScale))
     nameLbl.BackgroundTransparency = 1
     nameLbl.Text = prefix .. " " .. (info.name or "Egg")
     nameLbl.TextColor3 = color
     nameLbl.TextStrokeTransparency = 1
     nameLbl.Font = Enum.Font.GothamBold
-    nameLbl.TextSize = math.floor(9 * boardScale)
+    nameLbl.TextSize = math.floor(11 * boardScale)
     nameLbl.LayoutOrder = 1
     nameLbl.ZIndex = 1
     nameLbl.Parent = bg
 
     local mutLbl = Instance.new("TextLabel")
-    mutLbl.Size = UDim2.new(1, 0, 0, math.floor(8 * boardScale))
+    mutLbl.Size = UDim2.new(1, 0, 0, math.floor(10 * boardScale))
     mutLbl.BackgroundTransparency = 1
     mutLbl.Text = info.mutation and ("✨ " .. info.mutation) or ""
     mutLbl.TextColor3 = Color3.fromRGB(255, 200, 100)
     mutLbl.Font = Enum.Font.GothamBold
-    mutLbl.TextSize = math.floor(7 * boardScale)
+    mutLbl.TextSize = math.floor(9 * boardScale)
     mutLbl.LayoutOrder = 2
     mutLbl.ZIndex = 1
     mutLbl.Parent = bg
 
     local rateLbl = Instance.new("TextLabel")
-    rateLbl.Size = UDim2.new(1, 0, 0, math.floor(11 * boardScale))
+    rateLbl.Size = UDim2.new(1, 0, 0, math.floor(13 * boardScale))
     rateLbl.BackgroundTransparency = 1
     rateLbl.Text = info.rate and ("💵 $" .. formatMoney(info.rate) .. "/s") or "💵 ?"
     rateLbl.TextColor3 = info.rate and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(150, 150, 150)
     rateLbl.Font = Enum.Font.GothamBold
-    rateLbl.TextSize = math.floor(9 * boardScale)
+    rateLbl.TextSize = math.floor(11 * boardScale)
     rateLbl.LayoutOrder = 3
     rateLbl.ZIndex = 1
     rateLbl.Parent = bg
 
     local infoLbl = Instance.new("TextLabel")
-    infoLbl.Size = UDim2.new(1, 0, 0, math.floor(9 * boardScale))
+    infoLbl.Size = UDim2.new(1, 0, 0, math.floor(11 * boardScale))
     infoLbl.BackgroundTransparency = 1
     infoLbl.Text = string.format("📍 %s | %s %.2f", info.area or "?", scaleIcon, eggScale)
     infoLbl.TextColor3 = scaleColor
     infoLbl.Font = Enum.Font.GothamBold
-    infoLbl.TextSize = math.floor(8 * boardScale)
+    infoLbl.TextSize = math.floor(10 * boardScale)
     infoLbl.LayoutOrder = 4
     infoLbl.ZIndex = 1
     infoLbl.Parent = bg
 
     local distLbl = Instance.new("TextLabel")
-    distLbl.Size = UDim2.new(1, 0, 0, math.floor(8 * boardScale))
+    distLbl.Size = UDim2.new(1, 0, 0, math.floor(10 * boardScale))
     distLbl.BackgroundTransparency = 1
     distLbl.Text = "..."
     distLbl.TextColor3 = Color3.fromRGB(150, 255, 150)
     distLbl.Font = Enum.Font.Code
-    distLbl.TextSize = math.floor(7 * boardScale)
+    distLbl.TextSize = math.floor(9 * boardScale)
     distLbl.LayoutOrder = 5
     distLbl.ZIndex = 1
     distLbl.Parent = bg
