@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v8 — Priority Income + Threshold 1M/s [FIXED]
+-- STEAL MODULE v9 — Priority Income + Smart Tele + Recovery
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -32,7 +32,13 @@ local config = {
 
     -- ⭐ Priority Income
     PRIORITY_INCOME    = false,
-    PRIORITY_THRESHOLD = 1000000,   -- 1M/s
+    PRIORITY_THRESHOLD = 1000000,
+
+    -- ⭐ v9 NEW: Smart tele + Recovery
+    HOME_Y_OFFSET      = 40,     -- bay cao thêm 40 studs khi về
+    RECOVERY_RADIUS    = 500,    -- tìm egg rớt trong 500 studs
+    MAX_RECOVERY       = 3,      -- tối đa 3 lần recovery
+    RECOVERY_WAIT      = 0.3,    -- chờ ổn định sau knockback
 
     -- Core
     SPEED          = 1500,
@@ -97,9 +103,6 @@ local function hasStolenSlot(beforeSet)
     return false, nil
 end
 
--- ═══════════════════════════════════════════════════════════════
--- ✅ FIX: Hàm verify map thực tế của egg
--- ═══════════════════════════════════════════════════════════════
 local function getEggRealMap(eggPos)
     local closestMap, closestDist = nil, 999999
     for _, m in ipairs(ALL_MAPS) do
@@ -183,7 +186,6 @@ local function getEggUidFromPrompt(prompt)
     return closestSlot and closestSlot.Name or nil
 end
 
--- ⭐⭐⭐ FIND EGG INCOME CAO NHẤT
 local function findHighestIncomeEgg()
     local hrp = getHRP()
     if not hrp then return nil, nil, nil, nil end
@@ -242,9 +244,6 @@ local function findHighestIncomeEgg()
     return nil, nil, nil, nil
 end
 
--- ═══════════════════════════════════════════════════════════════
--- ✅ FIX: FIND EGG TRONG TARGET MAPS (multi-map) - VERIFIED
--- ═══════════════════════════════════════════════════════════════
 local function findEggInTargets()
     local hrp = getHRP()
     if not hrp then return nil, nil, nil, nil end
@@ -263,19 +262,16 @@ local function findEggInTargets()
                 elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
                 elseif part and part.Parent and part.Parent:IsA("BasePart") then
                     ppos = part.Parent.Position end
-                
+
                 if ppos then
-                    -- ✅ GET REAL MAP của egg này (verify)
                     local realMap = getEggRealMap(ppos)
-                    
                     if realMap then
-                        -- ✅ Check if this REAL MAP is in targets
                         for _, tgt in ipairs(config.TARGETS) do
                             if tgt.name == realMap.name then
                                 table.insert(candidates, {
                                     prompt = v,
                                     pos = ppos,
-                                    map = realMap,  -- ✅ Dùng MAP THỰC TẾ, không phải tgt
+                                    map = realMap,
                                     dFromPlayer = dist(ppos, hrp.Position),
                                     dFromHome = dist(realMap.pos, config.HOME_POS),
                                 })
@@ -290,7 +286,6 @@ local function findEggInTargets()
 
     if #candidates == 0 then return nil, nil, nil, nil end
 
-    -- ⭐ Sort theo mode
     if config.PRIORITY_INCOME then
         for _, c in ipairs(candidates) do
             local uid = getEggUidFromPrompt(c.prompt)
@@ -338,7 +333,7 @@ local function findPromptSteal(pos, radius)
     return best, bestDist
 end
 
--- ══════════ ANIMATION (từ v60.3.2) ══════════
+-- ══════════ ANIMATION ══════════
 local function restoreAnimations()
     local c = P.Character
     if not c then return end
@@ -539,34 +534,190 @@ local function velocityMoveTo(targetPos, timeout, manual)
     return false
 end
 
+-- ⭐ v9: Bay về home Y cao
 local function goHomeFast()
-    log("🏃 CHẠY VỀ HOME")
+    log("🏃 CHẠY VỀ HOME (Y cao)")
     local startTime = os.clock()
     local t0 = startTime
     local lastPos = nil
     local stuckTime = os.clock()
+
+    local homeAirborne = Vector3.new(
+        config.HOME_POS.X,
+        config.HOME_POS.Y + (config.HOME_Y_OFFSET or 40),
+        config.HOME_POS.Z
+    )
+
     while os.clock() - t0 < 30 do
         local hum, r = getHum(), getHRP()
         if not hum or not r then break end
         keepHealth()
+
         local d = dist(r.Position, config.HOME_POS)
-        if d < config.ARRIVE_DIST then
-            pcall(function() r.AssemblyLinearVelocity = Vector3.zero end)
-            log(string.format("✅ Về home (%.2fs)", os.clock() - startTime))
-            return true
+        if d < 30 then
+            local dirDown = config.HOME_POS - r.Position
+            if dirDown.Magnitude > 1 then
+                pcall(function()
+                    r.AssemblyLinearVelocity = dirDown.Unit * 100
+                end)
+            end
+            if d < config.ARRIVE_DIST then
+                pcall(function() r.AssemblyLinearVelocity = Vector3.zero end)
+                log(string.format("✅ Về home (%.2fs)", os.clock() - startTime))
+                return true
+            end
+        else
+            pcall(function()
+                local dir = homeAirborne - r.Position
+                if dir.Magnitude > 0 then
+                    local nrm = dir.Unit
+                    local ramp = math.min((os.clock() - t0) / 0.3, 1)
+                    r.AssemblyLinearVelocity = nrm * math.min(config.SPEED / 2.5, config.SPEED_CAP) * ramp
+                    if dir.Magnitude > 30 then
+                        local nudge = math.min(dir.Magnitude, 150) * 0.08
+                        r.CFrame = CFrame.new(r.Position + nrm * nudge)
+                    end
+                end
+            end)
         end
-        pcall(function()
-            local dir = config.HOME_POS - r.Position
-            if dir.Magnitude > 0 then
-                local nrm = dir.Unit
-                local ramp = math.min((os.clock() - t0) / 0.3, 1)
-                r.AssemblyLinearVelocity = nrm * math.min(config.SPEED / 2.5, config.SPEED_CAP) * ramp
-                if d > 30 then
-                    local nudge = math.min(d, 150) * 0.08
-                    r.CFrame = CFrame.new(r.Position + nrm * nudge)
+
+        if lastPos then
+            local moved = dist(r.Position, lastPos)
+            if moved < 0.5 then
+                if os.clock() - stuckTime > 0.4 then
+                    pcall(function() hum.Jump = true end)
+                    stuckTime = os.clock()
+                end
+            else
+                stuckTime = os.clock()
+            end
+        end
+        lastPos = r.Position
+        task.wait()
+    end
+    return false
+end
+
+-- ⭐ v9 NEW: Bay về home + recovery egg rớt
+local function goHomeWithRecovery()
+    log("🏃 CHẠY VỀ HOME (có recovery)")
+    local startTime = os.clock()
+    local t0 = startTime
+    local lastPos, lastHealth = nil, nil
+    local stuckTime = os.clock()
+    local recoveryAttempts = 0
+    local MAX_RECOVERY = config.MAX_RECOVERY or 3
+
+    local homeAirborne = Vector3.new(
+        config.HOME_POS.X,
+        config.HOME_POS.Y + (config.HOME_Y_OFFSET or 40),
+        config.HOME_POS.Z
+    )
+
+    while os.clock() - t0 < 45 do
+        local hum, r = getHum(), getHRP()
+        if not hum or not r then break end
+        keepHealth()
+
+        -- ⭐ DETECT KNOCKBACK
+        local vel = r.AssemblyLinearVelocity
+        local speed = vel.Magnitude
+        local state = hum:GetState()
+        local hpNow = hum.Health
+
+        local gotHit = false
+        if state == Enum.HumanoidStateType.Physics and speed > 30 then
+            gotHit = true
+        elseif speed > 60 and vel.Y > 10 then
+            gotHit = true
+        elseif lastHealth and math.abs(hpNow - lastHealth) > 0.5 then
+            gotHit = true
+        end
+        lastHealth = hpNow
+
+        -- ⭐ BỊ ĐÁNH → tìm egg rớt gần đây
+        if gotHit and recoveryAttempts < MAX_RECOVERY then
+            recoveryAttempts = recoveryAttempts + 1
+            log(string.format("💥 KNOCKBACK lúc về home (attempt %d/%d)",
+                recoveryAttempts, MAX_RECOVERY))
+
+            task.wait(config.RECOVERY_WAIT or 0.3)
+
+            local r2 = getHRP()
+            if r2 then
+                local nearestPrompt, nearestPos, nearestDist = nil, nil, config.RECOVERY_RADIUS or 500
+                for _, v in ipairs(W:GetDescendants()) do
+                    if v:IsA("ProximityPrompt") and v.Enabled and not stolenPrompts[v] then
+                        local isEgg = v.Name == "CarryAreaEgg"
+                            or ((v.ObjectText or "") == "Egg"
+                                and (v.ActionText or ""):lower():find("steal", 1, true))
+                        if isEgg then
+                            local part = v.Parent
+                            local ppos
+                            if part and part:IsA("BasePart") then ppos = part.Position
+                            elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
+                            elseif part and part.Parent and part.Parent:IsA("BasePart") then
+                                ppos = part.Parent.Position end
+                            if ppos then
+                                local d = dist(ppos, r2.Position)
+                                if d < nearestDist then
+                                    nearestPrompt, nearestPos, nearestDist = v, ppos, d
+                                end
+                            end
+                        end
+                    end
+                end
+
+                if nearestPrompt and nearestPos then
+                    log(string.format("🎯 Egg rớt cách %.0f studs → LƯỢM LẠI", nearestDist))
+                    teleToMap(nearestPos)
+                    task.wait(0.1)
+                    for i = 1, config.MAX_FIRES do
+                        if not isRunning then break end
+                        local h3 = getHRP()
+                        if h3 then
+                            local p3 = findPromptSteal(h3.Position, 150)
+                            if p3 then firePromptOnce(p3) end
+                        end
+                        task.wait(config.STEAL_VERIFY_WAIT)
+                    end
+                    log("✅ Đã lượm lại egg rớt")
+                    t0 = os.clock() - 5  -- thêm thời gian
+                else
+                    log("⚠ Không tìm thấy egg rớt gần đây → tiếp tục về")
                 end
             end
-        end)
+        end
+
+        -- ⭐ DI CHUYỂN
+        local d = dist(r.Position, config.HOME_POS)
+        if d < 30 then
+            local dirDown = config.HOME_POS - r.Position
+            if dirDown.Magnitude > 1 then
+                pcall(function()
+                    r.AssemblyLinearVelocity = dirDown.Unit * 100
+                end)
+            end
+            if d < config.ARRIVE_DIST then
+                pcall(function() r.AssemblyLinearVelocity = Vector3.zero end)
+                log(string.format("✅ Về home an toàn (%.2fs, recovery x%d)",
+                    os.clock() - startTime, recoveryAttempts))
+                return true
+            end
+        else
+            pcall(function()
+                local dir = homeAirborne - r.Position
+                if dir.Magnitude > 0 then
+                    local nrm = dir.Unit
+                    r.AssemblyLinearVelocity = nrm * math.min(config.SPEED / 2.5, config.SPEED_CAP)
+                    if dir.Magnitude > 30 then
+                        local nudge = math.min(dir.Magnitude, 150) * 0.08
+                        r.CFrame = CFrame.new(r.Position + nrm * nudge)
+                    end
+                end
+            end)
+        end
+
         if lastPos then
             local moved = dist(r.Position, lastPos)
             if moved < 0.5 then
@@ -620,19 +771,33 @@ local function baitBoss(timeout)
     return false
 end
 
+-- ⭐ v9: Smart tele — gần thì chạy bộ
 local function stealAtPos(targetPos, label)
     log("═══════")
     log("STEAL TẠI " .. label)
     task.wait(0.05)
+
     local hrp = getHRP()
-    if not hrp or dist(hrp.Position, targetPos) > 50 then
+    if not hrp then return false end
+
+    local d = dist(hrp.Position, targetPos)
+
+    -- ⭐ v9: Chỉ tele khi QUÁ XA, gần thì chạy bộ
+    if d > config.MAP_RADIUS then
+        log(string.format("📍 Xa %.0f studs → TELE", d))
         teleToMap(targetPos)
         task.wait(0.05)
+    elseif d > config.ARRIVE_DIST then
+        log(string.format("🏃 Gần %.0f studs → CHẠY BỘ", d))
+        velocityMoveTo(targetPos, 15)
     end
+
     local prompt = findPromptSteal(targetPos, 150)
     if not prompt then log("⚠ Không có prompt"); return false end
+
     local slotsBefore, countBefore = getSlotSet()
     log("📊 Global slots trước: " .. countBefore)
+
     for i = 1, config.MAX_FIRES do
         if not isRunning then return false end
         local h2 = getHRP()
@@ -706,7 +871,6 @@ local function mainLoop()
                     local gotKnockback = baitBoss(config.BAIT_TIMEOUT)
 
                     if gotKnockback then
-                        -- ⭐ KIỂM TRA MODE
                         local eggPrompt, eggPos, eggDist, eggMap
 
                         if config.PRIORITY_INCOME then
@@ -714,7 +878,6 @@ local function mainLoop()
                                 (config.PRIORITY_THRESHOLD / 1e6) .. "M/s)")
                             eggPrompt, eggPos, eggDist, eggMap = findHighestIncomeEgg()
 
-                            -- ⭐ Nếu không có egg nào > ngưỡng → DỪNG
                             if not eggPos then
                                 log("⚠ Không có egg nào đạt ngưỡng $" ..
                                     (config.PRIORITY_THRESHOLD / 1e6) .. "M/s → DỪNG")
@@ -738,12 +901,10 @@ local function mainLoop()
                                 log(string.format("🔄 ATTEMPT %d/%d", attempt, config.MAX_RETRY))
                                 deliveryFailed = false
 
-                                teleToMap(targetPos)
-                                task.wait(0.05)
-
                                 local stolen = stealAtPos(eggPos, eggMap.name)
                                 if stolen then
-                                    goHomeFast()
+                                    -- ⭐ v9: Dùng goHomeWithRecovery thay goHomeFast
+                                    goHomeWithRecovery()
                                     task.wait(config.CHAT_WAIT)
                                     if deliveryFailed then
                                         log("❌ Chat báo fail — RETRY")
@@ -820,7 +981,7 @@ function M.start()
     deliveryFailed = false
     incomeCache = {}
     isRunning = true
-    log("▶ START — " .. #config.TARGETS .. " map(s)")
+    log("▶ START v9 — " .. #config.TARGETS .. " map(s)")
     task.spawn(mainLoop)
 end
 
@@ -840,7 +1001,6 @@ function M.setTarget(name, pos)
     log("🎯 Target: " .. name)
 end
 
--- ⭐ Priority Income API
 function M.setPriorityIncome(enabled)
     config.PRIORITY_INCOME = enabled and true or false
     log("💰 Ưu tiên tiền cao: " .. (enabled and "BẬT" or "TẮT"))
@@ -869,10 +1029,24 @@ function M.clearIncomeCache()
     log("🔄 Income cache cleared")
 end
 
+function M.setHomeYOffset(n)
+    config.HOME_Y_OFFSET = n or 40
+    log("📍 Home Y offset: +" .. config.HOME_Y_OFFSET)
+end
+
+function M.setRecoveryRadius(n)
+    config.RECOVERY_RADIUS = n or 500
+    log("📍 Recovery radius: " .. config.RECOVERY_RADIUS .. " studs")
+end
+
+function M.setMaxRecovery(n)
+    config.MAX_RECOVERY = n or 3
+    log("📍 Max recovery: " .. config.MAX_RECOVERY)
+end
+
 function M.getAllMaps() return ALL_MAPS end
 function M.setHome(p) if p then config.HOME_POS = p; log("📍 Home") end end
 function M.setForest(p) if p then config.FOREST_POS = p; log("📍 Forest") end end
 function M.getConfig() return config end
 
 return M
-
