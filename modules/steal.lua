@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v9.2 — Fallback scan prompt khi Records trống
+-- STEAL MODULE v9.3 — Watchdog + Force exit + Timeout chu kỳ
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -56,13 +56,18 @@ local config = {
     CHAT_WAIT      = 2.0,
 }
 
-local isRunning      = false
-local stolenPrompts  = {}
-local deliveryFailed = false
-local logCallbacks   = {}
-local lastEggCount   = -1
-local lastTargetPos  = nil
-local lastTargetMap  = nil
+local isRunning         = false
+local stolenPrompts     = {}
+local deliveryFailed    = false
+local logCallbacks      = {}
+local lastEggCount      = -1
+local lastTargetPos     = nil
+local lastTargetMap     = nil
+local consecutiveFails  = 0
+local cycleStartTime    = 0
+local lastClearTime     = 0
+local lastMoveCheck     = 0
+local lastMovePos       = nil
 
 local function log(s)
     for _, cb in ipairs(logCallbacks) do pcall(cb, s) end
@@ -119,6 +124,15 @@ local function getEggRealMap(eggPos)
         end
     end
     return closestMap
+end
+
+local function forceTeleHome()
+    local r = getHRP()
+    if r then pcall(function()
+        r.CFrame = CFrame.new(config.HOME_POS)
+        r.AssemblyLinearVelocity = Vector3.zero
+        r.AssemblyAngularVelocity = Vector3.zero
+    end) end
 end
 
 -- ══════════ INCOME MODULES ══════════
@@ -178,7 +192,7 @@ local function getEggInfoAtPos(eggPos, radius)
     return income, best.AssetScale or 1, best.BaseMutation, best.Uid or best.UID
 end
 
--- ⭐⭐⭐ v9.2: Big egg với fallback scan prompt
+-- ⭐⭐⭐ v9.3: Big egg với fallback scan
 local function findBiggestEgg()
     local hrp = getHRP()
     if not hrp then return nil, nil, nil, nil end
@@ -190,7 +204,6 @@ local function findBiggestEgg()
 
     local candidates = {}
 
-    -- BƯỚC 1: Đọc từ Records
     local ok, fd = pcall(EggState.ReadFieldEggs)
     if ok and type(fd) == "table" and type(fd.Records) == "table" then
         for uid, eggData in pairs(fd.Records) do
@@ -223,7 +236,6 @@ local function findBiggestEgg()
         end
     end
 
-    -- BƯỚC 2: FALLBACK — Scan prompt trực tiếp
     if #candidates == 0 then
         log("⚠ Records trống → scan prompt workspace")
         for _, v in ipairs(W:GetDescendants()) do
@@ -268,7 +280,6 @@ local function findBiggestEgg()
             return nil, nil, nil, nil
         end
 
-        -- Sort gần player
         local myPos = hrp.Position
         table.sort(candidates, function(a, b)
             return dist(a.pos, myPos) < dist(b.pos, myPos)
@@ -281,7 +292,6 @@ local function findBiggestEgg()
         return best.prompt, best.pos, best.scale, best.map
     end
 
-    -- BƯỚC 3: Sort theo bounds
     table.sort(candidates, function(a, b)
         if a.avgSize ~= b.avgSize then return a.avgSize > b.avgSize end
         return a.scale > b.scale
@@ -297,7 +307,6 @@ local function findBiggestEgg()
 
     local best = candidates[1]
 
-    -- Tìm prompt của egg best
     local bestPrompt = nil
     local bestPromptDist = 20
     for _, v in ipairs(W:GetDescendants()) do
@@ -848,6 +857,14 @@ local function goHomeWithRecovery()
 
     local t1 = os.clock()
     while os.clock() - t1 < 40 do
+        -- ⭐ v9.3: Timeout cứng 30s
+        if os.clock() - startTime > 30 then
+            log("🚨 HOME TIMEOUT 30s → FORCE TELE")
+            forceTeleHome()
+            task.wait(0.3)
+            break
+        end
+
         local hum, r = getHum(), getHRP()
         if not hum or not r then break end
         keepHealth()
@@ -957,7 +974,28 @@ local function baitBoss(timeout)
     local hum0, hrp0 = getHum(), getHRP()
     local startHealth = hum0 and hum0.Health or 100
     local startPos = hrp0 and hrp0.Position or Vector3.zero
+    local lastCheck = os.clock()
+    local lastPos = startPos
+
     while isRunning and os.clock() - t0 < timeout do
+        -- ⭐ v9.3: Force di chuyển nếu đứng yên > 5s
+        local hrpNow = getHRP()
+        if hrpNow then
+            local moved = dist(hrpNow.Position, lastPos)
+            if moved > 3 then
+                lastPos = hrpNow.Position
+                lastCheck = os.clock()
+            elseif os.clock() - lastCheck > 5 then
+                log("🚨 Boss không tấn công 5s → di chuyển lôi boss")
+                pcall(function()
+                    hrpNow.CFrame = hrpNow.CFrame + Vector3.new(
+                        math.random(-30, 30), 0, math.random(-30, 30)
+                    )
+                end)
+                lastCheck = os.clock()
+            end
+        end
+
         local hum, hrp = getHum(), getHRP()
         if not hum or not hrp then break end
         keepHealth()
@@ -1055,11 +1093,69 @@ local function checkEggReset()
     return false
 end
 
+-- ⭐ v9.3: Watchdog
+local function startWatchdog()
+    task.spawn(function()
+        lastMoveCheck = os.clock()
+        lastMovePos = nil
+        while isRunning do
+            task.wait(2)
+            if not isRunning then break end
+
+            local hrp = getHRP()
+            if not hrp then
+                lastMovePos = nil
+                lastMoveCheck = os.clock()
+            else
+                if lastMovePos then
+                    local moved = dist(hrp.Position, lastMovePos)
+                    if moved < 5 then
+                        if os.clock() - lastMoveCheck > 12 then
+                            log("🚨 WATCHDOG: Đứng yên >12s → FORCE TELE HOME")
+                            forceTeleHome()
+                            task.wait(0.5)
+                            lastMoveCheck = os.clock()
+                            lastMovePos = nil
+                        end
+                    else
+                        lastMovePos = hrp.Position
+                        lastMoveCheck = os.clock()
+                    end
+                else
+                    lastMovePos = hrp.Position
+                    lastMoveCheck = os.clock()
+                end
+            end
+        end
+    end)
+end
+
 -- ══════════ MAIN LOOP ══════════
 local function mainLoop()
     while isRunning do
+        -- ⭐ v9.3: Timeout chu kỳ 90s
+        if cycleStartTime > 0 and os.clock() - cycleStartTime > 90 then
+            log("🚨 CHU KỲ QUÁ 90s → FORCE RESET")
+            stolenPrompts = {}
+            consecutiveFails = 0
+            forceTeleHome()
+            task.wait(1)
+            cycleStartTime = os.clock()
+        end
+        if cycleStartTime == 0 then cycleStartTime = os.clock() end
+
+        -- ⭐ v9.3: Clear stolenPrompts mỗi 2 phút
+        if os.clock() - lastClearTime > 120 then
+            lastClearTime = os.clock()
+            log("🔄 2 phút → clear stolenPrompts")
+            stolenPrompts = {}
+        end
+
         log("═══════════════════════")
         pcall(checkEggReset)
+
+        -- ⭐ v9.3: Reset fails khi bắt đầu chu kỳ Forest
+        consecutiveFails = 0
 
         log("PHASE 1: Bay tới Forest")
 
@@ -1131,7 +1227,6 @@ local function mainLoop()
                         eggPrompt, eggPos, eggDist, eggMap = findEggInTargets()
                     end
 
-                    -- ⭐ v9.2: Không tìm được egg nào → quay lại Forest
                     if not eggPos then
                         log("⚠ Không tìm egg nào → quay lại Forest sau 1s")
                         task.wait(1)
@@ -1139,7 +1234,6 @@ local function mainLoop()
                         log(string.format("🎯 Map: %s @ %.1f,%.1f,%.1f",
                             eggMap.name, eggPos.X, eggPos.Y, eggPos.Z))
 
-                        -- ⭐ Lưu vị trí để retry
                         lastTargetPos = eggPos
                         lastTargetMap = eggMap
 
@@ -1147,11 +1241,24 @@ local function mainLoop()
                         local success = false
                         for attempt = 1, config.MAX_RETRY do
                             if not isRunning then break end
+
+                            -- ⭐ v9.3: Force exit khi fail ≥5
+                            if consecutiveFails >= 5 then
+                                log("🚨 FAIL 5 LẦN LIÊN TIẾP → FORCE VỀ FOREST")
+                                stolenPrompts = {}
+                                consecutiveFails = 0
+                                lastTargetPos = nil
+                                lastTargetMap = nil
+                                forceTeleHome()
+                                task.wait(1)
+                                break
+                            end
+
                             log("═══════════════════════")
-                            log(string.format("🔄 ATTEMPT %d/%d", attempt, config.MAX_RETRY))
+                            log(string.format("🔄 ATTEMPT %d/%d (fails: %d)",
+                                attempt, config.MAX_RETRY, consecutiveFails))
                             deliveryFailed = false
 
-                            -- ⭐ v9.2: Retry > 1: tìm prompt gần vị trí egg cũ
                             local stealPos = eggPos
                             local stealMap = eggMap
                             local stealTarget = targetPos
@@ -1201,21 +1308,26 @@ local function mainLoop()
 
                             local stolen = stealAtPos(stealPos, stealMap.name)
                             if stolen then
+                                consecutiveFails = 0
                                 goHomeWithRecovery()
                                 task.wait(config.CHAT_WAIT)
                                 if deliveryFailed then
-                                    log("❌ Chat báo fail — RETRY")
-                                    task.wait(0.2)
+                                    consecutiveFails = consecutiveFails + 1
+                                    log(string.format("❌ Delivery fail — RETRY (fails: %d)", consecutiveFails))
+                                    task.wait(0.5)
                                 else
                                     log("🎉 THÀNH CÔNG")
                                     success = true
                                     lastTargetPos = nil
                                     lastTargetMap = nil
+                                    consecutiveFails = 0
+                                    cycleStartTime = os.clock()
                                     break
                                 end
                             else
-                                log("⚠ Steal fail — retry")
-                                task.wait(0.2)
+                                consecutiveFails = consecutiveFails + 1
+                                log(string.format("⚠ Steal fail — retry (fails: %d)", consecutiveFails))
+                                task.wait(0.5)
                             end
                         end
 
@@ -1281,8 +1393,12 @@ function M.start()
     lastEggCount = -1
     lastTargetPos = nil
     lastTargetMap = nil
+    consecutiveFails = 0
+    cycleStartTime = 0
+    lastClearTime = os.clock()
     isRunning = true
-    log("▶ START v9.2 — " .. #config.TARGETS .. " map(s)")
+    log("▶ START v9.3 — " .. #config.TARGETS .. " map(s)")
+    startWatchdog()
     task.spawn(mainLoop)
 end
 
