@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- ESP MODULE v11.1 — Cross-platform + Board nhỏ theo kg
+-- ESP MODULE v11.3 — Board size theo BoundsSize (visual thật)
 -- ═══════════════════════════════════════════════════════════════
 
 local P  = game:GetService("Players").LocalPlayer
@@ -17,7 +17,7 @@ local filterMaps = nil
 local AssetEarnings
 local EggState
 
-local REFRESH_INTERVAL = 0.3
+local REFRESH_INTERVAL = 0.15
 local DIST_INTERVAL    = 0.15
 
 local IS_PC     = UIS.KeyboardEnabled and not UIS.TouchEnabled
@@ -48,7 +48,6 @@ local function getSafeGui()
     return P:WaitForChild("PlayerGui")
 end
 
--- LOAD MODULES
 pcall(function()
     local c = RS:WaitForChild("Client", 5)
     if c then
@@ -94,11 +93,14 @@ local function getPrefixAndColor(mutation)
 end
 
 local function makeHash(eggData, pos)
-    return string.format("%s|%s|%.2f|%.2f|%.2f|%.4f",
+    local bs = eggData.BoundsSize
+    local bsHash = bs and string.format("%.1f_%.1f_%.1f", bs.X, bs.Y, bs.Z) or "?"
+    return string.format("%s|%s|%.2f|%.2f|%.2f|%.4f|%s",
         tostring(eggData.AssetCategory or ""),
         tostring(eggData.BaseMutation or ""),
         pos.X, pos.Y, pos.Z,
-        eggData.AssetScale or 0)
+        eggData.AssetScale or 0,
+        bsHash)
 end
 
 local incomeCache = {}
@@ -134,22 +136,46 @@ local function readAllEggs()
     return result
 end
 
--- ⭐ Scale style (nhỏ hơn 1/5)
-local function getScaleStyle(eggScale)
+-- ⭐⭐⭐ SCALE STYLE THEO BOUNDSSIZE
+local function getScaleStyle(eggScale, boundsSize)
     eggScale = eggScale or 1
 
-    local boardScale = 1 + math.max(0, eggScale - 1) * 0.25
-    boardScale = math.min(boardScale, 2)
+    -- Tính avg size
+    local avgSize = 3.5
+    if boundsSize then
+        avgSize = (boundsSize.X + boundsSize.Y + boundsSize.Z) / 3
+    else
+        avgSize = 3.5 * eggScale
+    end
 
-    local offsetY = 2 + math.max(0, eggScale - 1) * 0.8
-    offsetY = math.min(offsetY, 12)
+    -- Board size theo avgSize
+    local boardScale = 1.0
+    local offsetY = 2
 
+    if avgSize >= 6.5 then
+        boardScale = 2.5          -- Rattlesnake 6.97 → 250%
+        offsetY = 10
+    elseif avgSize >= 5.5 then
+        boardScale = 2.0          -- 200%
+        offsetY = 7
+    elseif avgSize >= 4.5 then
+        boardScale = 1.5          -- 150%
+        offsetY = 5
+    elseif avgSize >= 3.5 then
+        boardScale = 1.0          -- 100% (base)
+        offsetY = 3
+    else
+        boardScale = 0.85         -- 85% (nhỏ)
+        offsetY = 2
+    end
+
+    -- Màu + icon theo KG (AssetScale)
     local scaleColor = Color3.fromRGB(180, 180, 180)
     local scaleIcon = "⚖"
-    if eggScale >= 3.0 then
+    if eggScale >= 3.5 then
         scaleColor = Color3.fromRGB(255, 80, 80)
         scaleIcon = "🔥"
-    elseif eggScale >= 2.0 then
+    elseif eggScale >= 2.5 then
         scaleColor = Color3.fromRGB(255, 150, 50)
         scaleIcon = "⭐"
     elseif eggScale >= 1.5 then
@@ -158,10 +184,9 @@ local function getScaleStyle(eggScale)
         scaleColor = Color3.fromRGB(255, 220, 100)
     end
 
-    return boardScale, offsetY, scaleColor, scaleIcon
+    return boardScale, offsetY, scaleColor, scaleIcon, avgSize
 end
 
--- CREATE ESP
 local function createESP(uid, pos, info, hash)
     local attach = Instance.new("Part")
     attach.Name = "ESP_" .. uid:sub(1, 8)
@@ -176,10 +201,10 @@ local function createESP(uid, pos, info, hash)
 
     local prefix, color = getPrefixAndColor(info.mutation)
     local eggScale = info.scale or 1
+    local boundsSize = info.boundsSize
 
-    local boardScale, offsetY, scaleColor, scaleIcon = getScaleStyle(eggScale)
+    local boardScale, offsetY, scaleColor, scaleIcon, avgSize = getScaleStyle(eggScale, boundsSize)
 
-    -- ⭐ Board nhỏ (1/5 cũ)
     local baseW = 100
     local baseH = 48
     local boardW = math.floor(baseW * boardScale)
@@ -213,7 +238,7 @@ local function createESP(uid, pos, info, hash)
 
     local stroke = Instance.new("UIStroke", bg)
     stroke.Color = scaleColor
-    stroke.Thickness = math.min(2, 1 + (boardScale - 1) * 0.6)
+    stroke.Thickness = math.min(2.5, 1 + (boardScale - 1) * 0.6)
     stroke.Transparency = 0.2
 
     local pad = Instance.new("UIPadding", bg)
@@ -300,6 +325,7 @@ local function createESP(uid, pos, info, hash)
         lastRate = info.rate,
         lastName = info.name,
         lastScale = eggScale,
+        lastAvgSize = avgSize,
     }
 end
 
@@ -310,7 +336,6 @@ local function destroyObj(obj)
     pcall(function() if obj.billboard then obj.billboard:Destroy() end end)
 end
 
--- REFRESH
 local function refresh()
     if not enabled then return end
 
@@ -347,6 +372,7 @@ local function refresh()
                 mutation = eggData.BaseMutation,
                 area = eggData.AreaId,
                 scale = eggData.AssetScale,
+                boundsSize = eggData.BoundsSize,
                 rate = getIncomeRate(eggData.AssetCategory, eggData.AssetScale, eggData.Mutations),
             }
             local newHash = makeHash(eggData, pos)
@@ -371,16 +397,6 @@ local function refresh()
                         pcall(function()
                             obj.rateLabel.Text = "💵 $" .. formatMoney(info.rate) .. "/s"
                             obj.rateLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
-                        end)
-                    end
-                    if info.scale and obj.lastScale ~= info.scale then
-                        obj.lastScale = info.scale
-                        local _, _, sc, si = getScaleStyle(info.scale)
-                        pcall(function()
-                            obj.infoLabel.Text = string.format("📍 %s | %s %.2f",
-                                info.area or "?", si, info.scale)
-                            obj.infoLabel.TextColor3 = sc
-                            obj.stroke.Color = sc
                         end)
                     end
                 else
@@ -427,7 +443,6 @@ local function forceClear()
     espObjects = {}
 end
 
--- API
 function M.enable()
     if enabled then return end
     print("[ESP] ═══ ENABLE DEBUG ═══")
@@ -487,7 +502,6 @@ end
 
 function M.getPlatform() return PLATFORM end
 
--- Loops
 task.spawn(function()
     while true do
         task.wait(REFRESH_INTERVAL)
@@ -510,7 +524,7 @@ P.CharacterAdded:Connect(function()
             parentGui = getSafeGui()
             espFolder = Instance.new("Folder")
             espFolder.Name = "ESP_Eggs"
-            espFolder.Parent = espFolder
+            espFolder.Parent = parentGui
         end
         refresh()
     end
