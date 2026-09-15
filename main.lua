@@ -43,8 +43,7 @@ _G.StealEgg = {
     SetBigEggMode = function(on) if Steal and Steal.setBigEggMode then return Steal.setBigEggMode(on) end end,
     IsBigEggMode = function() return Steal and Steal.isBigEggMode and Steal.isBigEggMode() or false end,
     ToggleBigEggMode = function() if Steal and Steal.toggleBigEggMode then return Steal.toggleBigEggMode() end end,
-    SetBigEggMinScale = function(n) if Steal and Steal.setBigEggMinScale then Steal.setBigEggMinScale(n) end end,
-
+    
     ESP_Enable = function() if ESP then ESP.enable() end end,
     ESP_Disable = function() if ESP then ESP.disable() end end,
     ESP_Toggle = function() if ESP then return ESP.toggle() end end,
@@ -486,18 +485,10 @@ end, function(value)
 end, "1")
 bestEggToggle.LayoutOrder = 2
 
--- ⭐ NEW: Big Egg Toggle
-local bigEggToggle = createToggleRow(pageMain, "Auto Steal Big Egg (scale)", API.IsBigEggMode(), true, function(state)
+-- ⭐ Big Egg Toggle (KHÔNG cần scale)
+local bigEggToggle = createToggleRow(pageMain, "Auto Steal Big Egg", API.IsBigEggMode(), false, function(state)
     API.SetBigEggMode(state)
-end, function(value)
-    -- Input là số thập phân (không phải *1M) — cần tách
-    -- Nhưng dùng chung function nên *1M, ta adjust: chỉ lấy giá trị < 100
-    if value and value > 100 then
-        API.SetBigEggMinScale(value / 1000000)  -- Convert về scale thật
-    else
-        API.SetBigEggMinScale(value)
-    end
-end, "1")
+end, nil)
 bigEggToggle.LayoutOrder = 3
 
 local autoFarmToggle = createToggleRow(pageMain, "Auto Steal Egg", false, false, function(state)
