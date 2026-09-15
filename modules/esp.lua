@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- ESP MODULE v11.4 — BoundsSize board + Text to hơn
+-- ESP MODULE v11.5 — BoundsSize board + Bold Text
 -- ═══════════════════════════════════════════════════════════════
 
 local P  = game:GetService("Players").LocalPlayer
@@ -136,7 +136,6 @@ local function readAllEggs()
     return result
 end
 
--- ⭐⭐⭐ Scale style theo BoundsSize (ngưỡng cao hơn)
 local function getScaleStyle(eggScale, boundsSize)
     eggScale = eggScale or 1
 
@@ -205,7 +204,6 @@ local function createESP(uid, pos, info, hash)
 
     local boardScale, offsetY, scaleColor, scaleIcon, avgSize = getScaleStyle(eggScale, boundsSize)
 
-    -- ⭐ Base size to hơn
     local baseW = 115
     local baseH = 55
     local boardW = math.floor(baseW * boardScale)
@@ -254,14 +252,15 @@ local function createESP(uid, pos, info, hash)
     layout.Padding = UDim.new(0, 1)
     layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
-    -- ⭐ Text to hơn
+    -- ⭐ Bold text với TextStroke
     local nameLbl = Instance.new("TextLabel")
     nameLbl.Size = UDim2.new(1, 0, 0, math.floor(13 * boardScale))
     nameLbl.BackgroundTransparency = 1
     nameLbl.Text = prefix .. " " .. (info.name or "Egg")
     nameLbl.TextColor3 = color
-    nameLbl.TextStrokeTransparency = 1
-    nameLbl.Font = Enum.Font.GothamBold
+    nameLbl.TextStrokeTransparency = 0.3
+    nameLbl.TextStrokeColor3 = color
+    nameLbl.Font = Enum.Font.GothamBlack
     nameLbl.TextSize = math.floor(11 * boardScale)
     nameLbl.LayoutOrder = 1
     nameLbl.ZIndex = 1
@@ -272,7 +271,9 @@ local function createESP(uid, pos, info, hash)
     mutLbl.BackgroundTransparency = 1
     mutLbl.Text = info.mutation and ("✨ " .. info.mutation) or ""
     mutLbl.TextColor3 = Color3.fromRGB(255, 200, 100)
-    mutLbl.Font = Enum.Font.GothamBold
+    mutLbl.TextStrokeTransparency = 0.3
+    mutLbl.TextStrokeColor3 = Color3.fromRGB(255, 200, 100)
+    mutLbl.Font = Enum.Font.GothamBlack
     mutLbl.TextSize = math.floor(9 * boardScale)
     mutLbl.LayoutOrder = 2
     mutLbl.ZIndex = 1
@@ -283,7 +284,9 @@ local function createESP(uid, pos, info, hash)
     rateLbl.BackgroundTransparency = 1
     rateLbl.Text = info.rate and ("💵 $" .. formatMoney(info.rate) .. "/s") or "💵 ?"
     rateLbl.TextColor3 = info.rate and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(150, 150, 150)
-    rateLbl.Font = Enum.Font.GothamBold
+    rateLbl.TextStrokeTransparency = 0.3
+    rateLbl.TextStrokeColor3 = rateLbl.TextColor3
+    rateLbl.Font = Enum.Font.GothamBlack
     rateLbl.TextSize = math.floor(11 * boardScale)
     rateLbl.LayoutOrder = 3
     rateLbl.ZIndex = 1
@@ -294,7 +297,9 @@ local function createESP(uid, pos, info, hash)
     infoLbl.BackgroundTransparency = 1
     infoLbl.Text = string.format("📍 %s | %s %.2f", info.area or "?", scaleIcon, eggScale)
     infoLbl.TextColor3 = scaleColor
-    infoLbl.Font = Enum.Font.GothamBold
+    infoLbl.TextStrokeTransparency = 0.3
+    infoLbl.TextStrokeColor3 = scaleColor
+    infoLbl.Font = Enum.Font.GothamBlack
     infoLbl.TextSize = math.floor(10 * boardScale)
     infoLbl.LayoutOrder = 4
     infoLbl.ZIndex = 1
@@ -305,6 +310,8 @@ local function createESP(uid, pos, info, hash)
     distLbl.BackgroundTransparency = 1
     distLbl.Text = "..."
     distLbl.TextColor3 = Color3.fromRGB(150, 255, 150)
+    distLbl.TextStrokeTransparency = 0.3
+    distLbl.TextStrokeColor3 = Color3.fromRGB(150, 255, 150)
     distLbl.Font = Enum.Font.Code
     distLbl.TextSize = math.floor(9 * boardScale)
     distLbl.LayoutOrder = 5
@@ -399,6 +406,7 @@ local function refresh()
                         pcall(function()
                             obj.rateLabel.Text = "💵 $" .. formatMoney(info.rate) .. "/s"
                             obj.rateLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+                            obj.rateLabel.TextStrokeColor3 = Color3.fromRGB(100, 255, 100)
                         end)
                     end
                 else
