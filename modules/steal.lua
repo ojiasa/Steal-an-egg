@@ -178,7 +178,7 @@ local function getEggInfoAtPos(eggPos, radius)
     return income, best.AssetScale or 1, best.BaseMutation, best.Uid or best.UID
 end
 
--- ⭐⭐⭐ v9.1: Big egg KHÔNG cần scale — lấy egg to nhất rồi nhỏ dần
+-- ⭐⭐⭐ v9.2: Big egg theo BoundsSize (khớp visual)
 local function findBiggestEgg()
     local hrp = getHRP()
     if not hrp then return nil, nil, nil, nil end
@@ -200,7 +200,11 @@ local function findBiggestEgg()
         if cf then
             local pos = cf.Position
             if dist(pos, config.HOME_POS) > 150 then
+                -- ⭐ Dùng BoundsSize
+                local bs = eggData.BoundsSize
+                local avgSize = bs and ((bs.X + bs.Y + bs.Z) / 3) or (3.5 * (eggData.AssetScale or 1))
                 local scale = eggData.AssetScale or 1
+
                 local nearestMap, nearestDist = nil, 99999
                 for _, m in ipairs(ALL_MAPS) do
                     local d = dist(pos, m.pos)
@@ -212,6 +216,7 @@ local function findBiggestEgg()
                 if nearestMap then
                     table.insert(candidates, {
                         uid = uid, pos = pos, scale = scale,
+                        avgSize = avgSize,
                         map = nearestMap,
                         category = eggData.AssetCategory,
                         mutation = eggData.BaseMutation,
@@ -226,18 +231,18 @@ local function findBiggestEgg()
         return nil, nil, nil, nil
     end
 
-    -- ⭐ Sort DESC: to → nhỏ
+    -- ⭐ Sort DESC theo avgSize (visual size)
     table.sort(candidates, function(a, b)
-        if a.scale ~= b.scale then return a.scale > b.scale end
-        return a.uid < b.uid
+        if a.avgSize ~= b.avgSize then return a.avgSize > b.avgSize end
+        return a.scale > b.scale
     end)
 
-    log("🥚 TOP egg scale:")
+    log("🥚 TOP egg size (bounds):")
     for i = 1, math.min(5, #candidates) do
         local c = candidates[i]
         local mut = c.mutation and (" [" .. c.mutation .. "]") or ""
-        log(string.format("  [%d] %s%s @ %s = scale %.2f",
-            i, c.category, mut, c.map.name, c.scale))
+        log(string.format("  [%d] %s%s @ %s = bounds %.2f (kg %.2f)",
+            i, c.category, mut, c.map.name, c.avgSize, c.scale))
     end
 
     local best = candidates[1]
@@ -272,8 +277,8 @@ local function findBiggestEgg()
         return nil, nil, nil, nil
     end
 
-    log(string.format("🎯 CHỌN BIG: %s @ %s = scale %.2f",
-        best.category, best.map.name, best.scale))
+    log(string.format("🎯 CHỌN BIG: %s @ %s = bounds %.2f (kg %.2f)",
+        best.category, best.map.name, best.avgSize, best.scale))
 
     return bestPrompt, best.pos, best.scale, best.map
 end
