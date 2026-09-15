@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- ESP MODULE v11.5 — BoundsSize board + Bold Text
+-- ESP MODULE v11.6 — Board size theo BoundsSize (egg >=10 mới to)
 -- ═══════════════════════════════════════════════════════════════
 
 local P  = game:GetService("Players").LocalPlayer
@@ -136,6 +136,7 @@ local function readAllEggs()
     return result
 end
 
+-- ⭐⭐⭐ v11.6: Board bằng nhau, chỉ egg >=10 mới to dần
 local function getScaleStyle(eggScale, boundsSize)
     eggScale = eggScale or 1
 
@@ -146,27 +147,15 @@ local function getScaleStyle(eggScale, boundsSize)
         avgSize = 3.5 * eggScale
     end
 
+    -- ⭐ Egg <10 → board bằng nhau (1.0)
+    -- ⭐ Egg >=10 → tăng 0.2 mỗi đơn vị (cap 4.0)
     local boardScale = 1.0
     local offsetY = 3
 
-    if avgSize >= 11.0 then
-        boardScale = 3.0
-        offsetY = 14
-    elseif avgSize >= 8.5 then
-        boardScale = 2.2
-        offsetY = 10
-    elseif avgSize >= 6.5 then
-        boardScale = 1.6
-        offsetY = 7
-    elseif avgSize >= 4.5 then
-        boardScale = 1.1
-        offsetY = 4
-    elseif avgSize >= 3.0 then
-        boardScale = 1.0
-        offsetY = 3
-    else
-        boardScale = 0.85
-        offsetY = 2
+    if avgSize >= 10.0 then
+        local extra = avgSize - 10.0
+        boardScale = math.min(1.0 + extra * 0.2, 4.0)
+        offsetY = math.min(3 + extra * 0.8, 20)
     end
 
     local scaleColor = Color3.fromRGB(180, 180, 180)
@@ -237,7 +226,7 @@ local function createESP(uid, pos, info, hash)
 
     local stroke = Instance.new("UIStroke", bg)
     stroke.Color = scaleColor
-    stroke.Thickness = math.min(2.5, 1 + (boardScale - 1) * 0.6)
+    stroke.Thickness = math.min(2.5, 1 + (boardScale - 1) * 0.5)
     stroke.Transparency = 0.2
 
     local pad = Instance.new("UIPadding", bg)
@@ -252,7 +241,6 @@ local function createESP(uid, pos, info, hash)
     layout.Padding = UDim.new(0, 1)
     layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
-    -- ⭐ Bold text với TextStroke
     local nameLbl = Instance.new("TextLabel")
     nameLbl.Size = UDim2.new(1, 0, 0, math.floor(13 * boardScale))
     nameLbl.BackgroundTransparency = 1
