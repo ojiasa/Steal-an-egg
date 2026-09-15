@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- ESP MODULE v10 — Cross-platform (PC + Mobile)
+-- ESP MODULE v11 — Cross-platform + Board to theo kg
 -- ═══════════════════════════════════════════════════════════════
 
 local P  = game:GetService("Players").LocalPlayer
@@ -25,13 +25,11 @@ local IS_PC     = UIS.KeyboardEnabled and not UIS.TouchEnabled
 local IS_MOBILE = UIS.TouchEnabled
 local PLATFORM  = IS_PC and "PC" or (IS_MOBILE and "Mobile" or "Unknown")
 
--- ⭐⭐⭐ SAFE GUI — tự chọn nơi add GUI phù hợp
+-- ⭐ SAFE GUI
 local function getSafeGui()
-    -- Thử gethui() (mobile + executor mạnh)
     if gethui then
         local ok, hui = pcall(gethui)
         if ok and hui then
-            -- Test write được không
             local testOk = pcall(function()
                 local f = Instance.new("Folder")
                 f.Parent = hui
@@ -41,7 +39,6 @@ local function getSafeGui()
         end
     end
 
-    -- Thử CoreGui
     local ok2, cg = pcall(function() return game:GetService("CoreGui") end)
     if ok2 and cg then
         local testOk = pcall(function()
@@ -52,7 +49,6 @@ local function getSafeGui()
         if testOk then return cg end
     end
 
-    -- Fallback: PlayerGui (luôn hoạt động)
     return P:WaitForChild("PlayerGui")
 end
 
@@ -103,7 +99,7 @@ local function getPrefixAndColor(mutation)
 end
 
 local function makeHash(eggData, pos)
-    return string.format("%s|%s|%.1f|%.1f|%.1f|%.2f",
+    return string.format("%s|%s|%.2f|%.2f|%.2f|%.4f",
         tostring(eggData.AssetCategory or ""),
         tostring(eggData.BaseMutation or ""),
         pos.X, pos.Y, pos.Z,
@@ -145,6 +141,36 @@ local function readAllEggs()
     return result
 end
 
+-- ⭐ Hàm tính scale theo kg
+local function getScaleStyle(eggScale)
+    eggScale = eggScale or 1
+
+    -- Board size
+    local boardScale = 1 + math.max(0, eggScale - 1) * 0.35
+    boardScale = math.min(boardScale, 4)
+
+    -- Độ cao
+    local offsetY = 4 + math.max(0, eggScale - 1) * 1.5
+    offsetY = math.min(offsetY, 20)
+
+    -- Màu + icon theo kg
+    local scaleColor = Color3.fromRGB(180, 180, 180)
+    local scaleIcon = "⚖"
+    if eggScale >= 3.0 then
+        scaleColor = Color3.fromRGB(255, 80, 80)
+        scaleIcon = "🔥"
+    elseif eggScale >= 2.0 then
+        scaleColor = Color3.fromRGB(255, 150, 50)
+        scaleIcon = "⭐"
+    elseif eggScale >= 1.5 then
+        scaleColor = Color3.fromRGB(100, 255, 100)
+    elseif eggScale >= 1.0 then
+        scaleColor = Color3.fromRGB(255, 220, 100)
+    end
+
+    return boardScale, offsetY, scaleColor, scaleIcon
+end
+
 -- ══════════ CREATE ESP ══════════
 local function createESP(uid, pos, info, hash)
     local attach = Instance.new("Part")
@@ -159,6 +185,14 @@ local function createESP(uid, pos, info, hash)
     attach.Parent = espFolder
 
     local prefix, color = getPrefixAndColor(info.mutation)
+    local eggScale = info.scale or 1
+
+    local boardScale, offsetY, scaleColor, scaleIcon = getScaleStyle(eggScale)
+
+    local baseW = 200
+    local baseH = 96
+    local boardW = math.floor(baseW * boardScale)
+    local boardH = math.floor(baseH * boardScale)
 
     local hl = Instance.new("Highlight")
     hl.FillColor = color
@@ -170,76 +204,101 @@ local function createESP(uid, pos, info, hash)
     hl.Parent = espFolder
 
     local bb = Instance.new("BillboardGui")
-    bb.Size = UDim2.new(0, 190, 0, 86)
-    bb.StudsOffset = Vector3.new(0, 4, 0)
+    bb.Size = UDim2.new(0, boardW, 0, boardH)
+    bb.StudsOffset = Vector3.new(0, offsetY, 0)
     bb.AlwaysOnTop = true
     bb.LightInfluence = 0
+    bb.MaxDistance = math.huge
     bb.Adornee = attach
     bb.Parent = espFolder
 
+    local bg = Instance.new("Frame", bb)
+    bg.Size = UDim2.new(1, 0, 1, 0)
+    bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    bg.BackgroundTransparency = 0.35
+    bg.BorderSizePixel = 0
+    bg.ZIndex = 0
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 6)
+
+    local stroke = Instance.new("UIStroke", bg)
+    stroke.Color = scaleColor
+    stroke.Thickness = math.min(3, 1 + (boardScale - 1) * 0.8)
+    stroke.Transparency = 0.2
+
+    local pad = Instance.new("UIPadding", bg)
+    pad.PaddingTop = UDim.new(0, 4)
+    pad.PaddingBottom = UDim.new(0, 4)
+    pad.PaddingLeft = UDim.new(0, 6)
+    pad.PaddingRight = UDim.new(0, 6)
+
+    local layout = Instance.new("UIListLayout", bg)
+    layout.FillDirection = Enum.FillDirection.Vertical
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 1)
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
     local nameLbl = Instance.new("TextLabel")
-    nameLbl.Size = UDim2.new(1, 0, 0, 16)
+    nameLbl.Size = UDim2.new(1, 0, 0, math.floor(16 * boardScale))
     nameLbl.BackgroundTransparency = 1
     nameLbl.Text = prefix .. " " .. (info.name or "Egg")
     nameLbl.TextColor3 = color
-    nameLbl.TextStrokeTransparency = 0
-    nameLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
+    nameLbl.TextStrokeTransparency = 1
     nameLbl.Font = Enum.Font.GothamBold
-    nameLbl.TextSize = 13
-    nameLbl.Parent = bb
+    nameLbl.TextSize = math.floor(14 * boardScale)
+    nameLbl.LayoutOrder = 1
+    nameLbl.ZIndex = 1
+    nameLbl.Parent = bg
 
     local mutLbl = Instance.new("TextLabel")
-    mutLbl.Size = UDim2.new(1, 0, 0, 12)
-    mutLbl.Position = UDim2.new(0, 0, 0, 16)
+    mutLbl.Size = UDim2.new(1, 0, 0, math.floor(12 * boardScale))
     mutLbl.BackgroundTransparency = 1
     mutLbl.Text = info.mutation and ("✨ " .. info.mutation) or ""
     mutLbl.TextColor3 = Color3.fromRGB(255, 200, 100)
-    mutLbl.TextStrokeTransparency = 0
-    mutLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
     mutLbl.Font = Enum.Font.GothamBold
-    mutLbl.TextSize = 10
-    mutLbl.Parent = bb
+    mutLbl.TextSize = math.floor(11 * boardScale)
+    mutLbl.LayoutOrder = 2
+    mutLbl.ZIndex = 1
+    mutLbl.Parent = bg
 
     local rateLbl = Instance.new("TextLabel")
-    rateLbl.Size = UDim2.new(1, 0, 0, 15)
-    rateLbl.Position = UDim2.new(0, 0, 0, 28)
+    rateLbl.Size = UDim2.new(1, 0, 0, math.floor(16 * boardScale))
     rateLbl.BackgroundTransparency = 1
     rateLbl.Text = info.rate and ("💵 $" .. formatMoney(info.rate) .. "/s") or "💵 ?"
     rateLbl.TextColor3 = info.rate and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(150, 150, 150)
-    rateLbl.TextStrokeTransparency = 0
-    rateLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
     rateLbl.Font = Enum.Font.GothamBold
-    rateLbl.TextSize = 13
-    rateLbl.Parent = bb
+    rateLbl.TextSize = math.floor(14 * boardScale)
+    rateLbl.LayoutOrder = 3
+    rateLbl.ZIndex = 1
+    rateLbl.Parent = bg
 
     local infoLbl = Instance.new("TextLabel")
-    infoLbl.Size = UDim2.new(1, 0, 0, 12)
-    infoLbl.Position = UDim2.new(0, 0, 0, 44)
+    infoLbl.Size = UDim2.new(1, 0, 0, math.floor(14 * boardScale))
     infoLbl.BackgroundTransparency = 1
-    infoLbl.Text = string.format("📍 %s | ⚖ %.2f", info.area or "?", info.scale or 0)
-    infoLbl.TextColor3 = Color3.fromRGB(180, 220, 255)
-    infoLbl.TextStrokeTransparency = 0
-    infoLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
-    infoLbl.Font = Enum.Font.Code
-    infoLbl.TextSize = 10
-    infoLbl.Parent = bb
+    infoLbl.Text = string.format("📍 %s | %s %.2f", info.area or "?", scaleIcon, eggScale)
+    infoLbl.TextColor3 = scaleColor
+    infoLbl.Font = Enum.Font.GothamBold
+    infoLbl.TextSize = math.floor(12 * boardScale)
+    infoLbl.LayoutOrder = 4
+    infoLbl.ZIndex = 1
+    infoLbl.Parent = bg
 
     local distLbl = Instance.new("TextLabel")
-    distLbl.Size = UDim2.new(1, 0, 0, 12)
-    distLbl.Position = UDim2.new(0, 0, 0, 58)
+    distLbl.Size = UDim2.new(1, 0, 0, math.floor(12 * boardScale))
     distLbl.BackgroundTransparency = 1
     distLbl.Text = "..."
     distLbl.TextColor3 = Color3.fromRGB(150, 255, 150)
-    distLbl.TextStrokeTransparency = 0
-    distLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
     distLbl.Font = Enum.Font.Code
-    distLbl.TextSize = 10
-    distLbl.Parent = bb
+    distLbl.TextSize = math.floor(11 * boardScale)
+    distLbl.LayoutOrder = 5
+    distLbl.ZIndex = 1
+    distLbl.Parent = bg
 
     return {
         attach = attach,
         highlight = hl,
         billboard = bb,
+        bg = bg,
+        stroke = stroke,
         distLabel = distLbl,
         rateLabel = rateLbl,
         nameLabel = nameLbl,
@@ -249,6 +308,7 @@ local function createESP(uid, pos, info, hash)
         hash = hash,
         lastRate = info.rate,
         lastName = info.name,
+        lastScale = eggScale,
     }
 end
 
@@ -315,11 +375,23 @@ local function refresh()
                     pcall(function()
                         obj.attach.CFrame = CFrame.new(pos)
                     end)
+                    -- Update rate
                     if info.rate and obj.lastRate ~= info.rate then
                         obj.lastRate = info.rate
                         pcall(function()
                             obj.rateLabel.Text = "💵 $" .. formatMoney(info.rate) .. "/s"
                             obj.rateLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+                        end)
+                    end
+                    -- Update scale
+                    if info.scale and obj.lastScale ~= info.scale then
+                        obj.lastScale = info.scale
+                        local _, _, sc, si = getScaleStyle(info.scale)
+                        pcall(function()
+                            obj.infoLabel.Text = string.format("📍 %s | %s %.2f",
+                                info.area or "?", si, info.scale)
+                            obj.infoLabel.TextColor3 = sc
+                            obj.stroke.Color = sc
                         end)
                     end
                 else
@@ -370,23 +442,22 @@ end
 -- ══════════ API ══════════
 function M.enable()
     if enabled then return end
-    
-    -- ⭐ DEBUG khi bật
+
     print("[ESP] ═══ ENABLE DEBUG ═══")
     print("[ESP] Platform: " .. PLATFORM)
     print("[ESP] gethui: " .. tostring(gethui ~= nil))
     print("[ESP] EggState: " .. tostring(EggState ~= nil))
     print("[ESP] AssetEarnings: " .. tostring(AssetEarnings ~= nil))
-    
+
     local testEggs = readAllEggs()
     local count = 0
     for _ in pairs(testEggs) do count = count + 1 end
     print("[ESP] Số egg đọc được: " .. count)
-    
+
     enabled = true
     parentGui = getSafeGui()
     print("[ESP] parentGui: " .. tostring(parentGui))
-    
+
     if not espFolder or not espFolder.Parent then
         espFolder = Instance.new("Folder")
         espFolder.Name = "ESP_Eggs"
