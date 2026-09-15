@@ -49,7 +49,7 @@ _G.StealEgg = {
     ESP_IsEnabled = function() return ESP and ESP.isEnabled() or false end,
     ESP_SetMapFilter = function(list) if ESP then ESP.setMapFilter(list) end end,
 
-    Version = "3.1.0",
+    Version = "3.2.0",
 }
 local API = _G.StealEgg
 _G.MyScript = API
@@ -241,6 +241,8 @@ local function mkTab(id, text)
     b.Font = Enum.Font.GothamBlack
     b.TextSize = 15
     b.TextColor3 = COLORS.textBold
+    b.TextStrokeTransparency = 0.3
+    b.TextStrokeColor3 = COLORS.textBold
     b.AutoButtonColor = false
     b.ZIndex = 3
     Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
@@ -278,6 +280,8 @@ local function createToggleRow(parent, labelText, defaultState, hasTextBox, onTo
     lbl.TextColor3 = COLORS.textBold
     lbl.Font = Enum.Font.GothamBlack
     lbl.TextSize = 16
+    lbl.TextStrokeTransparency = 0.3
+    lbl.TextStrokeColor3 = COLORS.textBold
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.ZIndex = 4
 
@@ -359,6 +363,8 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     lbl.TextColor3 = COLORS.textBold
     lbl.Font = Enum.Font.GothamBlack
     lbl.TextSize = 14
+    lbl.TextStrokeTransparency = 0.3
+    lbl.TextStrokeColor3 = COLORS.textBold
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.ZIndex = 3
 
@@ -371,6 +377,8 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     dropBtn.TextColor3 = COLORS.textBold
     dropBtn.Font = Enum.Font.GothamBlack
     dropBtn.TextSize = 14
+    dropBtn.TextStrokeTransparency = 0.3
+    dropBtn.TextStrokeColor3 = COLORS.textBold
     dropBtn.AutoButtonColor = false
     dropBtn.ZIndex = 4
     Instance.new("UICorner", dropBtn).CornerRadius = UDim.new(0, 8)
@@ -430,8 +438,10 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
         optBtn.BackgroundTransparency = 0.3
         optBtn.Text = "  " .. opt .. (selectedMaps[opt] and "  ✓" or "")
         optBtn.TextColor3 = COLORS.textBold
-        optBtn.Font = Enum.Font.GothamBold
+        optBtn.Font = Enum.Font.GothamBlack
         optBtn.TextSize = 13
+        optBtn.TextStrokeTransparency = 0.3
+        optBtn.TextStrokeColor3 = COLORS.textBold
         optBtn.TextXAlignment = Enum.TextXAlignment.Left
         optBtn.AutoButtonColor = false
         optBtn.ZIndex = 102
@@ -504,7 +514,7 @@ createToggleRow(pageESP, "ESP Egg", API.ESP_IsEnabled(), false, function(state)
     API.ESP_Toggle()
 end, nil)
 
--- ⭐ Resize nút góc dưới phải
+-- Resize
 local resizeBtn = Instance.new("TextButton", panel)
 resizeBtn.Size = UDim2.new(0, 22, 0, 22)
 resizeBtn.Position = UDim2.new(1, -26, 1, -26)
@@ -535,7 +545,6 @@ UserInputService.InputChanged:Connect(function(input)
     if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
 
     local delta = input.Position - startMousePos
-    -- Nhân 2 vì panel căn giữa
     local newWidth = math.max(420, startSize.X.Offset + delta.X * 2)
     local newHeight = math.max(250, startSize.Y.Offset + delta.Y)
     panel.Size = UDim2.new(0, newWidth, 0, newHeight)
@@ -569,4 +578,4 @@ end)
 
 API.OnLog(function(msg) print("[StealEgg] " .. msg) end)
 
-print("[Main] ✅ Ready v3.1 — Split Title + Bolder Text + Single Resize Corner")
+print("[Main] ✅ Ready v3.2 — Bold Text + TextStroke")
