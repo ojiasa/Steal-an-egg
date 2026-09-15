@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- ESP MODULE v11 — Cross-platform + Board to theo kg
+-- ESP MODULE v11.1 — Cross-platform + Board nhỏ theo kg
 -- ═══════════════════════════════════════════════════════════════
 
 local P  = game:GetService("Players").LocalPlayer
@@ -20,12 +20,10 @@ local EggState
 local REFRESH_INTERVAL = 0.3
 local DIST_INTERVAL    = 0.15
 
--- ⭐ DETECT PLATFORM
 local IS_PC     = UIS.KeyboardEnabled and not UIS.TouchEnabled
 local IS_MOBILE = UIS.TouchEnabled
 local PLATFORM  = IS_PC and "PC" or (IS_MOBILE and "Mobile" or "Unknown")
 
--- ⭐ SAFE GUI
 local function getSafeGui()
     if gethui then
         local ok, hui = pcall(gethui)
@@ -38,7 +36,6 @@ local function getSafeGui()
             if testOk then return hui end
         end
     end
-
     local ok2, cg = pcall(function() return game:GetService("CoreGui") end)
     if ok2 and cg then
         local testOk = pcall(function()
@@ -48,11 +45,10 @@ local function getSafeGui()
         end)
         if testOk then return cg end
     end
-
     return P:WaitForChild("PlayerGui")
 end
 
--- ══════════ LOAD MODULES ══════════
+-- LOAD MODULES
 pcall(function()
     local c = RS:WaitForChild("Client", 5)
     if c then
@@ -79,7 +75,6 @@ print(string.format("[ESP] Platform: %s | EggState: %s | AssetEarnings: %s",
     tostring(EggState ~= nil),
     tostring(AssetEarnings ~= nil)))
 
--- ══════════ HELPERS ══════════
 local function dist(a, b) return (a - b).Magnitude end
 
 local function formatMoney(n)
@@ -127,12 +122,10 @@ end
 local function readAllEggs()
     local result = {}
     if not EggState then return result end
-
     local ok, fd = pcall(EggState.ReadFieldEggs)
     if not ok or type(fd) ~= "table" or type(fd.Records) ~= "table" then
         return result
     end
-
     for _, eggData in pairs(fd.Records) do
         if eggData.Uid and eggData.BoundsCFrame then
             result[eggData.Uid] = eggData
@@ -141,19 +134,16 @@ local function readAllEggs()
     return result
 end
 
--- ⭐ Hàm tính scale theo kg
+-- ⭐ Scale style (nhỏ hơn 1/5)
 local function getScaleStyle(eggScale)
     eggScale = eggScale or 1
 
-    -- Board size
-    local boardScale = 1 + math.max(0, eggScale - 1) * 0.35
-    boardScale = math.min(boardScale, 4)
+    local boardScale = 1 + math.max(0, eggScale - 1) * 0.25
+    boardScale = math.min(boardScale, 2)
 
-    -- Độ cao
-    local offsetY = 4 + math.max(0, eggScale - 1) * 1.5
-    offsetY = math.min(offsetY, 20)
+    local offsetY = 2 + math.max(0, eggScale - 1) * 0.8
+    offsetY = math.min(offsetY, 12)
 
-    -- Màu + icon theo kg
     local scaleColor = Color3.fromRGB(180, 180, 180)
     local scaleIcon = "⚖"
     if eggScale >= 3.0 then
@@ -171,7 +161,7 @@ local function getScaleStyle(eggScale)
     return boardScale, offsetY, scaleColor, scaleIcon
 end
 
--- ══════════ CREATE ESP ══════════
+-- CREATE ESP
 local function createESP(uid, pos, info, hash)
     local attach = Instance.new("Part")
     attach.Name = "ESP_" .. uid:sub(1, 8)
@@ -189,8 +179,9 @@ local function createESP(uid, pos, info, hash)
 
     local boardScale, offsetY, scaleColor, scaleIcon = getScaleStyle(eggScale)
 
-    local baseW = 200
-    local baseH = 96
+    -- ⭐ Board nhỏ (1/5 cũ)
+    local baseW = 100
+    local baseH = 48
     local boardW = math.floor(baseW * boardScale)
     local boardH = math.floor(baseH * boardScale)
 
@@ -218,77 +209,77 @@ local function createESP(uid, pos, info, hash)
     bg.BackgroundTransparency = 0.35
     bg.BorderSizePixel = 0
     bg.ZIndex = 0
-    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 6)
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 5)
 
     local stroke = Instance.new("UIStroke", bg)
     stroke.Color = scaleColor
-    stroke.Thickness = math.min(3, 1 + (boardScale - 1) * 0.8)
+    stroke.Thickness = math.min(2, 1 + (boardScale - 1) * 0.6)
     stroke.Transparency = 0.2
 
     local pad = Instance.new("UIPadding", bg)
-    pad.PaddingTop = UDim.new(0, 4)
-    pad.PaddingBottom = UDim.new(0, 4)
-    pad.PaddingLeft = UDim.new(0, 6)
-    pad.PaddingRight = UDim.new(0, 6)
+    pad.PaddingTop = UDim.new(0, 2)
+    pad.PaddingBottom = UDim.new(0, 2)
+    pad.PaddingLeft = UDim.new(0, 3)
+    pad.PaddingRight = UDim.new(0, 3)
 
     local layout = Instance.new("UIListLayout", bg)
     layout.FillDirection = Enum.FillDirection.Vertical
     layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Padding = UDim.new(0, 1)
+    layout.Padding = UDim.new(0, 0)
     layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
     local nameLbl = Instance.new("TextLabel")
-    nameLbl.Size = UDim2.new(1, 0, 0, math.floor(16 * boardScale))
+    nameLbl.Size = UDim2.new(1, 0, 0, math.floor(11 * boardScale))
     nameLbl.BackgroundTransparency = 1
     nameLbl.Text = prefix .. " " .. (info.name or "Egg")
     nameLbl.TextColor3 = color
     nameLbl.TextStrokeTransparency = 1
     nameLbl.Font = Enum.Font.GothamBold
-    nameLbl.TextSize = math.floor(14 * boardScale)
+    nameLbl.TextSize = math.floor(9 * boardScale)
     nameLbl.LayoutOrder = 1
     nameLbl.ZIndex = 1
     nameLbl.Parent = bg
 
     local mutLbl = Instance.new("TextLabel")
-    mutLbl.Size = UDim2.new(1, 0, 0, math.floor(12 * boardScale))
+    mutLbl.Size = UDim2.new(1, 0, 0, math.floor(8 * boardScale))
     mutLbl.BackgroundTransparency = 1
     mutLbl.Text = info.mutation and ("✨ " .. info.mutation) or ""
     mutLbl.TextColor3 = Color3.fromRGB(255, 200, 100)
     mutLbl.Font = Enum.Font.GothamBold
-    mutLbl.TextSize = math.floor(11 * boardScale)
+    mutLbl.TextSize = math.floor(7 * boardScale)
     mutLbl.LayoutOrder = 2
     mutLbl.ZIndex = 1
     mutLbl.Parent = bg
 
     local rateLbl = Instance.new("TextLabel")
-    rateLbl.Size = UDim2.new(1, 0, 0, math.floor(16 * boardScale))
+    rateLbl.Size = UDim2.new(1, 0, 0, math.floor(11 * boardScale))
     rateLbl.BackgroundTransparency = 1
     rateLbl.Text = info.rate and ("💵 $" .. formatMoney(info.rate) .. "/s") or "💵 ?"
     rateLbl.TextColor3 = info.rate and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(150, 150, 150)
     rateLbl.Font = Enum.Font.GothamBold
-    rateLbl.TextSize = math.floor(14 * boardScale)
+    rateLbl.TextSize = math.floor(9 * boardScale)
     rateLbl.LayoutOrder = 3
     rateLbl.ZIndex = 1
     rateLbl.Parent = bg
 
     local infoLbl = Instance.new("TextLabel")
-    infoLbl.Size = UDim2.new(1, 0, 0, math.floor(14 * boardScale))
+    infoLbl.Size = UDim2.new(1, 0, 0, math.floor(9 * boardScale))
     infoLbl.BackgroundTransparency = 1
     infoLbl.Text = string.format("📍 %s | %s %.2f", info.area or "?", scaleIcon, eggScale)
     infoLbl.TextColor3 = scaleColor
     infoLbl.Font = Enum.Font.GothamBold
-    infoLbl.TextSize = math.floor(12 * boardScale)
+    infoLbl.TextSize = math.floor(8 * boardScale)
     infoLbl.LayoutOrder = 4
     infoLbl.ZIndex = 1
     infoLbl.Parent = bg
 
     local distLbl = Instance.new("TextLabel")
-    distLbl.Size = UDim2.new(1, 0, 0, math.floor(12 * boardScale))
+    distLbl.Size = UDim2.new(1, 0, 0, math.floor(8 * boardScale))
     distLbl.BackgroundTransparency = 1
     distLbl.Text = "..."
     distLbl.TextColor3 = Color3.fromRGB(150, 255, 150)
     distLbl.Font = Enum.Font.Code
-    distLbl.TextSize = math.floor(11 * boardScale)
+    distLbl.TextSize = math.floor(7 * boardScale)
     distLbl.LayoutOrder = 5
     distLbl.ZIndex = 1
     distLbl.Parent = bg
@@ -319,7 +310,7 @@ local function destroyObj(obj)
     pcall(function() if obj.billboard then obj.billboard:Destroy() end end)
 end
 
--- ══════════ REFRESH ══════════
+-- REFRESH
 local function refresh()
     if not enabled then return end
 
@@ -375,7 +366,6 @@ local function refresh()
                     pcall(function()
                         obj.attach.CFrame = CFrame.new(pos)
                     end)
-                    -- Update rate
                     if info.rate and obj.lastRate ~= info.rate then
                         obj.lastRate = info.rate
                         pcall(function()
@@ -383,7 +373,6 @@ local function refresh()
                             obj.rateLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
                         end)
                     end
-                    -- Update scale
                     if info.scale and obj.lastScale ~= info.scale then
                         obj.lastScale = info.scale
                         local _, _, sc, si = getScaleStyle(info.scale)
@@ -415,7 +404,6 @@ local function refresh()
     end
 end
 
--- ══════════ UPDATE DIST ══════════
 local function updateDist()
     local hrp = P.Character and P.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
@@ -439,13 +427,11 @@ local function forceClear()
     espObjects = {}
 end
 
--- ══════════ API ══════════
+-- API
 function M.enable()
     if enabled then return end
-
     print("[ESP] ═══ ENABLE DEBUG ═══")
     print("[ESP] Platform: " .. PLATFORM)
-    print("[ESP] gethui: " .. tostring(gethui ~= nil))
     print("[ESP] EggState: " .. tostring(EggState ~= nil))
     print("[ESP] AssetEarnings: " .. tostring(AssetEarnings ~= nil))
 
@@ -456,8 +442,6 @@ function M.enable()
 
     enabled = true
     parentGui = getSafeGui()
-    print("[ESP] parentGui: " .. tostring(parentGui))
-
     if not espFolder or not espFolder.Parent then
         espFolder = Instance.new("Folder")
         espFolder.Name = "ESP_Eggs"
@@ -494,10 +478,7 @@ function M.setMapFilter(mapList)
     end
 end
 
-function M.setHome(pos)
-    if pos then HOME_POS = pos end
-end
-
+function M.setHome(pos) if pos then HOME_POS = pos end end
 function M.getCount()
     local n = 0
     for _ in pairs(espObjects) do n = n + 1 end
@@ -506,7 +487,7 @@ end
 
 function M.getPlatform() return PLATFORM end
 
--- ══════════ MAIN LOOPS ══════════
+-- Loops
 task.spawn(function()
     while true do
         task.wait(REFRESH_INTERVAL)
@@ -529,7 +510,7 @@ P.CharacterAdded:Connect(function()
             parentGui = getSafeGui()
             espFolder = Instance.new("Folder")
             espFolder.Name = "ESP_Eggs"
-            espFolder.Parent = parentGui
+            espFolder.Parent = espFolder
         end
         refresh()
     end
