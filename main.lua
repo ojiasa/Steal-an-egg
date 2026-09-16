@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- MAIN.lua v3.5 — Fix resize mobile + Chữ xám-viền đen + 580x380
+-- MAIN.lua v3.6 — Chữ xám + UIStroke dày 2px đen
 -- ═══════════════════════════════════════════════════════════════
 
 local BACKGROUND_ID = (Config and Config.BackgroundImageId) or "rbxassetid://116222439691339"
@@ -78,7 +78,7 @@ _G.StealEgg = {
     SM_ScanInfo = function() if SellManager then SellManager.scanInfo() end end,
     SM_OnLog = function(cb) if SellManager then SellManager.onLog(cb) end end,
 
-    Version = "3.5.0",
+    Version = "3.6.0",
 }
 local API = _G.StealEgg
 _G.MyScript = API
@@ -96,7 +96,7 @@ local function getParent()
 end
 local PARENT = getParent()
 
--- ══════════ COLORS — KIỂU 1 (Chữ xám - Viền đen) ══════════
+-- ══════════ COLORS ══════════
 local COLORS = {
     bg          = Color3.fromRGB(215, 220, 228),
     card        = Color3.fromRGB(255, 255, 255),
@@ -105,10 +105,10 @@ local COLORS = {
     activeBtn   = Color3.fromRGB(120, 125, 135),
     activeText  = Color3.fromRGB(255, 255, 255),
     
-    -- ⭐ KIỂU 1: Chữ xám sáng + Viền đen đậm
-    textBold    = Color3.fromRGB(209, 213, 219),   -- #D1D5DB xám sáng
+    -- Chữ xám sáng + viền đen đậm
+    textBold    = Color3.fromRGB(209, 213, 219),
     textDim     = Color3.fromRGB(180, 185, 195),
-    textShadow  = Color3.fromRGB(0, 0, 0),          -- Đen thuần
+    textShadow  = Color3.fromRGB(0, 0, 0),
     
     toggleOn    = Color3.fromRGB(70, 75, 85),
     toggleOff   = Color3.fromRGB(195, 200, 210),
@@ -117,8 +117,20 @@ local COLORS = {
     gray        = Color3.fromRGB(140, 145, 155),
 }
 
-local TEXT_STROKE_TRANSPARENCY = 0     -- ⭐ Viền đen đậm
+-- ⭐ Viền dày bằng UIStroke
 local TEXT_STROKE_COLOR = Color3.fromRGB(0, 0, 0)
+local TEXT_STROKE_THICKNESS = 2  -- ⭐ 2 = dày đậm
+
+-- ⭐ Hàm tiện ích — Thêm UIStroke cho text
+local function addTextStroke(textLabel, thickness)
+    local stroke = Instance.new("UIStroke")
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+    stroke.Color = TEXT_STROKE_COLOR
+    stroke.Thickness = thickness or TEXT_STROKE_THICKNESS
+    stroke.Transparency = 0
+    stroke.Parent = textLabel
+    return stroke
+end
 
 local ALL_MAPS = {
     "Forest","Lake","Desert","Jungle","Snow","Volcano",
@@ -155,7 +167,7 @@ local istk = Instance.new("UIStroke", icon)
 istk.Color = COLORS.cardBorder
 istk.Thickness = 2
 
--- ══════════ PANEL — 580 x 380 ══════════
+-- ══════════ PANEL ══════════
 local PANEL_WIDTH = 580
 local PANEL_HEIGHT = 380
 
@@ -211,10 +223,9 @@ titleGray.Text = "STEAL AN EGG HUB"
 titleGray.Font = Enum.Font.GothamBlack
 titleGray.TextSize = 17
 titleGray.TextColor3 = COLORS.textBold
-titleGray.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
-titleGray.TextStrokeColor3 = TEXT_STROKE_COLOR
 titleGray.TextXAlignment = Enum.TextXAlignment.Left
 titleGray.ZIndex = 3
+addTextStroke(titleGray, 2)  -- ⭐ Viền dày
 
 local maskFrame = Instance.new("Frame", titleFrame)
 maskFrame.Size = UDim2.new(1, 0, 0, 17)
@@ -231,10 +242,9 @@ titlePink.Text = "STEAL AN EGG HUB"
 titlePink.Font = Enum.Font.GothamBlack
 titlePink.TextSize = 17
 titlePink.TextColor3 = COLORS.pink
-titlePink.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
-titlePink.TextStrokeColor3 = TEXT_STROKE_COLOR
 titlePink.TextXAlignment = Enum.TextXAlignment.Left
 titlePink.ZIndex = 5
+addTextStroke(titlePink, 2)  -- ⭐ Viền dày
 
 -- ══════════ SIDEBAR ══════════
 local sidebar = Instance.new("Frame", panel)
@@ -293,8 +303,6 @@ local function mkTab(id, text)
     b.Font = Enum.Font.GothamBlack
     b.TextSize = 15
     b.TextColor3 = COLORS.textBold
-    b.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
-    b.TextStrokeColor3 = TEXT_STROKE_COLOR
     b.AutoButtonColor = false
     b.ZIndex = 3
     Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
@@ -302,6 +310,8 @@ local function mkTab(id, text)
     bStk.Color = Color3.fromRGB(255, 255, 255)
     bStk.Thickness = 1
     bStk.Transparency = 0.4
+    
+    addTextStroke(b, 2)  -- ⭐ Viền dày cho tab
 
     b.MouseButton1Click:Connect(function() setTab(id) end)
     table.insert(tabBtns, { btn = b, id = id })
@@ -333,10 +343,9 @@ local function createToggleRow(parent, labelText, defaultState, hasTextBox, onTo
     lbl.TextColor3 = COLORS.textBold
     lbl.Font = Enum.Font.GothamBlack
     lbl.TextSize = 16
-    lbl.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
-    lbl.TextStrokeColor3 = TEXT_STROKE_COLOR
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.ZIndex = 4
+    addTextStroke(lbl, 2)  -- ⭐ Viền dày
 
     if hasTextBox then
         local box = Instance.new("TextBox", container)
@@ -354,6 +363,7 @@ local function createToggleRow(parent, labelText, defaultState, hasTextBox, onTo
         local bStk = Instance.new("UIStroke", box)
         bStk.Color = COLORS.cardBorder
         bStk.Thickness = 1
+        addTextStroke(box, 1)  -- Viền nhẹ cho box
 
         box.FocusLost:Connect(function()
             local num = tonumber(box.Text)
@@ -416,10 +426,9 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     lbl.TextColor3 = COLORS.textBold
     lbl.Font = Enum.Font.GothamBlack
     lbl.TextSize = 14
-    lbl.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
-    lbl.TextStrokeColor3 = TEXT_STROKE_COLOR
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.ZIndex = 3
+    addTextStroke(lbl, 2)  -- ⭐ Viền dày
 
     local dropBtn = Instance.new("TextButton", container)
     dropBtn.Size = UDim2.new(1, -120, 1, 0)
@@ -430,8 +439,6 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     dropBtn.TextColor3 = COLORS.textBold
     dropBtn.Font = Enum.Font.GothamBlack
     dropBtn.TextSize = 14
-    dropBtn.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
-    dropBtn.TextStrokeColor3 = TEXT_STROKE_COLOR
     dropBtn.AutoButtonColor = false
     dropBtn.ZIndex = 4
     Instance.new("UICorner", dropBtn).CornerRadius = UDim.new(0, 8)
@@ -439,6 +446,7 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     dStk.Color = Color3.fromRGB(255, 255, 255)
     dStk.Thickness = 1
     dStk.Transparency = 0.4
+    addTextStroke(dropBtn, 2)  -- ⭐ Viền dày cho text button
 
     local dropMenu = Instance.new("Frame", panel)
     dropMenu.Position = UDim2.new(0, 154 + 115, 0, 94)
@@ -493,11 +501,10 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
         optBtn.TextColor3 = COLORS.textBold
         optBtn.Font = Enum.Font.GothamBlack
         optBtn.TextSize = 13
-        optBtn.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
-        optBtn.TextStrokeColor3 = TEXT_STROKE_COLOR
         optBtn.TextXAlignment = Enum.TextXAlignment.Left
         optBtn.AutoButtonColor = false
         optBtn.ZIndex = 102
+        addTextStroke(optBtn, 1)
 
         optBtn.MouseButton1Click:Connect(function()
             selectedMaps[opt] = not selectedMaps[opt]
@@ -570,10 +577,9 @@ petHeader.Text = "🐾 PET MANAGER"
 petHeader.TextColor3 = COLORS.pink
 petHeader.Font = Enum.Font.GothamBlack
 petHeader.TextSize = 14
-petHeader.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
-petHeader.TextStrokeColor3 = TEXT_STROKE_COLOR
 petHeader.TextXAlignment = Enum.TextXAlignment.Left
 petHeader.LayoutOrder = 1
+addTextStroke(petHeader, 2)
 
 local autoSellToggle = createToggleRow(pagePet, "Auto Sell Pet (value m)", API.SM_IsAutoSell(), true, function(state)
     API.SM_SetAutoSell(state)
@@ -601,8 +607,6 @@ runOnceBtn.Text = "▶ RUN ONCE (Equip + Sell)"
 runOnceBtn.TextColor3 = COLORS.textBold
 runOnceBtn.Font = Enum.Font.GothamBlack
 runOnceBtn.TextSize = 13
-runOnceBtn.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
-runOnceBtn.TextStrokeColor3 = TEXT_STROKE_COLOR
 runOnceBtn.AutoButtonColor = false
 runOnceBtn.LayoutOrder = 4
 Instance.new("UICorner", runOnceBtn).CornerRadius = UDim.new(0, 8)
@@ -610,6 +614,7 @@ local roStk = Instance.new("UIStroke", runOnceBtn)
 roStk.Color = Color3.fromRGB(255, 255, 255)
 roStk.Thickness = 1
 roStk.Transparency = 0.4
+addTextStroke(runOnceBtn, 2)
 runOnceBtn.MouseButton1Click:Connect(function()
     API.SM_RunOnce()
 end)
@@ -622,8 +627,6 @@ scanBtn.Text = "📊 SCAN INFO"
 scanBtn.TextColor3 = COLORS.textBold
 scanBtn.Font = Enum.Font.GothamBlack
 scanBtn.TextSize = 13
-scanBtn.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
-scanBtn.TextStrokeColor3 = TEXT_STROKE_COLOR
 scanBtn.AutoButtonColor = false
 scanBtn.LayoutOrder = 5
 Instance.new("UICorner", scanBtn).CornerRadius = UDim.new(0, 8)
@@ -631,6 +634,7 @@ local scStk = Instance.new("UIStroke", scanBtn)
 scStk.Color = Color3.fromRGB(255, 255, 255)
 scStk.Thickness = 1
 scStk.Transparency = 0.4
+addTextStroke(scanBtn, 2)
 scanBtn.MouseButton1Click:Connect(function()
     API.SM_ScanInfo()
 end)
@@ -678,7 +682,7 @@ resizeBtn.ZIndex = 100
 resizeBtn.TextXAlignment = Enum.TextXAlignment.Center
 resizeBtn.TextYAlignment = Enum.TextYAlignment.Center
 
--- ══════════ RESIZE LOGIC (FIX MOBILE) ══════════
+-- ══════════ RESIZE LOGIC ══════════
 local isResizing = false
 local resizeStartPos
 local resizeStartSize
@@ -687,34 +691,19 @@ local resizeInputType
 local MIN_WIDTH = 450
 local MIN_HEIGHT = 280
 
-local function getAbsolutePosition(guiObj)
-    return guiObj.AbsolutePosition
-end
-
--- ⭐ Bắt đầu resize khi touch/mouse trên resizeBtn
-local function startResize(input)
-    isResizing = true
-    resizeInputType = input.UserInputType
-    resizeStartPos = input.Position
-    resizeStartSize = panel.AbsoluteSize
-    
-    -- ⭐ KHÔNG set panel.Draggable = false, dùng cách khác
-    -- Thay vào đó, track input để không cho panel kéo
-end
-
--- ⭐ Xử lý InputBegan
 resizeBtn.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch then
-        startResize(input)
+        isResizing = true
+        resizeInputType = input.UserInputType
+        resizeStartPos = input.Position
+        resizeStartSize = panel.AbsoluteSize
     end
 end)
 
--- ⭐ Bắt tại cấp UserInputService để override panel drag
 UserInputService.InputChanged:Connect(function(input)
     if not isResizing then return end
     
-    -- ⭐ Chỉ xử lý nếu input khớp với loại ban đầu
     if resizeInputType == Enum.UserInputType.Touch 
         and input.UserInputType ~= Enum.UserInputType.Touch then
         return
@@ -739,7 +728,6 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
--- ⭐ Bắt TouchEnded (mobile)
 UserInputService.TouchEnded:Connect(function(input)
     if isResizing then
         isResizing = false
@@ -747,7 +735,7 @@ UserInputService.TouchEnded:Connect(function(input)
     end
 end)
 
--- ⭐ Hover effect
+-- ══════════ HOVER EFFECT ══════════
 resizeBtn.MouseEnter:Connect(function()
     TweenService:Create(resizeBtn, TweenInfo.new(0.15), {
         TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -786,4 +774,4 @@ if API.SM_OnLog then
     API.SM_OnLog(function(msg) print("[SellManager] " .. msg) end)
 end
 
-print("[Main] ✅ Ready v3.5 — Fix resize mobile + Chữ kiểu 1 + 580x380")
+print("[Main] ✅ Ready v3.6 — Chữ viền dày 2px")
