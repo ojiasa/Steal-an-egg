@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- MAIN.lua v3.6 — Chữ xám + UIStroke dày 2px đen
+-- MAIN.lua v3.7 — Viền đen toàn bộ + Bỏ button Pet thừa
 -- ═══════════════════════════════════════════════════════════════
 
 local BACKGROUND_ID = (Config and Config.BackgroundImageId) or "rbxassetid://116222439691339"
@@ -24,12 +24,10 @@ local function fetch(path)
     return nil
 end
 
--- ⭐ Load modules
 local Steal = fetch("modules/steal.lua")
 local ESP   = fetch("modules/esp.lua")
 local SellManager = fetch("modules/sell_manager.lua")
 
--- ⭐ API wrapper
 _G.StealEgg = {
     Steal = Steal, ESP = ESP, SellManager = SellManager,
     
@@ -78,7 +76,7 @@ _G.StealEgg = {
     SM_ScanInfo = function() if SellManager then SellManager.scanInfo() end end,
     SM_OnLog = function(cb) if SellManager then SellManager.onLog(cb) end end,
 
-    Version = "3.6.0",
+    Version = "3.7.0",
 }
 local API = _G.StealEgg
 _G.MyScript = API
@@ -96,7 +94,6 @@ local function getParent()
 end
 local PARENT = getParent()
 
--- ══════════ COLORS ══════════
 local COLORS = {
     bg          = Color3.fromRGB(215, 220, 228),
     card        = Color3.fromRGB(255, 255, 255),
@@ -105,7 +102,6 @@ local COLORS = {
     activeBtn   = Color3.fromRGB(120, 125, 135),
     activeText  = Color3.fromRGB(255, 255, 255),
     
-    -- Chữ xám sáng + viền đen đậm
     textBold    = Color3.fromRGB(209, 213, 219),
     textDim     = Color3.fromRGB(180, 185, 195),
     textShadow  = Color3.fromRGB(0, 0, 0),
@@ -117,11 +113,10 @@ local COLORS = {
     gray        = Color3.fromRGB(140, 145, 155),
 }
 
--- ⭐ Viền dày bằng UIStroke
 local TEXT_STROKE_COLOR = Color3.fromRGB(0, 0, 0)
-local TEXT_STROKE_THICKNESS = 2  -- ⭐ 2 = dày đậm
+local TEXT_STROKE_THICKNESS = 2
 
--- ⭐ Hàm tiện ích — Thêm UIStroke cho text
+-- ⭐ Hàm thêm viền cho text
 local function addTextStroke(textLabel, thickness)
     local stroke = Instance.new("UIStroke")
     stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
@@ -189,7 +184,6 @@ pstk.Color = Color3.fromRGB(255, 255, 255)
 pstk.Thickness = 1.5
 pstk.Transparency = 0.5
 
--- Background image
 local bgImg = Instance.new("ImageLabel", panel)
 bgImg.Size = UDim2.new(1, 0, 1, 0)
 bgImg.BackgroundTransparency = 1
@@ -199,7 +193,6 @@ bgImg.ImageTransparency = 0.1
 bgImg.ZIndex = 0
 Instance.new("UICorner", bgImg).CornerRadius = UDim.new(0, 14)
 
--- Top icon
 local topIcon = Instance.new("ImageLabel", panel)
 topIcon.Size = UDim2.new(0, 32, 0, 32)
 topIcon.Position = UDim2.new(0, 12, 0, 8)
@@ -207,7 +200,6 @@ topIcon.BackgroundTransparency = 1
 topIcon.Image = ICON_ID
 topIcon.ZIndex = 2
 
--- Title
 local titleFrame = Instance.new("Frame", panel)
 titleFrame.Size = UDim2.new(1, -55, 0, 32)
 titleFrame.Position = UDim2.new(0, 50, 0, 8)
@@ -225,7 +217,7 @@ titleGray.TextSize = 17
 titleGray.TextColor3 = COLORS.textBold
 titleGray.TextXAlignment = Enum.TextXAlignment.Left
 titleGray.ZIndex = 3
-addTextStroke(titleGray, 2)  -- ⭐ Viền dày
+addTextStroke(titleGray, 2)
 
 local maskFrame = Instance.new("Frame", titleFrame)
 maskFrame.Size = UDim2.new(1, 0, 0, 17)
@@ -244,7 +236,7 @@ titlePink.TextSize = 17
 titlePink.TextColor3 = COLORS.pink
 titlePink.TextXAlignment = Enum.TextXAlignment.Left
 titlePink.ZIndex = 5
-addTextStroke(titlePink, 2)  -- ⭐ Viền dày
+addTextStroke(titlePink, 2)
 
 -- ══════════ SIDEBAR ══════════
 local sidebar = Instance.new("Frame", panel)
@@ -294,6 +286,7 @@ local function setTab(id)
     for tid, page in pairs(pages) do page.Visible = (tid == id) end
 end
 
+-- ⭐ TAB có viền đen
 local function mkTab(id, text)
     local b = Instance.new("TextButton", sidebar)
     b.Size = UDim2.new(1, 0, 0, 44)
@@ -311,7 +304,8 @@ local function mkTab(id, text)
     bStk.Thickness = 1
     bStk.Transparency = 0.4
     
-    addTextStroke(b, 2)  -- ⭐ Viền dày cho tab
+    -- ⭐ VIỀN ĐEN DÀY
+    addTextStroke(b, 2)
 
     b.MouseButton1Click:Connect(function() setTab(id) end)
     table.insert(tabBtns, { btn = b, id = id })
@@ -345,7 +339,7 @@ local function createToggleRow(parent, labelText, defaultState, hasTextBox, onTo
     lbl.TextSize = 16
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.ZIndex = 4
-    addTextStroke(lbl, 2)  -- ⭐ Viền dày
+    addTextStroke(lbl, 2)
 
     if hasTextBox then
         local box = Instance.new("TextBox", container)
@@ -363,7 +357,9 @@ local function createToggleRow(parent, labelText, defaultState, hasTextBox, onTo
         local bStk = Instance.new("UIStroke", box)
         bStk.Color = COLORS.cardBorder
         bStk.Thickness = 1
-        addTextStroke(box, 1)  -- Viền nhẹ cho box
+        
+        -- ⭐ VIỀN ĐEN cho ô nhập số
+        addTextStroke(box, 2)
 
         box.FocusLost:Connect(function()
             local num = tonumber(box.Text)
@@ -428,8 +424,9 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     lbl.TextSize = 14
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.ZIndex = 3
-    addTextStroke(lbl, 2)  -- ⭐ Viền dày
+    addTextStroke(lbl, 2)
 
+    -- ⭐ Nút All Maps có viền đen
     local dropBtn = Instance.new("TextButton", container)
     dropBtn.Size = UDim2.new(1, -120, 1, 0)
     dropBtn.Position = UDim2.new(0, 115, 0, 0)
@@ -446,7 +443,9 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     dStk.Color = Color3.fromRGB(255, 255, 255)
     dStk.Thickness = 1
     dStk.Transparency = 0.4
-    addTextStroke(dropBtn, 2)  -- ⭐ Viền dày cho text button
+    
+    -- ⭐ VIỀN ĐEN DÀY cho All Maps
+    addTextStroke(dropBtn, 2)
 
     local dropMenu = Instance.new("Frame", panel)
     dropMenu.Position = UDim2.new(0, 154 + 115, 0, 94)
@@ -492,6 +491,7 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
         if callback then callback(list) end
     end
 
+    -- ⭐ Mỗi option có viền đen
     for _, opt in ipairs(options) do
         local optBtn = Instance.new("TextButton", scroll)
         optBtn.Size = UDim2.new(1, 0, 0, 26)
@@ -504,7 +504,9 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
         optBtn.TextXAlignment = Enum.TextXAlignment.Left
         optBtn.AutoButtonColor = false
         optBtn.ZIndex = 102
-        addTextStroke(optBtn, 1)
+        
+        -- ⭐ VIỀN ĐEN cho từng option
+        addTextStroke(optBtn, 2)
 
         optBtn.MouseButton1Click:Connect(function()
             selectedMaps[opt] = not selectedMaps[opt]
@@ -563,13 +565,14 @@ pagePet.BackgroundTransparency = 1
 pagePet.Visible = false
 pagePet.BorderSizePixel = 0
 pagePet.ScrollBarThickness = 2
-pagePet.CanvasSize = UDim2.new(0, 0, 0, 260)
+pagePet.CanvasSize = UDim2.new(0, 0, 0, 140)  -- ⭐ Nhỏ hơn vì bỏ 2 nút
 pagePet.ZIndex = 3
 pages.pet = pagePet
 
 local petLayout = Instance.new("UIListLayout", pagePet)
 petLayout.Padding = UDim.new(0, 8)
 
+-- ⭐ Chỉ giữ "PET MANAGER" header
 local petHeader = Instance.new("TextLabel", pagePet)
 petHeader.Size = UDim2.new(1, -4, 0, 26)
 petHeader.BackgroundTransparency = 1
@@ -581,6 +584,7 @@ petHeader.TextXAlignment = Enum.TextXAlignment.Left
 petHeader.LayoutOrder = 1
 addTextStroke(petHeader, 2)
 
+-- ⭐ Chỉ giữ 2 toggle chính
 local autoSellToggle = createToggleRow(pagePet, "Auto Sell Pet (value m)", API.SM_IsAutoSell(), true, function(state)
     API.SM_SetAutoSell(state)
     if state and not API.SM_IsRunning() then
@@ -599,45 +603,7 @@ local autoEquipToggle = createToggleRow(pagePet, "Auto Equip Best Pet", API.SM_I
 end, nil)
 autoEquipToggle.LayoutOrder = 3
 
-local runOnceBtn = Instance.new("TextButton", pagePet)
-runOnceBtn.Size = UDim2.new(1, -4, 0, 34)
-runOnceBtn.BackgroundColor3 = COLORS.card
-runOnceBtn.BackgroundTransparency = 0.75
-runOnceBtn.Text = "▶ RUN ONCE (Equip + Sell)"
-runOnceBtn.TextColor3 = COLORS.textBold
-runOnceBtn.Font = Enum.Font.GothamBlack
-runOnceBtn.TextSize = 13
-runOnceBtn.AutoButtonColor = false
-runOnceBtn.LayoutOrder = 4
-Instance.new("UICorner", runOnceBtn).CornerRadius = UDim.new(0, 8)
-local roStk = Instance.new("UIStroke", runOnceBtn)
-roStk.Color = Color3.fromRGB(255, 255, 255)
-roStk.Thickness = 1
-roStk.Transparency = 0.4
-addTextStroke(runOnceBtn, 2)
-runOnceBtn.MouseButton1Click:Connect(function()
-    API.SM_RunOnce()
-end)
-
-local scanBtn = Instance.new("TextButton", pagePet)
-scanBtn.Size = UDim2.new(1, -4, 0, 34)
-scanBtn.BackgroundColor3 = COLORS.card
-scanBtn.BackgroundTransparency = 0.75
-scanBtn.Text = "📊 SCAN INFO"
-scanBtn.TextColor3 = COLORS.textBold
-scanBtn.Font = Enum.Font.GothamBlack
-scanBtn.TextSize = 13
-scanBtn.AutoButtonColor = false
-scanBtn.LayoutOrder = 5
-Instance.new("UICorner", scanBtn).CornerRadius = UDim.new(0, 8)
-local scStk = Instance.new("UIStroke", scanBtn)
-scStk.Color = Color3.fromRGB(255, 255, 255)
-scStk.Thickness = 1
-scStk.Transparency = 0.4
-addTextStroke(scanBtn, 2)
-scanBtn.MouseButton1Click:Connect(function()
-    API.SM_ScanInfo()
-end)
+-- ⭐ ĐÃ XÓA 2 nút RUN ONCE và SCAN INFO
 
 -- ══════════ TAB ESP ══════════
 local pageESP = Instance.new("ScrollingFrame", content)
@@ -658,7 +624,7 @@ createToggleRow(pageESP, "ESP Egg", API.ESP_IsEnabled(), false, function(state)
 end, nil)
 
 -- ═══════════════════════════════════════════════════════════════
--- RESIZE BUTTON — Fix mobile + Hover
+-- RESIZE BUTTON
 -- ═══════════════════════════════════════════════════════════════
 
 local resizeBtn = Instance.new("TextButton")
@@ -682,7 +648,6 @@ resizeBtn.ZIndex = 100
 resizeBtn.TextXAlignment = Enum.TextXAlignment.Center
 resizeBtn.TextYAlignment = Enum.TextYAlignment.Center
 
--- ══════════ RESIZE LOGIC ══════════
 local isResizing = false
 local resizeStartPos
 local resizeStartSize
@@ -735,7 +700,6 @@ UserInputService.TouchEnded:Connect(function(input)
     end
 end)
 
--- ══════════ HOVER EFFECT ══════════
 resizeBtn.MouseEnter:Connect(function()
     TweenService:Create(resizeBtn, TweenInfo.new(0.15), {
         TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -774,4 +738,4 @@ if API.SM_OnLog then
     API.SM_OnLog(function(msg) print("[SellManager] " .. msg) end)
 end
 
-print("[Main] ✅ Ready v3.6 — Chữ viền dày 2px")
+print("[Main] ✅ Ready v3.7 — Full viền đen + Bỏ button Pet thừa")
