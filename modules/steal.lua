@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v10.6.2 — Fix khối xám + Delay
+-- STEAL MODULE v10.6.3 — Fix lụm egg về home + warmup anti-back
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -45,6 +45,7 @@ local config = {
     SPEED          = 1500,
     SPEED_CAP      = 350,
     SLOW_SPEED     = 1000,
+    FIRST_CYCLE_SPEED = 400,       -- ⭐ v10.6.3: Speed chậm cho cycle đầu
     MAP_RADIUS     = 800,
     ARRIVE_DIST    = 10,
     BAIT_TIMEOUT   = 12,
@@ -52,7 +53,8 @@ local config = {
     MAX_FIRES      = 8,
     MAX_RETRY      = 3,
     STEAL_VERIFY_WAIT = 0.25,
-    CHAT_WAIT      = 0.5,       -- ⭐ v10.6.2: 2.0 → 0.5
+    CHAT_WAIT      = 0.5,
+    WARMUP_TIME    = 3,             -- ⭐ v10.6.3: Warmup trước khi chạy
 }
 
 local isRunning = false
@@ -69,6 +71,7 @@ local lastMoveCheck = 0
 local lastMovePos = nil
 local carryingEggFlag = false
 local replacedThisCycle = false
+local isFirstCycle = true            -- ⭐ v10.6.3
 
 local function log(s)
     for _, cb in ipairs(logCallbacks) do pcall(cb, s) end
@@ -155,8 +158,6 @@ local function forceRunningState()
         end
     end) end
 end
-
--- ⭐ v10.6.2: forceVisible ĐÃ XÓA — gây khối xám trên nhân vật
 
 -- ══════════ INCOME MODULES ══════════
 local AssetEarnings, EggState
@@ -753,7 +754,7 @@ local function velocityMoveTo(targetPos, timeout, manual)
     return false
 end
 
-local function velocityMoveSlow(targetPos, timeout)
+local function velocityMoveSlow(targetPos, timeout, speedOverride)
     timeout = timeout or 40
     local hum, hrp = getHum(), getHRP()
     if not hum or not hrp then return false end
@@ -762,7 +763,7 @@ local function velocityMoveSlow(targetPos, timeout)
     local t0 = os.clock()
     local lastPos = hrp.Position
     local stuckTime = os.clock()
-    local slowSpeed = config.SLOW_SPEED or 1000
+    local slowSpeed = speedOverride or config.SLOW_SPEED or 1000
     
     while isRunning and os.clock() - t0 < timeout do
         hum, hrp = getHum(), getHRP()
@@ -828,6 +829,38 @@ local function velocityFlyTo(targetPos, timeout, speed)
         task.wait(0.01)
     end
     return false
+end
+
+-- ⭐ v10.6.3: Bay về home bằng velocity (KHÔNG force CFrame)
+local function flyHomeVelocityOnly()
+    log("🏃 BAY VỀ HOME (velocity only)")
+    
+    local arrived = false
+    for try = 1, 8 do
+        if not isRunning then break end
+        
+        forceRunningState()
+        velocityFlyTo(config.HOME_POS, 5, 350)
+        
+        local rNow = getHRP()
+        if rNow and dist(rNow.Position, config.HOME_POS) < 40 then
+            arrived = true
+            log(string.format("✅ VỀ HOME (try %d)", try))
+            break
+        end
+        
+        task.wait(0.3)
+    end
+    
+    -- Stop velocity (không force CFrame)
+    local rEnd = getHRP()
+    if rEnd then pcall(function()
+        rEnd.AssemblyLinearVelocity = Vector3.zero
+        rEnd.AssemblyAngularVelocity = Vector3.zero
+    end) end
+    forceRunningState()
+    
+    return arrived
 end
 
 local function goHomeWithRecovery()
@@ -980,50 +1013,32 @@ local function goHomeWithRecovery()
                         end
                         
                         if not pickupSuccess then
-                            log("⚠ Lượm không được → SKIP")
+                            -- ⭐ v10.6.3: Lụm fail → velocity về home, return
+                            log("⚠ Lụm không được → VỀ HOME (velocity)")
                             stolenPrompts = {}
-                            lastHealth = nil
-                            recoveryAttempts = 0
-                            t1 = os.clock()
+                            flyHomeVelocityOnly()
+                            log("✅ Thoát recovery (lụm fail)")
+                            return true
                         else
                             if nearestPrompt then
                                 stolenPrompts[nearestPrompt] = true
                                 log("🔖 Mark egg lượm rồi")
                             end
                             
+                            -- Chờ egg lên tay
                             local carryWait = 0
-                            while carryWait < 2 and not isCarryingEgg() do
+                            while carryWait < 3 and not isCarryingEgg() do
                                 task.wait(0.1)
                                 carryWait = carryWait + 0.1
                             end
                             
-                            if isCarryingEgg() then
-                                log("✅ Egg carry rồi → BAY VỀ HOME NGAY!")
-                                
-                                forceRunningState()
-                                task.wait(0.1)
-                                
-                                -- ⭐ v10.6.2: 4s timeout, speed 300
-                                local success = velocityFlyTo(config.HOME_POS, 4, 300)
-                                
-                                local rFinal = getHRP()
-                                if rFinal then pcall(function()
-                                    rFinal.CFrame = CFrame.new(config.HOME_POS)
-                                    rFinal.AssemblyLinearVelocity = Vector3.zero
-                                    rFinal.AssemblyAngularVelocity = Vector3.zero
-                                end) end
-                                
-                                forceRunningState()
-                                log("✅ VỀ HOME THÀNH CÔNG")
-                                return true
-                            else
-                                log("⚠ Egg chưa carry → tiếp tục bay về")
-                                lastHealth = nil
-                                recoveryAttempts = 0
-                                t1 = os.clock()
-                            end
+                            -- ⭐ v10.6.3: Bay velocity về home (KHÔNG force CFrame)
+                            log("✅ Egg carry rồi → BAY VỀ HOME NGAY!")
+                            flyHomeVelocityOnly()
+                            log("✅ Thoát recovery (lụm OK)")
+                            return true
                         end
-                        lastTargetPos = nearestPos
+                        -- lastTargetPos = nearestPos (dòng này không cần vì đã return)
                     else
                         log("⏭ Egg không còn dropped → tiếp tục về")
                     end
@@ -1239,14 +1254,24 @@ local function mainLoop()
         pcall(checkEggReset)
         consecutiveFails = 0
         replacedThisCycle = false
+        
+        -- ⭐ v10.6.3: Cycle đầu dùng speed thấp
+        local useSpeed = config.SLOW_SPEED
+        if isFirstCycle then
+            useSpeed = config.FIRST_CYCLE_SPEED or 400
+            log(string.format("🐢 Cycle đầu → speed %d (tránh back)", useSpeed))
+        end
+        
         log("PHASE 1: VELOCITY SLOW tới Forest")
-
-        if not velocityMoveSlow(config.FOREST_POS, 40) then
+        local okMove = velocityMoveSlow(config.FOREST_POS, 40, useSpeed)
+        
+        if not okMove then
             if not isRunning then break end
             log("❌ Không tới Forest → thử lại")
             task.wait(1)
         else
-            log("✅ Tới Forest (velocity 1000)")
+            isFirstCycle = false  -- ⭐ Sau cycle đầu → false
+            log(string.format("✅ Tới Forest (speed %d)", useSpeed))
             task.wait(0.3)
             local prompt, ppos = findForestEggOnly()
 
@@ -1379,7 +1404,6 @@ local function mainLoop()
                             if stolen then
                                 consecutiveFails = 0
                                 goHomeWithRecovery()
-                                -- ⭐ v10.6.2: Chỉ chờ khi CHAT_WAIT > 0
                                 if config.CHAT_WAIT > 0 then
                                     task.wait(config.CHAT_WAIT)
                                 end
@@ -1501,10 +1525,31 @@ function M.start()
     cycleStartTime = 0
     lastClearTime = os.clock()
     replacedThisCycle = false
-    isRunning = true
-    log("▶ START v10.6.2")
-    startWatchdog()
-    task.spawn(mainLoop)
+    isFirstCycle = true  -- ⭐ Reset
+    
+    -- ⭐ v10.6.3: Warmup 3s trước khi chạy
+    task.spawn(function()
+        log(string.format("⏳ Warmup %ds (tránh back khi mới vào game)...", config.WARMUP_TIME))
+        task.wait(config.WARMUP_TIME)
+        
+        -- Verify character loaded
+        local char = P.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then
+            log("⚠ Char chưa load, chờ thêm 2s")
+            task.wait(2)
+        end
+        
+        -- Verify EggState load
+        if not EggState then
+            log("⚠ EggState chưa load, chờ thêm 2s")
+            task.wait(2)
+        end
+        
+        isRunning = true
+        log("▶ START v10.6.3")
+        startWatchdog()
+        task.spawn(mainLoop)
+    end)
 end
 
 function M.stop() isRunning = false; log("■ STOP") end
@@ -1551,6 +1596,7 @@ function M.setFlyHomeSpeed(n) config.FLY_HOME_SPEED = n or 350 end
 function M.setRecoveryRadius(n) config.RECOVERY_RADIUS = n or 500 end
 function M.setMaxRecovery(n) config.MAX_RECOVERY = n or 3 end
 function M.setSlowSpeed(n) config.SLOW_SPEED = n or 1000 end
+function M.setWarmupTime(n) config.WARMUP_TIME = n or 3 end
 
 function M.getAllMaps() return ALL_MAPS end
 function M.setHome(p) if p then config.HOME_POS = p end end
