@@ -1,6 +1,6 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v9.3-FIXED
--- Base: v9.2 + Fix boss Forest tele/replace + Fix drop egg về home
+-- STEAL MODULE v9.4-FIXED
+-- Base: v9.3 + Fix detect carry egg (5 tầng) + Fix không về home sau steal
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -50,12 +50,12 @@ local config = {
     MAP_RADIUS     = 800,
     ARRIVE_DIST    = 10,
     BAIT_TIMEOUT   = 15,
-    KB_HEALTH_DROP = 0.1,      -- ⭐ v9.3: hạ từ 0.5 → 0.1
+    KB_HEALTH_DROP = 0.1,
     MAX_FIRES      = 8,
     MAX_RETRY      = 3,
     STEAL_VERIFY_WAIT = 0.35,
     CHAT_WAIT      = 2.0,
-    HOME_TIMEOUT   = 60,       -- ⭐ v9.3: tổng timeout về home
+    HOME_TIMEOUT   = 60,
 }
 
 local isRunning      = false
@@ -91,7 +91,6 @@ local function keepHealth()
     end) end
 end
 
--- ⭐ v9.3: Force humanoid về Running nếu state xấu
 local function forceRunningState()
     local hum = getHum()
     if hum then pcall(function()
@@ -148,22 +147,6 @@ local function getEggRealMap(eggPos)
     return closestMap
 end
 
--- ⭐ v9.3: Check đang carry egg không
-local function isCarryingEgg()
-    if not EggState then return false end
-    local ok, fd = pcall(EggState.ReadFieldEggs)
-    if not ok or type(fd) ~= "table" or type(fd.Records) ~= "table" then
-        return false
-    end
-    for _, eggData in pairs(fd.Records) do
-        local state = tostring(eggData.State or ""):lower()
-        if state == "carried" or state == "carry" or state == "carrying" then
-            return true
-        end
-    end
-    return false
-end
-
 -- ══════════ INCOME MODULES ══════════
 local AssetEarnings, EggState
 local incomeCache = {}
@@ -182,6 +165,95 @@ pcall(function()
         if mod then EggState = require(mod) end
     end
 end)
+
+-- ⭐⭐⭐ v9.4: DETECT CARRY EGG ĐA TẦNG (5 nguồn)
+local function isCarryingEgg()
+    -- ⭐ Cách 1: Check EggState — mở rộng state list
+    if EggState then
+        local ok, fd = pcall(EggState.ReadFieldEggs)
+        if ok and type(fd) == "table" and type(fd.Records) == "table" then
+            for _, eggData in pairs(fd.Records) do
+                local state = tostring(eggData.State or ""):lower()
+                if state == "carried" or state == "carry" or state == "carrying"
+                    or state == "held" or state == "picked" or state == "player"
+                    or state == "stolen" or state == "withplayer" or state == "with_player"
+                    or state == "holding" or state == "inventory" then
+                    return true
+                end
+            end
+        end
+    end
+
+    -- ⭐ Cách 2: Check prompt "Drop"/"Thả" trong workspace
+    for _, v in ipairs(W:GetDescendants()) do
+        if v:IsA("ProximityPrompt") then
+            local action = tostring(v.ActionText or ""):lower()
+            local obj = tostring(v.ObjectText or ""):lower()
+            if (action == "drop" or action == "thả"
+                or action:find("drop", 1, true)
+                or action:find("thả", 1, true))
+                and (obj:find("egg", 1, true) or obj:find("trứng", 1, true)
+                    or v.Name:lower():find("egg", 1, true)
+                    or v.Name:lower():find("drop", 1, true)) then
+                return true
+            end
+        end
+    end
+
+    -- ⭐ Cách 3: Check UI button "Thả"/"Drop" trong PlayerGui
+    local pg = P:FindFirstChild("PlayerGui")
+    if pg then
+        for _, gui in ipairs(pg:GetDescendants()) do
+            if gui:IsA("TextButton") or gui:IsA("TextLabel") then
+                local txt = tostring(gui.Text or ""):lower()
+                if txt == "thả" or txt == "drop"
+                    or txt:find("thả", 1, true)
+                    or txt:find("drop", 1, true) then
+                    if gui.Visible and gui.Parent and gui.Parent.Visible ~= false then
+                        return true
+                    end
+                end
+            end
+        end
+    end
+
+    -- ⭐ Cách 4: Check Character có attachment/part egg không
+    local c = P.Character
+    if c then
+        for _, v in ipairs(c:GetChildren()) do
+            local n = v.Name:lower()
+            if n:find("egg", 1, true) or n:find("carry", 1, true)
+                or n:find("held", 1, true) or n:find("stolen", 1, true) then
+                return true
+            end
+        end
+    end
+
+    -- ⭐ Cách 5: Check Backpack/Tool
+    local backpack = P:FindFirstChild("Backpack")
+    if backpack then
+        for _, tool in ipairs(backpack:GetChildren()) do
+            if tool:IsA("Tool") then
+                local n = tool.Name:lower()
+                if n:find("egg", 1, true) or n:find("carry", 1, true) then
+                    return true
+                end
+            end
+        end
+    end
+    if c then
+        for _, tool in ipairs(c:GetChildren()) do
+            if tool:IsA("Tool") then
+                local n = tool.Name:lower()
+                if n:find("egg", 1, true) or n:find("carry", 1, true) then
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
+end
 
 local function getEggInfoAtPos(eggPos, radius)
     radius = radius or 30
@@ -751,7 +823,6 @@ local function replaceHumanoidDirect()
     return true
 end
 
--- ⭐ v9.3: Luôn replace humanoid (giống v9.2 gốc)
 local function teleToMap(targetPos)
     local hrp = getHRP()
     if hrp then pcall(function()
@@ -769,7 +840,6 @@ local function teleToMap(targetPos)
         end) end
         task.wait(0.01)
     end
-    -- ⭐ v9.3: force running state sau tele
     task.spawn(function()
         local t0 = os.clock()
         while os.clock() - t0 < 0.6 do
@@ -781,7 +851,7 @@ end
 
 local function firePromptOnce(prompt)
     if not prompt or not prompt.Parent then return false end
-    forceRunningState()  -- ⭐ v9.3: force trước khi fire
+    forceRunningState()
     pcall(function()
         prompt.Enabled = true
         prompt.HoldDuration = 0
@@ -820,7 +890,7 @@ local function velocityMoveTo(targetPos, timeout, manual)
         hum, hrp = getHum(), getHRP()
         if not hum or not hrp then break end
         keepHealth()
-        forceRunningState()  -- ⭐ v9.3
+        forceRunningState()
         local d = dist(hrp.Position, targetPos)
         if d < config.ARRIVE_DIST then
             pcall(function() hrp.AssemblyLinearVelocity = Vector3.zero end)
@@ -865,7 +935,7 @@ local function velocityFlyTo(targetPos, timeout, speed)
         hum, hrp = getHum(), getHRP()
         if not hum or not hrp then break end
         keepHealth()
-        forceRunningState()  -- ⭐ v9.3
+        forceRunningState()
 
         local d = dist(hrp.Position, targetPos)
         if d < config.ARRIVE_DIST then
@@ -886,7 +956,7 @@ local function velocityFlyTo(targetPos, timeout, speed)
     return false
 end
 
--- ⭐⭐⭐ v9.3-FIXED: goHomeWithRecovery — FIX LỤM EGG KHÔNG VỀ HOME
+-- ⭐⭐⭐ v9.4: goHomeWithRecovery — FIX LỤM EGG + VERIFY CARRY
 local function goHomeWithRecovery()
     log("🏃 BAY VỀ HOME (Y=" .. (config.HOME_FLY_ABSOLUTE_Y or 100) .. ")")
     local startTime = os.clock()
@@ -902,9 +972,8 @@ local function goHomeWithRecovery()
         local hum, r = getHum(), getHRP()
         if not hum or not r then break end
         keepHealth()
-        forceRunningState()  -- ⭐ v9.3
+        forceRunningState()
 
-        -- ⭐ FIX: Y quá thấp → force tele
         if r.Position.Y < 10 then
             log("🚨 Y < 10 → force tele home")
             forceTeleHome()
@@ -916,7 +985,6 @@ local function goHomeWithRecovery()
         local state = hum:GetState()
         local hpNow = hum.Health
 
-        -- Detect knockback
         local gotHit = false
         if state == Enum.HumanoidStateType.Physics and speed > 30 then
             gotHit = true
@@ -937,7 +1005,6 @@ local function goHomeWithRecovery()
 
             local r2 = getHRP()
             if r2 then
-                -- Tìm egg rớt gần nhất
                 local nearestPrompt, nearestPos, nearestDist = nil, nil, config.RECOVERY_RADIUS or 500
                 for _, v in ipairs(W:GetDescendants()) do
                     if v:IsA("ProximityPrompt") and v.Enabled and not stolenPrompts[v] then
@@ -964,7 +1031,6 @@ local function goHomeWithRecovery()
                 if nearestPrompt and nearestPos then
                     log(string.format("🎯 Egg rớt cách %.0f studs → CHẠY LẠI", nearestDist))
 
-                    -- Bay tới egg
                     if nearestDist > 200 then
                         velocityFlyTo(nearestPos, 15, config.SPEED_CAP)
                     else
@@ -972,7 +1038,6 @@ local function goHomeWithRecovery()
                     end
                     task.wait(0.15)
 
-                    -- ⭐ Lụm egg và VERIFY
                     local slotsBefore = getSlotSet()
                     local pickedUp = false
                     for i = 1, config.MAX_FIRES do
@@ -988,13 +1053,12 @@ local function goHomeWithRecovery()
                         end
                         task.wait(config.STEAL_VERIFY_WAIT)
 
-                        -- Check slot mất
                         local stolen = hasStolenSlot(slotsBefore)
                         if stolen then
                             pickedUp = true
                             break
                         end
-                        -- Check carry state
+                        -- ⭐ v9.4: Dùng isCarryingEgg() đa tầng
                         if isCarryingEgg() then
                             pickedUp = true
                             break
@@ -1003,10 +1067,8 @@ local function goHomeWithRecovery()
 
                     if pickedUp then
                         log("✅ Đã lượm lại egg → BAY VỀ HOME NGAY")
-                        -- ⭐ FIX: Bay về home luôn, KHÔNG chờ while
                         velocityFlyTo(config.HOME_POS, 10, config.FLY_HOME_SPEED or 500)
 
-                        -- Verify đã về home
                         local r3 = getHRP()
                         if r3 and dist(r3.Position, config.HOME_POS) > 50 then
                             log("⚠ Chưa về home → thử lại lần 2")
@@ -1030,11 +1092,9 @@ local function goHomeWithRecovery()
                     log("⚠ Không tìm thấy egg rớt → tiếp tục về")
                 end
             end
-            -- ⭐ FIX: Reset lastHealth để không detect lại liên tục
             lastHealth = nil
         end
 
-        -- Bay về home
         local dx = config.HOME_POS.X - r.Position.X
         local dz = config.HOME_POS.Z - r.Position.Z
         local hd = math.sqrt(dx*dx + dz*dz)
@@ -1054,7 +1114,6 @@ local function goHomeWithRecovery()
         task.wait(0.01)
     end
 
-    -- Rớt xuống home
     log("⬇ Rớt xuống home")
     velocityFlyTo(config.HOME_POS, 5, config.DROP_SPEED or 250)
 
@@ -1070,7 +1129,7 @@ local function goHomeWithRecovery()
     return true
 end
 
--- ⭐⭐⭐ v9.3-FIXED: baitBoss nhạy hơn
+-- ⭐⭐⭐ v9.4: baitBoss nhạy hơn
 local function baitBoss(timeout)
     timeout = timeout or config.BAIT_TIMEOUT
     log("🎯 Bait boss...")
@@ -1088,32 +1147,26 @@ local function baitBoss(timeout)
         local speed = vel.Magnitude
         local state = hum:GetState()
 
-        -- Physics + speed
         if state == Enum.HumanoidStateType.Physics and speed > 30 then
             log(string.format("💥 PHYSICS speed=%.1f", speed)); return true
         end
-        -- Bay lên
         if speed > 60 and vel.Y > 10 then
             log(string.format("💥 VELOCITY speed=%.1f", speed)); return true
         end
-        -- ⭐ FIX: state xấu
         if state == Enum.HumanoidStateType.PlatformStanding
             or state == Enum.HumanoidStateType.FallingDown
             or state == Enum.HumanoidStateType.Ragdoll then
             log(string.format("💥 STATE xấu: %s", tostring(state))); return true
         end
-        -- ⭐ FIX: Health drop nhạy hơn (0.1)
         if startHealth and hum.Health < startHealth - (config.KB_HEALTH_DROP or 0.1) then
             log(string.format("💥 HEALTH %.1f→%.1f", startHealth, hum.Health)); return true
         end
-        -- ⭐ FIX: Dịch chuyển đột ngột
         if startPos then
             local pd = (hrp.Position - startPos).Magnitude
             if pd > 10 then
                 log(string.format("💥 SHIFT %.1f", pd)); return true
             end
         end
-        -- ⭐ FIX: Rotation
         if startCFrame then
             local dot = math.clamp(startCFrame.LookVector:Dot(hrp.CFrame.LookVector), -1, 1)
             local angleDiff = math.deg(math.acos(dot))
@@ -1129,10 +1182,17 @@ local function baitBoss(timeout)
     return false
 end
 
+-- ⭐⭐⭐ v9.4: stealAtPos — Check carry NGAY ĐẦU HÀM
 local function stealAtPos(targetPos, label, expectedIncome)
     log("═══════")
     log("STEAL TẠI " .. label)
     task.wait(0.05)
+
+    -- ⭐ v9.4: Nếu đã carry egg từ trước → coi như thành công
+    if isCarryingEgg() then
+        log("⚠ Đã carry egg từ trước → coi như steal OK")
+        return true
+    end
 
     local hrp = getHRP()
     if not hrp then return false end
@@ -1161,14 +1221,22 @@ local function stealAtPos(targetPos, label, expectedIncome)
     end
 
     local prompt = findPromptSteal(targetPos, 150)
-    if not prompt then log("⚠ Không có prompt"); return false end
+    if not prompt then 
+        log("⚠ Không có prompt")
+        -- ⭐ v9.4: Nếu đã carry rồi thì vẫn OK
+        if isCarryingEgg() then
+            log("✅ Carry check OK")
+            return true
+        end
+        return false 
+    end
 
     local slotsBefore, countBefore = getSlotSet()
     log("📊 Global slots trước: " .. countBefore)
 
     for i = 1, config.MAX_FIRES do
         if not isRunning then return false end
-        forceRunningState()  -- ⭐ v9.3
+        forceRunningState()
 
         local h2 = getHRP()
         if h2 then
@@ -1176,6 +1244,13 @@ local function stealAtPos(targetPos, label, expectedIncome)
             if p2 then firePromptOnce(p2) end
         end
         task.wait(config.STEAL_VERIFY_WAIT)
+
+        -- ⭐ v9.4: Check carry TRƯỚC khi check slot (ưu tiên carry)
+        if isCarryingEgg() then
+            log("✅ ĐÃ STEAL (carry check)")
+            return true
+        end
+
         local _, countNow = getSlotSet()
         local stolen, slotName = hasStolenSlot(slotsBefore)
         if stolen then
@@ -1184,13 +1259,16 @@ local function stealAtPos(targetPos, label, expectedIncome)
             log("✅ ĐÃ STEAL")
             return true
         end
-        -- ⭐ v9.3: Check carry state
-        if isCarryingEgg() then
-            log("✅ ĐÃ STEAL (carry check)")
-            return true
-        end
     end
+
     log("⚠ Fire " .. config.MAX_FIRES .. " lần không giảm slot")
+
+    -- ⭐ v9.4: Final check carry trước khi return false
+    if isCarryingEgg() then
+        log("✅ Carry check OK (final)")
+        return true
+    end
+
     return false
 end
 
@@ -1205,7 +1283,7 @@ local function checkEggReset()
     return false
 end
 
--- ⭐ v9.3: Watchdog phát hiện state xấu + đứng yên
+-- ⭐⭐⭐ v9.4: Watchdog phát hiện state xấu + đứng yên
 local function startWatchdog()
     task.spawn(function()
         local lastMoveCheck = os.clock()
@@ -1218,7 +1296,6 @@ local function startWatchdog()
             tick = tick + 1
             forceRunningState()
 
-            -- ⭐ Check state xấu liên tục
             local hum = getHum()
             if hum then
                 local st = hum:GetState()
@@ -1227,7 +1304,7 @@ local function startWatchdog()
                     or st == Enum.HumanoidStateType.FallingDown
                     or st == Enum.HumanoidStateType.Ragdoll then
                     badStateCount = badStateCount + 1
-                    if badStateCount >= 6 then  -- 3s liên tục
+                    if badStateCount >= 6 then
                         log("🚨 State xấu 3s → FORCE REPLACE")
                         replaceHumanoidDirect()
                         badStateCount = 0
@@ -1237,7 +1314,6 @@ local function startWatchdog()
                 end
             end
 
-            -- Check đứng yên
             if tick % 4 == 0 then
                 local hrp = getHRP()
                 if hrp then
@@ -1307,6 +1383,7 @@ local function mainLoop()
                         log("🎒 Forest OK: " .. slotName)
                         break
                     end
+                    -- ⭐ v9.4: Check carry
                     if isCarryingEgg() then
                         log("🎒 Forest OK (carry check)")
                         break
@@ -1318,7 +1395,6 @@ local function mainLoop()
                 log("PHASE 3: Bait boss Forest")
                 local gotKnockback = baitBoss(config.BAIT_TIMEOUT)
 
-                -- ⭐ v9.3 FIX: Nếu không detect knockback → force tiếp tục
                 if not gotKnockback then
                     log("⚠ Không detect knockback → ÉP TIẾP TỤC (force replace)")
                     replaceHumanoidDirect()
@@ -1417,6 +1493,8 @@ local function mainLoop()
                             task.wait(0.05)
 
                             local stolen = stealAtPos(stealPos, stealMap.name)
+                            
+                            -- ⭐ v9.4: Xử lý kết quả
                             if stolen then
                                 goHomeWithRecovery()
                                 task.wait(config.CHAT_WAIT)
@@ -1431,6 +1509,17 @@ local function mainLoop()
                                     break
                                 end
                             else
+                                -- ⭐ v9.4: stealAtPos fail nhưng đang carry → coi như OK
+                                if isCarryingEgg() then
+                                    log("⚠ stealAtPos fail nhưng ĐANG CARRY → coi như OK")
+                                    goHomeWithRecovery()
+                                    task.wait(config.CHAT_WAIT)
+                                    log("🎉 THÀNH CÔNG (carry final check)")
+                                    success = true
+                                    lastTargetPos = nil
+                                    lastTargetMap = nil
+                                    break
+                                end
                                 log("⚠ Steal fail — retry")
                                 task.wait(0.2)
                             end
@@ -1499,7 +1588,7 @@ function M.start()
     lastTargetPos = nil
     lastTargetMap = nil
     isRunning = true
-    log("▶ START v9.3-FIXED — " .. #config.TARGETS .. " map(s)")
+    log("▶ START v9.4-FIXED — " .. #config.TARGETS .. " map(s)")
     startWatchdog()
     task.spawn(mainLoop)
 end
@@ -1575,6 +1664,8 @@ function M.setHomeTimeout(n)
     config.HOME_TIMEOUT = n or 60
     log("⏱ Home timeout: " .. config.HOME_TIMEOUT .. "s")
 end
+
+function M.isCarrying() return isCarryingEgg() end  -- ⭐ v9.4: expose API
 
 function M.getAllMaps() return ALL_MAPS end
 function M.setHome(p) if p then config.HOME_POS = p; log("📍 Home") end end
