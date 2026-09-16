@@ -973,20 +973,17 @@ local function goHomeWithRecovery()
                             log("📍 Xa > 500 → tele KHÔNG replace")
                             teleToMap(nearestPos, false)
                         else
-                            -- ⭐ v10.6.1: FIX - Timeout 12, speed 350 (thay vì 20, SPEED_CAP)
                             velocityFlyTo(nearestPos, 12, 350)
                         end
                         task.wait(0.4)
                         
                         local slotsBefore = getSlotSet()
                         local pickupSuccess = false
-                        -- ⭐ v10.6.1: FIX - Fire 3 lần (thay vì MAX_FIRES = 8)
                         for i = 1, 3 do
                             if not isRunning then break end
                             forceRunningState()
                             local h3 = getHRP()
                             if h3 then
-                                -- ⭐ v10.6.1: FIX - Radius 120 (thay vì 200)
                                 local p3 = findPromptSteal(h3.Position, 120)
                                 if p3 then
                                     local p3pos = getPromptPos(p3)
@@ -1011,6 +1008,31 @@ local function goHomeWithRecovery()
                         if not pickupSuccess then
                             log("⚠ Lượm không được → SKIP")
                             stolenPrompts = {}
+                        else
+                            -- ⭐ FIX v10.6.2: Mark egg đã lượm để không retry
+                            if nearestPrompt then
+                                stolenPrompts[nearestPrompt] = true
+                                log("🔖 Mark egg lượm rồi")
+                            end
+                            -- Chờ egg được carry
+                            local carryWait = 0
+                            while carryWait < 3 and not isCarryingEgg() do
+                                task.wait(0.1)
+                                carryWait = carryWait + 0.1
+                            end
+                            if isCarryingEgg() then
+                                log("✅ Egg được carry → BAY VỀ HOME NGAY!")
+                                -- ⭐ v10.6.2: Force home flight immediately
+                                velocityFlyTo(config.HOME_POS, 10, config.DROP_SPEED)
+                                local rFinal = getHRP()
+                                if rFinal then pcall(function()
+                                    rFinal.AssemblyLinearVelocity = Vector3.zero
+                                end) end
+                                log("✅ TRỞ VỀ HOME THÀNH CÔNG")
+                                return true  -- ⭐ Exit goHomeWithRecovery immediately
+                            else
+                                log("⚠ Egg chưa được carry → continue")
+                            end
                         end
                         lastTargetPos = nearestPos
                     else
@@ -1019,7 +1041,6 @@ local function goHomeWithRecovery()
 
                     lastHealth = nil
                     recoveryAttempts = 0
-                    -- ⭐ v10.6.1: CRITICAL FIX - Reset t1 để thoát loop
                     t1 = os.clock()
                 end
             end
@@ -1549,4 +1570,3 @@ function M.setForest(p) if p then config.FOREST_POS = p end end
 function M.getConfig() return config end
 
 return M
-
