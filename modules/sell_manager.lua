@@ -1,7 +1,12 @@
 -- ═══════════════════════════════════════════════════════════════
--- PET TOOL MODULE v16 — Classifier cho 2 chức năng chính
+-- PET TOOL MODULE v16.1 — Classifier cho 2 chức năng chính
 -- 1. Auto Sell (theo value m)
 -- 2. Auto Equip Best (WearBest)
+-- v16.1: Fix bug bán hết khi set threshold
+--        - SELL_INCLUDE_ZERO = false mặc định
+--        - Chỉ bán pet CÓ trong incomeCache (không fallback = 0)
+--        - Cache cả pet income = 0 (để phân biệt "chưa biết" vs "biết là 0")
+--        - Skip sell nếu vừa equip xong < 1s (tránh bán pet vừa swap)
 -- ═══════════════════════════════════════════════════════════════
 
 local P = game:GetService("Players").LocalPlayer
@@ -16,16 +21,17 @@ local config = {
     AUTO_EQUIP_ENABLED  = false,
     
     -- Auto Sell config
-    SELL_THRESHOLD      = 1000000,   -- 1M $/s
-    SELL_INCLUDE_ZERO   = true,      -- Bán cả pet income=0
+    SELL_THRESHOLD      = 10000000,  -- 10M $/s (mặc định mới)
+    SELL_INCLUDE_ZERO   = false,     -- ⭐ v16.1: false — không bán pet income=0/chưa biết
     
     -- Auto Equip config
-    EQUIP_INTERVAL      = 5,         -- Chạy WearBest mỗi 5s
-    EQUIP_ON_START      = true,      -- Chạy WearBest ngay khi bật
+    EQUIP_INTERVAL      = 5,
+    EQUIP_ON_START      = true,
     
     -- Timing
-    LOOP_DELAY          = 1.0,       -- Delay giữa mỗi loop
-    SELL_DELAY          = 0.3,       -- Delay giữa mỗi pet khi bán
+    LOOP_DELAY          = 1.0,
+    SELL_DELAY          = 0.3,
+    EQUIP_SYNC_WAIT     = 1.0,       -- ⭐ v16.1: chờ sau equip trước khi sell
 }
 
 -- ══════════ STATE ══════════
@@ -35,7 +41,6 @@ local logCallbacks = {}
 local stats = {
     totalSold = 0,
     totalEquipped = 0,
-    totalEarned = 0,
     lastRunTime = 0,
     cyclesRun = 0,
 }
@@ -152,10 +157,9 @@ local function fetchSnapshotIncome()
             for uid, rec in pairs(ownerData.Records) do
                 if type(rec) == "table" then
                     local income = rec.MoneyPerSecond or 0
-                    if income > 0 then
-                        if incomeCache[uid] == nil then newCount = newCount + 1 end
-                        incomeCache[uid] = income
-                    end
+                    -- ⭐ v16.1: Cache CẢ income = 0 (để phân biệt "biết là 0" vs "chưa biết")
+                    if incomeCache[uid] == nil then newCount = newCount + 1 end
+                    incomeCache[uid] = income
                     count = count + 1
                 end
             end
@@ -163,7 +167,7 @@ local function fetchSnapshotIncome()
         end
     end
     
-    log(string.format("📸 Snapshot: %d pet (+%d cache)", count, newCount))
+    log(string.format("📸 Snapshot: %d pet (+%d cache mới)", count, newCount))
     return true
 end
 
@@ -198,6 +202,12 @@ local function runAutoSell()
         return 0
     end
     
+    -- ⭐ v16.1: Skip nếu vừa equip xong (tránh bán pet vừa swap)
+    if os.clock() - lastEquipTime < config.EQUIP_SYNC_WAIT then
+        log(string.format("⏭ Bỏ sell — vừa equip xong, chờ %.1fs sync", config.EQUIP_SYNC_WAIT))
+        return 0
+    end
+    
     -- 1. Scan backpack
     local backpackPets = scanBackpackPets()
     if #backpackPets == 0 then
@@ -209,23 +219,33 @@ local function runAutoSell()
     local equippedUids = scanEquippedUids()
     
     -- 3. Lọc pet có thể bán
+    -- ⭐ v16.1: CHỈ bán pet CÓ trong incomeCache
     local toSell = {}
+    local skipped = 0
     for _, pet in ipairs(backpackPets) do
         -- KHÔNG bán pet đang equip
         if not equippedUids[pet.uid] then
-            local income = incomeCache[pet.uid] or 0
+            local income = incomeCache[pet.uid]
             
-            -- Bán nếu: income < ngưỡng (kể cả 0 nếu bật config)
-            if income == 0 and config.SELL_INCLUDE_ZERO then
-                table.insert(toSell, { pet = pet, income = income })
-            elseif income > 0 and income < config.SELL_THRESHOLD then
-                table.insert(toSell, { pet = pet, income = income })
+            if income == nil then
+                -- ⭐ Không có trong cache → SKIP (an toàn, không bán)
+                skipped = skipped + 1
+            else
+                -- Có income trong cache → check ngưỡng
+                if income < config.SELL_THRESHOLD then
+                    table.insert(toSell, { pet = pet, income = income })
+                end
             end
         end
     end
     
+    if skipped > 0 then
+        log(string.format("  ⏭ Bỏ qua %d pet — chưa có trong snapshot", skipped))
+    end
+    
     if #toSell == 0 then
-        log(string.format("ℹ Không pet nào < %s", fmtMoney(config.SELL_THRESHOLD)))
+        log(string.format("ℹ Không pet nào < %s (đã check %d pet)", 
+            fmtMoney(config.SELL_THRESHOLD), #backpackPets - skipped))
         return 0
     end
     
@@ -235,7 +255,7 @@ local function runAutoSell()
     local soldCount = 0
     for i, item in ipairs(toSell) do
         local pet = item.pet
-        local incomeStr = item.income > 0 and fmtMoney(item.income) .. "/s" or "no-inc"
+        local incomeStr = fmtMoney(item.income) .. "/s"
         
         local success = pcall(function() return remotes.askSale:InvokeServer(pet.uid) end)
         
@@ -244,7 +264,8 @@ local function runAutoSell()
             log(string.format("  [%d/%d] ✅ %s (%s)", 
                 i, #toSell, pet.name:sub(1, 30), incomeStr))
         else
-            log(string.format("  [%d/%d] ❌ %s", i, #toSell, pet.name:sub(1, 30)))
+            log(string.format("  [%d/%d] ❌ %s (%s)", 
+                i, #toSell, pet.name:sub(1, 30), incomeStr))
         end
         
         task.wait(config.SELL_DELAY)
@@ -258,12 +279,14 @@ end
 -- ══════════ MAIN LOOP ══════════
 local function mainLoop()
     log("═══════════════════════════")
-    log("🚀 PET TOOL STARTED")
+    log("🚀 PET TOOL STARTED (v16.1)")
     log(string.format("   Auto Sell: %s (ngưỡng %s)", 
         config.AUTO_SELL_ENABLED and "ON" or "OFF",
         fmtMoney(config.SELL_THRESHOLD)))
     log(string.format("   Auto Equip: %s", 
         config.AUTO_EQUIP_ENABLED and "ON" or "OFF"))
+    log(string.format("   Include zero: %s", 
+        config.SELL_INCLUDE_ZERO and "ON" or "OFF"))
     log("═══════════════════════════")
     
     while isRunning do
@@ -272,7 +295,6 @@ local function mainLoop()
         
         -- ⭐⭐⭐ ƯU TIÊN 1: AUTO EQUIP BEST (nếu bật)
         if config.AUTO_EQUIP_ENABLED then
-            -- Chỉ chạy nếu đã qua interval
             if os.clock() - lastEquipTime >= config.EQUIP_INTERVAL 
                 or config.EQUIP_ON_START then
                 runAutoEquip()
@@ -306,6 +328,10 @@ end
 -- Start/Stop
 function M.start()
     if isRunning then return end
+    if not remotes.askSnapshot then
+        log("❌ Không tìm thấy remote (AskLiveSnapshot) — không start được")
+        return
+    end
     isRunning = true
     config.EQUIP_ON_START = true
     lastEquipTime = 0
@@ -339,7 +365,7 @@ end
 function M.setAutoEquip(enabled)
     config.AUTO_EQUIP_ENABLED = enabled and true or false
     if enabled then
-        config.EQUIP_ON_START = true  -- Chạy ngay
+        config.EQUIP_ON_START = true
     end
     log(string.format("🎽 Auto Equip: %s", enabled and "BẬT" or "TẮT"))
     return config.AUTO_EQUIP_ENABLED
@@ -355,7 +381,7 @@ end
 
 -- Set threshold
 function M.setSellThreshold(value)
-    config.SELL_THRESHOLD = tonumber(value) or 1000000
+    config.SELL_THRESHOLD = tonumber(value) or 10000000
     log(string.format("💰 Ngưỡng bán: %s", fmtMoney(config.SELL_THRESHOLD)))
 end
 
@@ -406,6 +432,16 @@ function M.scanInfo()
         
         log(string.format("📊 Backpack: %d pet | Equip: %d pet", 
             #backpackPets, eqCount))
+        
+        -- Debug: hiện 5 pet đầu + income
+        for i = 1, math.min(5, #backpackPets) do
+            local pet = backpackPets[i]
+            local income = incomeCache[pet.uid]
+            local incomeStr = income and fmtMoney(income) .. "/s" or "?"
+            local eqStr = equippedUids[pet.uid] and " [EQUIP]" or ""
+            log(string.format("  [%d] %s — %s%s", 
+                i, pet.name:sub(1, 30), incomeStr, eqStr))
+        end
     end)
 end
 
@@ -436,15 +472,6 @@ function M.getConfig()
     return config
 end
 
--- ══════════ PRIORITY LOGIC ══════════
--- Khi bật cả 2:
---   1. Auto Equip chạy TRƯỚC (swap pet yếu ra backpack)
---   2. Auto Sell chạy SAU (bán pet yếu đã bị swap)
---
--- Lý do:
---   - Nếu Sell chạy trước → có thể bán pet yếu nhưng vẫn còn slot
---   - Equip trước → swap pet yếu → Sell sau → bán pet yếu chuẩn hơn
-
 -- ══════════ UTILITY ══════════
 function M.setLoopDelay(seconds)
     config.LOOP_DELAY = tonumber(seconds) or 1.0
@@ -452,6 +479,11 @@ end
 
 function M.setSellDelay(seconds)
     config.SELL_DELAY = tonumber(seconds) or 0.3
+end
+
+function M.setEquipSyncWait(seconds)
+    config.EQUIP_SYNC_WAIT = tonumber(seconds) or 1.0
+    log(string.format("⏱ Equip sync wait: %.1fs", config.EQUIP_SYNC_WAIT))
 end
 
 function M.clearCache()
