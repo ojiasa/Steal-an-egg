@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v9.7 — Fix stuck sau recovery
+-- STEAL MODULE v9.8 — Detect carry egg + tắt nhanh
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -43,6 +43,7 @@ local config = {
     RECOVERY_WAIT       = 0.3,
 
     FOREST_RADIUS       = 300,
+    CARRY_WAIT_MAX      = 5,      -- ⭐ Chờ tối đa 5s để drop carry egg
 
     SPEED          = 1500,
     SPEED_CAP      = 500,
@@ -68,6 +69,7 @@ local cycleStartTime    = 0
 local lastClearTime     = 0
 local lastMoveCheck     = 0
 local lastMovePos       = nil
+local carryingEggFlag   = false
 
 local function log(s)
     for _, cb in ipairs(logCallbacks) do pcall(cb, s) end
@@ -135,16 +137,6 @@ local function forceTeleHome()
     end) end
 end
 
--- ⭐ v9.7: Chỉ log, KHÔNG tạo Humanoid mới (tránh gây stuck)
-local function checkHumanoid()
-    local c = P.Character
-    if not c then return end
-    local hum = c:FindFirstChildOfClass("Humanoid")
-    if not hum then
-        warn("[Steal] ⚠ Humanoid mất — cần respawn")
-    end
-end
-
 -- ══════════ INCOME MODULES ══════════
 local AssetEarnings, EggState
 local incomeCache = {}
@@ -163,6 +155,24 @@ pcall(function()
         if mod then EggState = require(mod) end
     end
 end)
+
+-- ⭐ v9.8: Check player đang carry egg không
+local function isCarryingEgg()
+    if not EggState then return false, nil end
+    local ok, fd = pcall(EggState.ReadFieldEggs)
+    if not ok or type(fd) ~= "table" or type(fd.Records) ~= "table" then
+        return false, nil
+    end
+    for uid, eggData in pairs(fd.Records) do
+        local state = tostring(eggData.State or ""):lower()
+        if state:find("carry", 1, true) 
+            or state:find("hold", 1, true)
+            or state:find("pickup", 1, true) then
+            return true, eggData
+        end
+    end
+    return false, nil
+end
 
 local function getEggInfoAtPos(eggPos, radius)
     radius = radius or 30
@@ -831,6 +841,9 @@ local function velocityFlyTo(targetPos, timeout, speed)
 
     local t0 = os.clock()
     while os.clock() - t0 < timeout do
+        -- ⭐ v9.8: Check tắt ngay
+        if not isRunning then return false end
+        
         hum, hrp = getHum(), getHRP()
         if not hum or not hrp then break end
         keepHealth()
@@ -854,7 +867,6 @@ local function velocityFlyTo(targetPos, timeout, speed)
     return false
 end
 
--- ⭐⭐⭐ v9.7: goHomeWithRecovery — KHÔNG can thiệp humanoid
 local function goHomeWithRecovery()
     log("🏃 BAY VỀ HOME (Y=100)")
     local startTime = os.clock()
@@ -869,6 +881,12 @@ local function goHomeWithRecovery()
 
     local t1 = os.clock()
     while os.clock() - t1 < 40 do
+        -- ⭐ v9.8: Check tắt ngay
+        if not isRunning then
+            log("⏸ STOP trong goHomeWithRecovery")
+            return false
+        end
+        
         if os.clock() - startTime > 60 then
             log("🚨 HOME TIMEOUT 60s → FORCE TELE")
             forceTeleHome()
@@ -944,7 +962,6 @@ local function goHomeWithRecovery()
                 if nearestPrompt and nearestPos then
                     log(string.format("🎯 Egg rớt cách lastTargetPos %.0f studs → CHẠY LẠI", nearestDist))
 
-                    -- ⭐ Bay bằng velocity (không teleToMap để tránh replaceHumanoid)
                     velocityFlyTo(nearestPos, 20, config.SPEED_CAP)
                     task.wait(0.2)
 
@@ -971,7 +988,6 @@ local function goHomeWithRecovery()
 
                     lastTargetPos = nearestPos
 
-                    -- ⭐ RESET state
                     lastHealth = nil
                     recoveryAttempts = 0
                     t1 = os.clock()
@@ -1071,6 +1087,7 @@ local function baitBoss(timeout)
     return false
 end
 
+-- ⭐⭐⭐ v9.8: stealAtPos với detect carry egg
 local function stealAtPos(targetPos, label, expectedIncome)
     log("═══════")
     log("STEAL TẠI " .. label)
@@ -1102,6 +1119,26 @@ local function stealAtPos(targetPos, label, expectedIncome)
         end
     end
 
+    -- ⭐ v9.8: Check đang carry egg → chờ
+    local carrying, carryData = isCarryingEgg()
+    if carrying then
+        log(string.format("⚠ Đang carry egg cũ (%s) → chờ drop", 
+            carryData and carryData.AssetCategory or "?"))
+        local waitStart = os.clock()
+        while os.clock() - waitStart < config.CARRY_WAIT_MAX do
+            if not isRunning then return false end
+            task.wait(0.3)
+            local stillCarrying = isCarryingEgg()
+            if not stillCarrying then
+                log(string.format("✅ Đã drop sau %.1fs", os.clock() - waitStart))
+                break
+            end
+        end
+        if isCarryingEgg() then
+            log("⚠ Vẫn đang carry sau " .. config.CARRY_WAIT_MAX .. "s → tiếp tục thử steal")
+        end
+    end
+
     local prompt = findPromptSteal(targetPos, 150)
     if not prompt then log("⚠ Không có prompt"); return false end
 
@@ -1124,6 +1161,21 @@ local function stealAtPos(targetPos, label, expectedIncome)
             log("✅ ĐÃ STEAL")
             return true
         end
+        
+        -- ⭐ v9.8: Fire 3 lần mà vẫn carry → chờ 1.5s
+        if i == 3 then
+            local stillCarrying = isCarryingEgg()
+            if stillCarrying then
+                log("🚨 Fire 3 lần vẫn carry → chờ 1.5s để server drop")
+                task.wait(1.5)
+                local stolenAfter, slotAfter = hasStolenSlot(slotsBefore)
+                if stolenAfter then
+                    log("🎒 SLOT MẤT sau chờ: " .. slotAfter)
+                    log("✅ ĐÃ STEAL")
+                    return true
+                end
+            end
+        end
     end
     log("⚠ Fire " .. config.MAX_FIRES .. " lần không giảm slot")
     return false
@@ -1140,7 +1192,6 @@ local function checkEggReset()
     return false
 end
 
--- ⭐ v9.7: Watchdog đơn giản — KHÔNG gọi checkHumanoid
 local function startWatchdog()
     task.spawn(function()
         lastMoveCheck = os.clock()
@@ -1371,7 +1422,8 @@ local function mainLoop()
                                 if deliveryFailed then
                                     consecutiveFails = consecutiveFails + 1
                                     log(string.format("❌ Delivery fail — RETRY (fails: %d)", consecutiveFails))
-                                    task.wait(0.5)
+                                    log("⏳ Chờ 1s để drop egg cũ")
+                                    task.wait(1)
                                 else
                                     log("🎉 THÀNH CÔNG")
                                     success = true
@@ -1434,7 +1486,13 @@ task.spawn(function()
                 or msg:find("egg was returned", 1, true)
             then
                 deliveryFailed = true
+                carryingEggFlag = false
                 log("❌ Chat: Delivery failed")
+            elseif msg:find("already carrying", 1, true)
+                or msg:find("carry denied", 1, true)
+            then
+                carryingEggFlag = true
+                log("⚠ Chat: Already carrying an egg!")
             end
         end)
     end)
@@ -1454,7 +1512,7 @@ function M.start()
     cycleStartTime = 0
     lastClearTime = os.clock()
     isRunning = true
-    log("▶ START v9.7 — " .. #config.TARGETS .. " map(s)")
+    log("▶ START v9.8 — " .. #config.TARGETS .. " map(s)")
     startWatchdog()
     task.spawn(mainLoop)
 end
