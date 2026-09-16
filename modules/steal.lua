@@ -1,7 +1,8 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v10.1
+-- STEAL MODULE v10.2
 -- Flow: Home → Forest (velocity) → Bait boss → Knockback → TELE tới egg
 --       → Steal → Về home → Check egg còn trên map?
+-- v10.2: Thêm Dual Mode (Income + Big Egg), fix mainLoop, fix toggles
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -37,6 +38,10 @@ local config = {
     PRIORITY_THRESHOLD = 1000000,
     BIG_EGG_MODE       = false,
 
+    -- ⭐ v10.2: Dual mode
+    DUAL_MIN_INCOME = 30000000,
+    DUAL_MIN_SIZE   = 4.0,
+
     HOME_FLY_ABSOLUTE_Y = 100,
     FLY_HOME_SPEED      = 500,
     DROP_SPEED          = 250,
@@ -48,9 +53,6 @@ local config = {
 
     BAIT_TIMEOUT   = 15,
     KB_HEALTH_DROP = 0.1,
-
-    DUAL_MIN_INCOME = 30000000,   -- $30M/s (khi bật cả 2)
-    DUAL_MIN_SIZE   = 4.0,        -- size >= 4.0
 
     SPEED          = 1500,
     SPEED_CAP      = 500,
@@ -267,7 +269,22 @@ local function isCarryingEgg()
     return false
 end
 
--- ⭐⭐⭐ v10.1: Check egg còn trên map không
+-- ⭐ v10.2: Check carry egg chặt hơn (chỉ EggState)
+local function isCarryingEggStrict()
+    if not EggState then return false end
+    local ok, fd = pcall(EggState.ReadFieldEggs)
+    if not ok or type(fd) ~= "table" or type(fd.Records) ~= "table" then
+        return false
+    end
+    for _, eggData in pairs(fd.Records) do
+        local state = tostring(eggData.State or ""):lower()
+        if state == "carried" or state == "carry" or state == "carrying" then
+            return true
+        end
+    end
+    return false
+end
+
 local function isEggStillOnMap(uid, originalPos)
     if not uid then return false, "no-uid" end
 
@@ -432,9 +449,9 @@ local function findBiggestEgg()
 end
 
 local function findHighestIncomeEgg()
-    if not EggState or not AssetEarnings then return nil, nil, nil, nil end
+    if not EggState or not AssetEarnings then return nil, nil, nil, nil, nil end
     local ok, fd = pcall(EggState.ReadFieldEggs)
-    if not ok or type(fd) ~= "table" or type(fd.Records) ~= "table" then return nil, nil, nil, nil end
+    if not ok or type(fd) ~= "table" or type(fd.Records) ~= "table" then return nil, nil, nil, nil, nil end
     local candidates = {}
     local threshold = config.PRIORITY_THRESHOLD or 0
     for uid, eggData in pairs(fd.Records) do
@@ -471,7 +488,7 @@ local function findHighestIncomeEgg()
             end
         end
     end
-    if #candidates == 0 then return nil, nil, nil, nil end
+    if #candidates == 0 then return nil, nil, nil, nil, nil end
     table.sort(candidates, function(a, b) return a.income > b.income end)
     for i = 1, #candidates do
         local c = candidates[i]
@@ -503,7 +520,7 @@ end
 
 local function findEggInTargets()
     local hrp = getHRP()
-    if not hrp then return nil, nil, nil, nil end
+    if not hrp then return nil, nil, nil, nil, nil end
     local candidates = {}
     for _, v in ipairs(W:GetDescendants()) do
         if v:IsA("ProximityPrompt") and v.Enabled and not stolenPrompts[v] then
@@ -935,7 +952,7 @@ local function baitBoss(timeout)
     return false
 end
 
--- ⭐⭐⭐ v10.1: stealAtPos — KHÔNG đánh dấu uid ngay
+-- ⭐⭐⭐ v10.2: stealAtPos — KHÔNG check carry đầu hàm
 local function stealAtPos(targetPos, label, eggUid)
     log("═══════")
     log("STEAL TẠI " .. label)
@@ -947,6 +964,15 @@ local function stealAtPos(targetPos, label, eggUid)
     local d = dist(hrp.Position, targetPos)
     if d > config.ARRIVE_DIST and d < config.MAP_RADIUS then
         velocityMoveTo(targetPos, 10)
+    end
+
+    -- ⭐ v10.2: Sau khi tới gần mới check carry (dùng EggState strict)
+    local hrp2 = getHRP()
+    if hrp2 and dist(hrp2.Position, targetPos) < 50 then
+        if isCarryingEggStrict() then
+            log("⚠ Đã carry egg (EggState verified)")
+            return true
+        end
     end
 
     local slotsBefore, countBefore = getSlotSet()
@@ -984,16 +1010,14 @@ local function stealAtPos(targetPos, label, eggUid)
             task.wait(0.15)
             local s, sn = hasStolenSlot(slotsBefore)
             if s then stolen = true; stolenName = sn; break end
-            if isCarryingEgg() then
+            if isCarryingEggStrict() then
                 task.wait(0.2)
-                if isCarryingEgg() then stolen = true; stolenName = "carry"; break end
+                if isCarryingEggStrict() then stolen = true; stolenName = "carry"; break end
             end
         end
 
         if stolen then
             log(string.format("✅ ĐÃ STEAL (fire %d, %s)", i, stolenName))
-            -- ⭐ v10.1: Lưu uid/pos để check sau khi về home
-            -- KHÔNG đánh dấu stolenEggUids ở đây
             if eggUid then
                 lastStolenUid = eggUid
             end
@@ -1047,7 +1071,7 @@ local function stealAtForest()
     end
 
     task.wait(1)
-    if isCarryingEgg() then
+    if isCarryingEggStrict() then
         log("🎒 Forest OK (carry verify)")
         stolenPrompts[prompt] = true
         return true
@@ -1057,17 +1081,17 @@ local function stealAtForest()
     return false
 end
 
+-- ⭐⭐⭐ v10.2: DUAL MODE + pickNextEgg
 local function pickNextEgg()
-    -- ⭐⭐⭐ v10.2: DUAL MODE (cả 2 cùng bật)
+    -- DUAL MODE: cả 2 cùng bật
     if config.PRIORITY_INCOME and config.BIG_EGG_MODE then
         log("🎯🎯 DUAL MODE: Ưu tiên Income đạt ngưỡng, fallback Big Egg")
-        
+
         local minIncome = config.DUAL_MIN_INCOME or 30000000
         local minSize = config.DUAL_MIN_SIZE or 4.0
         log(string.format("   Điều kiện: income >= $%.0fM/s VÀ size >= %.1f",
             minIncome / 1e6, minSize))
-        
-        -- Thử tìm egg income đạt ngưỡng + size đủ to
+
         if not EggState or not AssetEarnings then
             log("   ⚠ EggState/AssetEarnings nil → fallback big egg")
         else
@@ -1091,8 +1115,7 @@ local function pickNextEgg()
                                         ok2, val = pcall(AssetEarnings.RatePerSecond, input)
                                         if ok2 and type(val) == "number" and val > 0 then income = val end
                                     end
-                                    
-                                    -- ⭐ Check cả income VÀ size
+
                                     if income >= minIncome then
                                         local bs = eggData.BoundsSize
                                         local size = bs and ((bs.X + bs.Y + bs.Z) / 3) or 0
@@ -1118,12 +1141,11 @@ local function pickNextEgg()
                         end
                     end
                 end
-                
+
                 if best then
                     log(string.format("✅ DUAL: %s @ %s = $%.2fM/s, size %.2f",
                         best.category, best.map.name, best.income / 1e6, best.size))
-                    
-                    -- Tìm prompt
+
                     local prompt = nil
                     local bestDist = 20
                     for _, v in ipairs(W:GetDescendants()) do
@@ -1140,7 +1162,7 @@ local function pickNextEgg()
                             end
                         end
                     end
-                    
+
                     if verifyEggExists(best.pos, config.EGG_VERIFY_R or 40) then
                         return prompt, best.pos, best.income, best.map, best.uid
                     else
@@ -1153,13 +1175,12 @@ local function pickNextEgg()
                 end
             end
         end
-        
-        -- Fallback: steal big egg
+
         log("🥚 Fallback: BIG EGG (egg to nhất)")
         return findBiggestEgg()
     end
-    
-    -- Normal single mode
+
+    -- Single mode
     if config.BIG_EGG_MODE then
         log("🥚 Mode: BIG EGG")
         return findBiggestEgg()
@@ -1169,6 +1190,95 @@ local function pickNextEgg()
     else
         log("🎯 Mode: TARGETS")
         return findEggInTargets()
+    end
+end
+
+-- ⭐⭐⭐ v10.2: MAIN LOOP (THÊM LẠI)
+local function mainLoop()
+    while isRunning do
+        log("═══════════════════════════════")
+        log("🔄 CYCLE MỚI (từ Home)")
+
+        local okForest = runToForest()
+        if not okForest then
+            log("❌ Không tới Forest → chờ 2s")
+            task.wait(2)
+        else
+            local forestOk = stealAtForest()
+            if not forestOk then
+                log("⚠ Forest fail → về home, cycle mới")
+                goHome()
+                task.wait(config.WAIT_BETWEEN)
+            else
+                local gotKB = baitBoss(config.BAIT_TIMEOUT)
+
+                if not gotKB then
+                    log("⚠ Không bị knockback → về home, cycle mới")
+                    goHome()
+                    task.wait(config.WAIT_BETWEEN)
+                else
+                    local eggPrompt, eggPos, eggData, eggMap, eggUid = pickNextEgg()
+
+                    if not eggPos then
+                        log("⚠ Không có egg → về home")
+                        goHome()
+                        task.wait(config.WAIT_BETWEEN)
+                    else
+                        log(string.format("🎯 Egg: %s @ %s",
+                            eggMap and eggMap.name or "?", tostring(eggUid)))
+
+                        local targetPos = eggPos + Vector3.new(0, 3, 0)
+                        log("📍 TELE tới egg (chỉ sau knockback)")
+                        teleToMap(targetPos)
+                        task.wait(0.6)
+
+                        local stolen = stealAtPos(eggPos, eggMap.name, eggUid)
+
+                        if stolen then
+                            log("✅ Steal OK → về home thả")
+                            deliveryFailed = false
+
+                            goHome()
+                            task.wait(config.CHAT_WAIT)
+
+                            -- Check egg còn trên map không
+                            if lastStolenUid then
+                                log("🔍 Check egg có còn trên map không...")
+                                local stillOnMap, reason = isEggStillOnMap(lastStolenUid, lastStolenPos)
+
+                                if stillOnMap then
+                                    log("🔄 Egg CÒN trên map (về tổ/rớt) → KHÔNG đánh dấu")
+                                    log("   → Lần sau có thể steal lại egg này")
+                                else
+                                    log("✅ Egg KHÔNG còn trên map → đánh dấu đã steal")
+                                    stolenEggUids[lastStolenUid] = true
+                                end
+
+                                lastStolenUid = nil
+                                lastStolenPos = nil
+                            else
+                                log("ℹ Không có uid (mode targets) → không đánh dấu")
+                            end
+
+                            if deliveryFailed then
+                                log("❌ Delivery FAIL (chat)")
+                                deliveryFailed = false
+                            else
+                                log("🎉 CYCLE XONG")
+                            end
+                        else
+                            log("⚠ Steal FAIL → về home, cycle mới")
+                            goHome()
+                        end
+
+                        task.wait(config.WAIT_BETWEEN)
+                    end
+                end
+            end
+        end
+
+        if not isRunning then break end
+        task.wait(0.5)
     end
 end
 
@@ -1186,7 +1296,8 @@ end
 
 task.spawn(function()
     pcall(function()
-        local chatEvents = RS:WaitForChild("DefaultChatSystemChatEvents", 5)
+        local chatEvents = RS:WaitForChild("DefaultSystemChatEvents", 5)
+            or RS:WaitForChild("DefaultChatSystemChatEvents", 5)
         if not chatEvents then return end
         local onMsg = chatEvents:WaitForChild("OnMessageDoneFiltering", 5)
         if not onMsg then return end
@@ -1215,9 +1326,12 @@ function M.start()
     lastStolenUid = nil
     lastStolenPos = nil
     isRunning = true
-    log("▶ START v10.1")
+    log("▶ START v10.2")
     log(string.format("   Home: %.2f,%.2f,%.2f", config.HOME_POS.X, config.HOME_POS.Y, config.HOME_POS.Z))
     log(string.format("   Forest run speed: %d", config.FOREST_RUN_SPEED))
+    log(string.format("   Big Egg: %s | Priority Income: %s",
+        config.BIG_EGG_MODE and "ON" or "OFF",
+        config.PRIORITY_INCOME and "ON" or "OFF"))
     task.spawn(mainLoop)
 end
 
@@ -1233,24 +1347,25 @@ function M.setTarget(name, pos)
     config.TARGETS = { { name = name, pos = pos } }
 end
 
+-- ⭐ v10.2: setPriorityIncome KHÔNG tắt Big Egg
 function M.setPriorityIncome(enabled)
     config.PRIORITY_INCOME = enabled and true or false
-    if enabled then config.BIG_EGG_MODE = false end
-    log("💰 Priority Income: " .. (enabled and "BẬT" or "TẮT"))
+    log("💰 Priority Income: " .. (config.PRIORITY_INCOME and "BẬT" or "TẮT"))
+    log("   Big Egg: " .. (config.BIG_EGG_MODE and "BẬT" or "TẮT"))
     return config.PRIORITY_INCOME
+end
+
+-- ⭐ v10.2: setBigEggMode KHÔNG tắt Priority Income
+function M.setBigEggMode(enabled)
+    config.BIG_EGG_MODE = enabled and true or false
+    log("🥚 Big Egg mode: " .. (config.BIG_EGG_MODE and "BẬT" or "TẮT"))
+    log("   Priority Income: " .. (config.PRIORITY_INCOME and "BẬT" or "TẮT"))
+    return config.BIG_EGG_MODE
 end
 
 function M.setPriorityThreshold(amount)
     config.PRIORITY_THRESHOLD = amount or 1000000
     log("💰 Threshold: $" .. (config.PRIORITY_THRESHOLD / 1e6) .. "M/s")
-end
-
-function M.setPriorityIncome(enabled)
-    config.PRIORITY_INCOME = enabled and true or false
-    -- ❌ BỎ dòng: if enabled then config.BIG_EGG_MODE = false end
-    log("💰 Priority Income: " .. (config.PRIORITY_INCOME and "BẬT" or "TẮT"))
-    log("   Big Egg: " .. (config.BIG_EGG_MODE and "BẬT" or "TẮT"))
-    return config.PRIORITY_INCOME
 end
 
 function M.setHome(p)
@@ -1277,19 +1392,21 @@ function M.isCarrying() return isCarryingEgg() end
 function M.clearStolenUids() stolenEggUids = {}; log("🔄 Clear UIDs") end
 function M.isEggStillOnMap(uid, pos) return isEggStillOnMap(uid, pos) end
 
--- ⭐⭐⭐ v10.1.1: Bổ sung API còn thiếu cho UI tương thích ⭐⭐⭐
+-- ⭐⭐⭐ API cho UI ⭐⭐⭐
 function M.isPriorityIncome() return config.PRIORITY_INCOME end
+
 function M.togglePriorityIncome()
     config.PRIORITY_INCOME = not config.PRIORITY_INCOME
-    if config.PRIORITY_INCOME then config.BIG_EGG_MODE = false end
     log("💰 Priority Income: " .. (config.PRIORITY_INCOME and "BẬT" or "TẮT"))
+    log("   Big Egg: " .. (config.BIG_EGG_MODE and "BẬT" or "TẮT"))
     return config.PRIORITY_INCOME
 end
 
 function M.isBigEggMode() return config.BIG_EGG_MODE end
-function M.setBigEggMode(enabled)
-    config.BIG_EGG_MODE = enabled and true or false
-    -- ❌ BỎ dòng: if enabled then config.PRIORITY_INCOME = false end
+
+-- ⭐ v10.2: THÊM LẠI toggleBigEggMode
+function M.toggleBigEggMode()
+    config.BIG_EGG_MODE = not config.BIG_EGG_MODE
     log("🥚 Big Egg mode: " .. (config.BIG_EGG_MODE and "BẬT" or "TẮT"))
     log("   Priority Income: " .. (config.PRIORITY_INCOME and "BẬT" or "TẮT"))
     return config.BIG_EGG_MODE
@@ -1309,11 +1426,11 @@ function M.setFlyHomeSpeed(n)
 end
 
 function M.setRecoveryRadius(n)
-    log("📍 Recovery radius không dùng trong v10.1 (không chase egg)")
+    log("📍 Recovery radius không dùng trong v10.2 (không chase egg)")
 end
 
 function M.setMaxRecovery(n)
-    log("📍 Max recovery không dùng trong v10.1 (không chase egg)")
+    log("📍 Max recovery không dùng trong v10.2 (không chase egg)")
 end
 
 function M.setHomeTimeout(n)
@@ -1332,7 +1449,7 @@ function M.setSlowSpeed(n)
 end
 
 function M.setWarmupTime(n)
-    log("⏱ Warmup time: " .. (n or 3) .. "s (không dùng trong v10.1)")
+    log("⏱ Warmup time: " .. (n or 3) .. "s (không dùng trong v10.2)")
 end
 
 function M.setChatWait(n)
@@ -1346,11 +1463,11 @@ function M.setCycleWait(n)
 end
 
 function M.setMaxEggsPerCycle(n)
-    log("📊 Max eggs/cycle không dùng trong v10.1 (1 egg/cycle)")
+    log("📊 Max eggs/cycle không dùng trong v10.2 (1 egg/cycle)")
 end
 
 function M.setTeleToForest(enabled)
-    log("ℹ Tele to Forest không dùng trong v10.1 (luôn chạy bộ)")
+    log("ℹ Tele to Forest không dùng trong v10.2 (luôn chạy bộ)")
 end
 
 function M.setMaxRetry(n)
@@ -1358,6 +1475,7 @@ function M.setMaxRetry(n)
     log("🔄 Max retry: " .. config.MAX_RETRY)
 end
 
+-- ⭐ v10.2: Dual mode API
 function M.setDualMinIncome(n)
     config.DUAL_MIN_INCOME = n or 30000000
     log(string.format("💰 Dual min income: $%.0fM/s", config.DUAL_MIN_INCOME / 1e6))
@@ -1409,6 +1527,9 @@ function M.getStatus()
         bigEggMode = config.BIG_EGG_MODE,
         priorityIncome = config.PRIORITY_INCOME,
         priorityThreshold = config.PRIORITY_THRESHOLD,
+        dualMode = config.PRIORITY_INCOME and config.BIG_EGG_MODE,
+        dualMinIncome = config.DUAL_MIN_INCOME,
+        dualMinSize = config.DUAL_MIN_SIZE,
         targets = config.TARGETS,
         stolenCount = M.getStolenCount(),
         lastStolenUid = lastStolenUid,
