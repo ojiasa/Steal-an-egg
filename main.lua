@@ -1,6 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- MAIN.lua v3.4 — Full Code
--- Resize mượt + Hover effect + Sell Manager + Pet Tab
+-- MAIN.lua v3.5 — Fix resize mobile + Chữ xám-viền đen + 580x380
 -- ═══════════════════════════════════════════════════════════════
 
 local BACKGROUND_ID = (Config and Config.BackgroundImageId) or "rbxassetid://116222439691339"
@@ -79,7 +78,7 @@ _G.StealEgg = {
     SM_ScanInfo = function() if SellManager then SellManager.scanInfo() end end,
     SM_OnLog = function(cb) if SellManager then SellManager.onLog(cb) end end,
 
-    Version = "3.4.0",
+    Version = "3.5.0",
 }
 local API = _G.StealEgg
 _G.MyScript = API
@@ -97,7 +96,7 @@ local function getParent()
 end
 local PARENT = getParent()
 
--- ══════════ COLORS ══════════
+-- ══════════ COLORS — KIỂU 1 (Chữ xám - Viền đen) ══════════
 local COLORS = {
     bg          = Color3.fromRGB(215, 220, 228),
     card        = Color3.fromRGB(255, 255, 255),
@@ -106,9 +105,10 @@ local COLORS = {
     activeBtn   = Color3.fromRGB(120, 125, 135),
     activeText  = Color3.fromRGB(255, 255, 255),
     
-    textBold    = Color3.fromRGB(240, 240, 245),
+    -- ⭐ KIỂU 1: Chữ xám sáng + Viền đen đậm
+    textBold    = Color3.fromRGB(209, 213, 219),   -- #D1D5DB xám sáng
     textDim     = Color3.fromRGB(180, 185, 195),
-    textShadow  = Color3.fromRGB(0, 0, 0),
+    textShadow  = Color3.fromRGB(0, 0, 0),          -- Đen thuần
     
     toggleOn    = Color3.fromRGB(70, 75, 85),
     toggleOff   = Color3.fromRGB(195, 200, 210),
@@ -117,7 +117,7 @@ local COLORS = {
     gray        = Color3.fromRGB(140, 145, 155),
 }
 
-local TEXT_STROKE_TRANSPARENCY = 0.5
+local TEXT_STROKE_TRANSPARENCY = 0     -- ⭐ Viền đen đậm
 local TEXT_STROKE_COLOR = Color3.fromRGB(0, 0, 0)
 
 local ALL_MAPS = {
@@ -155,9 +155,12 @@ local istk = Instance.new("UIStroke", icon)
 istk.Color = COLORS.cardBorder
 istk.Thickness = 2
 
--- ══════════ PANEL ══════════
+-- ══════════ PANEL — 580 x 380 ══════════
+local PANEL_WIDTH = 580
+local PANEL_HEIGHT = 380
+
 local panel = Instance.new("Frame")
-panel.Size = UDim2.new(0, 540, 0, 420)
+panel.Size = UDim2.new(0, PANEL_WIDTH, 0, PANEL_HEIGHT)
 panel.Position = UDim2.new(0.5, 0, 0.5, 0)
 panel.AnchorPoint = Vector2.new(0.5, 0.5)
 panel.BackgroundColor3 = COLORS.bg
@@ -560,7 +563,6 @@ pages.pet = pagePet
 local petLayout = Instance.new("UIListLayout", pagePet)
 petLayout.Padding = UDim.new(0, 8)
 
--- Header Pet
 local petHeader = Instance.new("TextLabel", pagePet)
 petHeader.Size = UDim2.new(1, -4, 0, 26)
 petHeader.BackgroundTransparency = 1
@@ -573,7 +575,6 @@ petHeader.TextStrokeColor3 = TEXT_STROKE_COLOR
 petHeader.TextXAlignment = Enum.TextXAlignment.Left
 petHeader.LayoutOrder = 1
 
--- Auto Sell Pet
 local autoSellToggle = createToggleRow(pagePet, "Auto Sell Pet (value m)", API.SM_IsAutoSell(), true, function(state)
     API.SM_SetAutoSell(state)
     if state and not API.SM_IsRunning() then
@@ -584,7 +585,6 @@ end, function(value)
 end, "1")
 autoSellToggle.LayoutOrder = 2
 
--- Auto Equip Best Pet
 local autoEquipToggle = createToggleRow(pagePet, "Auto Equip Best Pet", API.SM_IsAutoEquip(), false, function(state)
     API.SM_SetAutoEquip(state)
     if state and not API.SM_IsRunning() then
@@ -593,7 +593,6 @@ local autoEquipToggle = createToggleRow(pagePet, "Auto Equip Best Pet", API.SM_I
 end, nil)
 autoEquipToggle.LayoutOrder = 3
 
--- RUN ONCE button
 local runOnceBtn = Instance.new("TextButton", pagePet)
 runOnceBtn.Size = UDim2.new(1, -4, 0, 34)
 runOnceBtn.BackgroundColor3 = COLORS.card
@@ -615,7 +614,6 @@ runOnceBtn.MouseButton1Click:Connect(function()
     API.SM_RunOnce()
 end)
 
--- SCAN INFO button
 local scanBtn = Instance.new("TextButton", pagePet)
 scanBtn.Size = UDim2.new(1, -4, 0, 34)
 scanBtn.BackgroundColor3 = COLORS.card
@@ -656,7 +654,7 @@ createToggleRow(pageESP, "ESP Egg", API.ESP_IsEnabled(), false, function(state)
 end, nil)
 
 -- ═══════════════════════════════════════════════════════════════
--- RESIZE BUTTON — Mượt + Hover effect
+-- RESIZE BUTTON — Fix mobile + Hover
 -- ═══════════════════════════════════════════════════════════════
 
 local resizeBtn = Instance.new("TextButton")
@@ -680,49 +678,76 @@ resizeBtn.ZIndex = 100
 resizeBtn.TextXAlignment = Enum.TextXAlignment.Center
 resizeBtn.TextYAlignment = Enum.TextYAlignment.Center
 
--- ══════════ RESIZE LOGIC ══════════
+-- ══════════ RESIZE LOGIC (FIX MOBILE) ══════════
 local isResizing = false
 local resizeStartPos
 local resizeStartSize
+local resizeInputType
 
 local MIN_WIDTH = 450
 local MIN_HEIGHT = 280
 
+local function getAbsolutePosition(guiObj)
+    return guiObj.AbsolutePosition
+end
+
+-- ⭐ Bắt đầu resize khi touch/mouse trên resizeBtn
+local function startResize(input)
+    isResizing = true
+    resizeInputType = input.UserInputType
+    resizeStartPos = input.Position
+    resizeStartSize = panel.AbsoluteSize
+    
+    -- ⭐ KHÔNG set panel.Draggable = false, dùng cách khác
+    -- Thay vào đó, track input để không cho panel kéo
+end
+
+-- ⭐ Xử lý InputBegan
 resizeBtn.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch then
-        
-        isResizing = true
-        resizeStartPos = input.Position
-        resizeStartSize = panel.AbsoluteSize
-        panel.Draggable = false
+        startResize(input)
     end
 end)
 
+-- ⭐ Bắt tại cấp UserInputService để override panel drag
 UserInputService.InputChanged:Connect(function(input)
     if not isResizing then return end
     
-    if input.UserInputType == Enum.UserInputType.MouseMovement
-        or input.UserInputType == Enum.UserInputType.Touch then
-        
-        local delta = input.Position - resizeStartPos
-        local newWidth = math.max(MIN_WIDTH, resizeStartSize.X + delta.X)
-        local newHeight = math.max(MIN_HEIGHT, resizeStartSize.Y + delta.Y)
-        
-        panel.Size = UDim2.new(0, newWidth, 0, newHeight)
+    -- ⭐ Chỉ xử lý nếu input khớp với loại ban đầu
+    if resizeInputType == Enum.UserInputType.Touch 
+        and input.UserInputType ~= Enum.UserInputType.Touch then
+        return
     end
+    if resizeInputType == Enum.UserInputType.MouseButton1
+        and input.UserInputType ~= Enum.UserInputType.MouseMovement then
+        return
+    end
+    
+    local delta = input.Position - resizeStartPos
+    local newWidth = math.max(MIN_WIDTH, resizeStartSize.X + delta.X)
+    local newHeight = math.max(MIN_HEIGHT, resizeStartSize.Y + delta.Y)
+    
+    panel.Size = UDim2.new(0, newWidth, 0, newHeight)
 end)
 
 UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch then
-        
         isResizing = false
-        panel.Draggable = true
+        resizeInputType = nil
     end
 end)
 
--- ══════════ HOVER EFFECT ══════════
+-- ⭐ Bắt TouchEnded (mobile)
+UserInputService.TouchEnded:Connect(function(input)
+    if isResizing then
+        isResizing = false
+        resizeInputType = nil
+    end
+end)
+
+-- ⭐ Hover effect
 resizeBtn.MouseEnter:Connect(function()
     TweenService:Create(resizeBtn, TweenInfo.new(0.15), {
         TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -750,7 +775,7 @@ icon.MouseButton1Click:Connect(function()
         panel.Size = UDim2.new(0, 100, 0, 60)
         panel.BackgroundTransparency = 1
         TweenService:Create(panel, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-            Size = UDim2.new(0, 540, 0, 420),
+            Size = UDim2.new(0, PANEL_WIDTH, 0, PANEL_HEIGHT),
             BackgroundTransparency = 0.85
         }):Play()
     end
@@ -761,5 +786,4 @@ if API.SM_OnLog then
     API.SM_OnLog(function(msg) print("[SellManager] " .. msg) end)
 end
 
-print("[Main] ✅ Ready v3.4 — Resize mượt + Hover")
-print("[Main] Tab: Main / Pet / ESP")
+print("[Main] ✅ Ready v3.5 — Fix resize mobile + Chữ kiểu 1 + 580x380")
