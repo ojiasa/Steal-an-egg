@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v10.2 — Fix knocked down + Force Running liên tục
+-- STEAL MODULE v10.3 — Fix egg bị player khác steal + prompt biến mất
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -147,7 +147,6 @@ local function forceTeleHome()
     end) end
 end
 
--- ⭐ v10.2: Force Running + off PlatformStand/Sit
 local function forceRunningState()
     local hum = getHum()
     if hum then pcall(function()
@@ -163,7 +162,6 @@ local function forceRunningState()
     end) end
 end
 
--- ⭐ v10.2: Force visible HRP ngay
 local function forceVisible()
     local c = P.Character
     if not c then return end
@@ -269,6 +267,7 @@ local function getEggInfoAtPos(eggPos, radius)
     return income, best.AssetScale or 1, best.BaseMutation, best.Uid or best.UID
 end
 
+-- ⭐ v10.3: Big egg với radius match lớn hơn
 local function findBiggestEgg()
     local hrp = getHRP()
     if not hrp then return nil, nil, nil, nil end
@@ -389,7 +388,8 @@ local function findBiggestEgg()
 
     local matchedPrompt, matchedPos, matchedCand = nil, nil, nil
     for _, cand in ipairs(candidates) do
-        local radius = math.max(30, cand.avgSize * 5)
+        -- ⭐ v10.3: Radius lớn hơn — min 80, scale * 10
+        local radius = math.max(80, cand.avgSize * 10)
         local bestP, bestD = nil, radius
         for _, p in ipairs(allPrompts) do
             local d = dist(p.pos, cand.pos)
@@ -401,8 +401,8 @@ local function findBiggestEgg()
             matchedPrompt = bestP
             matchedPos = cand.pos
             matchedCand = cand
-            log(string.format("✅ Match: %s @ %s (cách %.0f studs)",
-                cand.category, cand.map.name, bestD))
+            log(string.format("✅ Match: %s @ %s (cách %.0f studs, radius %.0f)",
+                cand.category, cand.map.name, bestD, radius))
             break
         else
             log(string.format("⚠ %s @ %s không có prompt trong %.0f studs → thử tiếp",
@@ -411,7 +411,8 @@ local function findBiggestEgg()
     end
 
     if not matchedPrompt then
-        log("❌ Không match được prompt nào → return nil")
+        log("❌ Không match được prompt nào → clear stolenPrompts + return nil")
+        stolenPrompts = {}  -- ⭐ v10.3: Clear để lần sau tìm lại
         return nil, nil, nil, nil
     end
 
@@ -501,7 +502,7 @@ local function findHighestIncomeEgg()
     local best = candidates[1]
 
     local bestPrompt = nil
-    local bestPromptDist = 20
+    local bestPromptDist = 200
     for _, v in ipairs(W:GetDescendants()) do
         if v:IsA("ProximityPrompt") and v.Enabled and not stolenPrompts[v] then
             local isEgg = v.Name == "CarryAreaEgg"
@@ -522,6 +523,7 @@ local function findHighestIncomeEgg()
 
     if not bestPrompt then
         log(string.format("⚠ Không tìm prompt cho %s", best.category))
+        stolenPrompts = {}
         return nil, nil, nil, nil
     end
 
@@ -773,7 +775,6 @@ local function teleToMap(targetPos)
         end) end
         task.wait(0.01)
     end
-    -- ⭐ v10.2: Force Running liên tục 0.5s
     task.spawn(function()
         local t0 = os.clock()
         while os.clock() - t0 < 0.5 do
@@ -912,6 +913,7 @@ local function velocityFlyTo(targetPos, timeout, speed)
     return false
 end
 
+-- ⭐ v10.3: Recovery scan TOÀN BỘ workspace + score
 local function goHomeWithRecovery()
     log("🏃 BAY VỀ HOME (Y=100)")
     local startTime = os.clock()
@@ -997,7 +999,8 @@ local function goHomeWithRecovery()
                 log(string.format("🔍 Tìm egg rớt quanh lastTargetPos (%.0f, %.0f, %.0f)",
                     searchPos.X, searchPos.Y, searchPos.Z))
 
-                local nearestPrompt, nearestPos, nearestDist = nil, nil, config.RECOVERY_RADIUS or 500
+                -- ⭐ v10.3: Scan TOÀN BỘ + score
+                local nearestPrompt, nearestPos, nearestDist = nil, nil, 999999
                 for _, v in ipairs(W:GetDescendants()) do
                     if v:IsA("ProximityPrompt") and v.Enabled and not stolenPrompts[v] then
                         local isEgg = v.Name == "CarryAreaEgg"
@@ -1006,9 +1009,11 @@ local function goHomeWithRecovery()
                         if isEgg then
                             local ppos = getPromptPos(v)
                             if ppos then
-                                local d = dist(ppos, searchPos)
-                                if d < nearestDist then
-                                    nearestPrompt, nearestPos, nearestDist = v, ppos, d
+                                local dTarget = dist(ppos, searchPos)
+                                local dPlayer = dist(ppos, r2.Position)
+                                local score = dTarget * 0.7 + dPlayer * 0.3
+                                if score < nearestDist then
+                                    nearestPrompt, nearestPos, nearestDist = v, ppos, score
                                 end
                             end
                         end
@@ -1016,7 +1021,9 @@ local function goHomeWithRecovery()
                 end
 
                 if nearestPrompt and nearestPos then
-                    log(string.format("🎯 Egg rớt cách lastTargetPos %.0f studs → CHẠY LẠI", nearestDist))
+                    local realDist = dist(nearestPos, searchPos)
+                    log(string.format("🎯 Egg rớt: cách target %.0f, cách player %.0f → CHẠY LẠI", 
+                        realDist, dist(nearestPos, r2.Position)))
 
                     velocityFlyTo(nearestPos, 20, config.SPEED_CAP)
                     task.wait(0.2)
@@ -1030,18 +1037,21 @@ local function goHomeWithRecovery()
                         
                         local h3 = getHRP()
                         if h3 then
-                            local p3 = findPromptSteal(h3.Position, 150)
+                            local p3 = findPromptSteal(h3.Position, 200)
                             if p3 then
                                 local p3pos = getPromptPos(p3)
                                 if p3pos then
                                     local dP = dist(h3.Position, p3pos)
                                     if dP > config.PROMPT_NEAR_DIST then
                                         log(string.format("⚠ Prompt cách %.0f → bay sát", dP))
-                                        velocityMoveTo(p3pos, 5)
-                                        task.wait(0.1)
+                                        velocityMoveTo(p3pos, 3, true)
+                                        task.wait(0.05)
                                     end
                                 end
                                 firePromptOnce(p3)
+                            else
+                                log("⚠ Prompt biến mất → bỏ lụm")
+                                break
                             end
                         end
                         task.wait(config.STEAL_VERIFY_WAIT)
@@ -1191,7 +1201,7 @@ local function baitBoss(timeout)
     return false
 end
 
--- ⭐ v10.2: stealAtPos với chờ sau tele
+-- ⭐ v10.3: stealAtPos — prompt mất → return false ngay
 local function stealAtPos(targetPos, label, expectedIncome)
     log("═══════")
     log("STEAL TẠI " .. label)
@@ -1206,7 +1216,6 @@ local function stealAtPos(targetPos, label, expectedIncome)
             log(string.format("📍 Xa %.0f studs → TELE", d))
             teleToMap(targetPos)
             
-            -- ⭐ v10.2: Chờ 0.6s + force Running liên tục
             log("⏳ Chờ 0.6s để state ổn định...")
             local t0 = os.clock()
             while os.clock() - t0 < 0.6 do
@@ -1249,8 +1258,12 @@ local function stealAtPos(targetPos, label, expectedIncome)
         end
     end
 
-    local prompt = findPromptSteal(targetPos, 150)
-    if not prompt then log("⚠ Không có prompt"); return false end
+    -- ⭐ v10.3: Radius 200, không có prompt → return ngay
+    local prompt = findPromptSteal(targetPos, 200)
+    if not prompt then 
+        log("⚠ Không có prompt (egg đã bị steal/boss mang đi) → return false")
+        return false
+    end
 
     local slotsBefore, countBefore = getSlotSet()
     log("📊 Global slots trước: " .. countBefore)
@@ -1262,19 +1275,25 @@ local function stealAtPos(targetPos, label, expectedIncome)
         
         local h2 = getHRP()
         if h2 then
-            local p2 = findPromptSteal(h2.Position, 150)
-            if p2 then
-                local p2pos = getPromptPos(p2)
-                if p2pos then
-                    local dP = dist(h2.Position, p2pos)
-                    if dP > config.PROMPT_NEAR_DIST then
-                        log(string.format("⚠ Prompt cách %.0f → bay sát", dP))
-                        velocityMoveTo(p2pos, 5)
-                        task.wait(0.1)
-                    end
-                end
-                firePromptOnce(p2)
+            -- ⭐ v10.3: Radius 200
+            local p2 = findPromptSteal(h2.Position, 200)
+            
+            -- ⭐ Prompt biến mất → return false ngay
+            if not p2 then
+                log("⚠ Prompt biến mất giữa loop → return false")
+                return false
             end
+            
+            local p2pos = getPromptPos(p2)
+            if p2pos then
+                local dP = dist(h2.Position, p2pos)
+                if dP > config.PROMPT_NEAR_DIST then
+                    log(string.format("⚠ Prompt cách %.0f → bay sát", dP))
+                    velocityMoveTo(p2pos, 3, true)
+                    task.wait(0.05)
+                end
+            end
+            firePromptOnce(p2)
         end
         task.wait(config.STEAL_VERIFY_WAIT)
         local _, countNow = getSlotSet()
@@ -1287,7 +1306,6 @@ local function stealAtPos(targetPos, label, expectedIncome)
         end
         
         if i == 3 then
-            -- ⭐ v10.2: Force Running liên tục 1.5s
             log("🚨 Fire 3 lần không giảm → chờ 1.5s + force Running")
             local t0 = os.clock()
             while os.clock() - t0 < 1.5 do
@@ -1472,9 +1490,12 @@ local function mainLoop()
                         eggPrompt, eggPos, eggDist, eggMap = findEggInTargets()
                     end
 
+                    -- ⭐ v10.3: Không tìm được egg → clear + về Forest
                     if not eggPos then
-                        log("⚠ Không tìm egg nào → quay lại Forest sau 1s")
-                        task.wait(1)
+                        log("⚠ Không tìm egg nào → clear stolenPrompts + về Forest 1.5s")
+                        stolenPrompts = {}
+                        consecutiveFails = 0
+                        task.wait(1.5)
                     else
                         log(string.format("🎯 Map: %s @ %.1f,%.1f,%.1f",
                             eggMap.name, eggPos.X, eggPos.Y, eggPos.Z))
@@ -1581,6 +1602,30 @@ local function mainLoop()
                             else
                                 consecutiveFails = consecutiveFails + 1
                                 log(string.format("⚠ Steal fail — retry (fails: %d)", consecutiveFails))
+                                
+                                -- ⭐ v10.3: Fail 2 lần → đổi egg mới
+                                if attempt >= 2 then
+                                    log("🔄 Fail 2 lần → tìm egg khác trong map")
+                                    stolenPrompts = {}
+                                    
+                                    local np, npos, nd, nm
+                                    if config.BIG_EGG_MODE then
+                                        np, npos, nd, nm = findBiggestEgg()
+                                    elseif config.PRIORITY_INCOME then
+                                        np, npos, nd, nm = findHighestIncomeEgg()
+                                    else
+                                        np, npos, nd, nm = findEggInTargets()
+                                    end
+                                    
+                                    if npos and nm and npos ~= stealPos then
+                                        log(string.format("🎯 Egg mới: %s", nm.name))
+                                        stealPos = npos
+                                        stealMap = nm
+                                        stealTarget = npos + Vector3.new(0, 3, 0)
+                                        lastTargetPos = npos
+                                    end
+                                end
+                                
                                 task.wait(0.5)
                             end
                         end
@@ -1674,7 +1719,7 @@ function M.start()
     cycleStartTime = 0
     lastClearTime = os.clock()
     isRunning = true
-    log("▶ START v10.2 — " .. #config.TARGETS .. " map(s)")
+    log("▶ START v10.3 — " .. #config.TARGETS .. " map(s)")
     startWatchdog()
     task.spawn(mainLoop)
 end
