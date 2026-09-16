@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v10.4 — Full fix: UID match + state dropped + recovery
+-- STEAL MODULE v10.6 — Velocity slow 1000 tới Forest + Replace 1 lần
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -44,6 +44,7 @@ local config = {
     PROMPT_SKIP_DIST    = 15,
     SPEED          = 1500,
     SPEED_CAP      = 500,
+    SLOW_SPEED     = 1000,  -- ⭐ v10.6: Velocity slow cho Forest
     MAP_RADIUS     = 800,
     ARRIVE_DIST    = 10,
     BAIT_TIMEOUT   = 15,
@@ -67,6 +68,7 @@ local lastClearTime = 0
 local lastMoveCheck = 0
 local lastMovePos = nil
 local carryingEggFlag = false
+local replacedThisCycle = false
 
 local function log(s)
     for _, cb in ipairs(logCallbacks) do pcall(cb, s) end
@@ -117,9 +119,7 @@ local function getEggRealMap(eggPos)
     local closestMap, closestDist = nil, 999999
     for _, m in ipairs(ALL_MAPS) do
         local d = dist(eggPos, m.pos)
-        if d < closestDist then
-            closestMap = m; closestDist = d
-        end
+        if d < closestDist then closestMap = m; closestDist = d end
     end
     return closestMap
 end
@@ -200,7 +200,6 @@ pcall(function()
     end
 end)
 
--- ⭐ v10.4: Check state
 local function isCarryingEgg()
     if not EggState then return false, nil end
     local ok, fd = pcall(EggState.ReadFieldEggs)
@@ -249,7 +248,6 @@ local function getEggInfoAtPos(eggPos, radius)
     return income, best.AssetScale or 1, best.BaseMutation, best.Uid or best.UID
 end
 
--- ⭐ v10.4: Big egg match UID
 local function findBiggestEgg()
     local hrp = getHRP()
     if not hrp then return nil, nil, nil, nil end
@@ -352,13 +350,11 @@ local function findBiggestEgg()
         end
     end
 
-    -- ⭐ v10.4: Match UID → position 5 studs
     local matchedPrompt, matchedPos, matchedCand = nil, nil, nil
     for _, cand in ipairs(candidates) do
         if isOtherHolder(cand.rawState) then
-            log(string.format("⏭ Skip %s — state='%s' (bị giữ)", cand.category, cand.rawState))
+            log(string.format("⏭ Skip %s — state='%s'", cand.category, cand.rawState))
         else
-            -- Bước 1: UID match
             local uidMatch = nil
             for _, p in ipairs(allPrompts) do
                 local pUID = p.prompt:GetAttribute("EggUid") 
@@ -375,14 +371,12 @@ local function findBiggestEgg()
                 end
             end
             
-            -- Bước 2: Position 5 studs
             if not uidMatch then
                 for _, p in ipairs(allPrompts) do
                     local d = dist(p.pos, cand.pos)
                     if d < 5 then
                         uidMatch = p
-                        log(string.format("✅ Match POS: %s @ %s (cách %.1f studs)", 
-                            cand.category, cand.map.name, d))
+                        log(string.format("✅ Match POS: %s (%.1f studs)", cand.category, d))
                         break
                     end
                 end
@@ -394,14 +388,13 @@ local function findBiggestEgg()
                 matchedCand = cand
                 break
             else
-                log(string.format("⚠ Không match %s @ %s → thử egg tiếp", 
-                    cand.category, cand.map.name))
+                log(string.format("⚠ Không match %s", cand.category))
             end
         end
     end
 
     if not matchedPrompt then
-        log("❌ Không match được prompt nào → clear stolenPrompts")
+        log("❌ Không match prompt → clear")
         stolenPrompts = {}
         return nil, nil, nil, nil
     end
@@ -415,10 +408,7 @@ end
 local function findHighestIncomeEgg()
     local hrp = getHRP()
     if not hrp then return nil, nil, nil, nil end
-    if not EggState or not AssetEarnings then
-        log("❌ EggState/AssetEarnings nil")
-        return nil, nil, nil, nil
-    end
+    if not EggState or not AssetEarnings then return nil, nil, nil, nil end
     local ok, fd = pcall(EggState.ReadFieldEggs)
     if not ok or type(fd) ~= "table" or type(fd.Records) ~= "table" then
         return nil, nil, nil, nil
@@ -488,11 +478,10 @@ local function findHighestIncomeEgg()
         end
     end
     if not bestPrompt then
-        log(string.format("⚠ Không tìm prompt cho %s", best.category))
         stolenPrompts = {}
         return nil, nil, nil, nil
     end
-    log(string.format("🎯 CHỌN: %s @ %s = $%.2f/s", best.category, best.map.name, best.income))
+    log(string.format("🎯 CHỌN: %s = $%.2f/s", best.category, best.income))
     return bestPrompt, best.pos, best.income, best.map
 end
 
@@ -676,14 +665,22 @@ local function replaceHumanoidDirect()
     return true
 end
 
-local function teleToMap(targetPos)
+local function teleToMap(targetPos, forceReplace)
     local hrp = getHRP()
     if hrp then pcall(function()
         hrp.CFrame = CFrame.new(targetPos)
         hrp.AssemblyLinearVelocity = Vector3.zero
         hrp.AssemblyAngularVelocity = Vector3.zero
     end) end
-    replaceHumanoidDirect()
+    
+    if forceReplace or not replacedThisCycle then
+        replaceHumanoidDirect()
+        replacedThisCycle = true
+        log("🔧 Replace humanoid")
+    else
+        log("⏭ Skip replace (đã replace cycle này)")
+    end
+    
     for i = 1, 6 do
         local r2 = getHRP()
         if r2 then pcall(function()
@@ -693,9 +690,10 @@ local function teleToMap(targetPos)
         end) end
         task.wait(0.01)
     end
+    
     task.spawn(function()
         local t0 = os.clock()
-        while os.clock() - t0 < 0.5 do
+        while os.clock() - t0 < 0.6 do
             forceRunningState()
             task.wait(0.03)
         end
@@ -708,10 +706,7 @@ local function firePromptOnce(prompt)
     local ppos = getPromptPos(prompt)
     if hrp and ppos then
         local d = dist(hrp.Position, ppos)
-        if d > config.PROMPT_SKIP_DIST then
-            log(string.format("⚠ firePrompt: cách %.0f > %d → SKIP", d, config.PROMPT_SKIP_DIST))
-            return false
-        end
+        if d > config.PROMPT_SKIP_DIST then return false end
     end
     forceRunningState()
     pcall(function()
@@ -784,6 +779,56 @@ local function velocityMoveTo(targetPos, timeout, manual)
     return false
 end
 
+-- ⭐ v10.6: Velocity slow — không nudge CFrame
+local function velocityMoveSlow(targetPos, timeout)
+    timeout = timeout or 40
+    local hum, hrp = getHum(), getHRP()
+    if not hum or not hrp then return false end
+    keepHealth()
+    
+    local t0 = os.clock()
+    local lastPos = hrp.Position
+    local stuckTime = os.clock()
+    local slowSpeed = config.SLOW_SPEED or 1000
+    
+    while isRunning and os.clock() - t0 < timeout do
+        hum, hrp = getHum(), getHRP()
+        if not hum or not hrp then break end
+        keepHealth()
+        forceRunningState()
+        
+        local d = dist(hrp.Position, targetPos)
+        if d < config.ARRIVE_DIST then
+            pcall(function() hrp.AssemblyLinearVelocity = Vector3.zero end)
+            return true
+        end
+        
+        pcall(function()
+            local dir = targetPos - hrp.Position
+            if dir.Magnitude > 0 then
+                local nrm = dir.Unit
+                -- ⭐ Chỉ velocity, KHÔNG nudge CFrame
+                hrp.AssemblyLinearVelocity = Vector3.new(nrm.X * slowSpeed, hrp.AssemblyLinearVelocity.Y, nrm.Z * slowSpeed)
+            end
+        end)
+        
+        local moved = dist(hrp.Position, lastPos)
+        if moved < 0.3 then
+            if os.clock() - stuckTime > 0.8 then
+                pcall(function() hum.Jump = true end)
+                stuckTime = os.clock()
+            end
+        else
+            lastPos = hrp.Position
+            stuckTime = os.clock()
+        end
+        task.wait(0.01)
+    end
+    
+    pcall(function() local r = getHRP(); if r then r.AssemblyLinearVelocity = Vector3.zero end end)
+    return false
+end
+
 local function velocityFlyTo(targetPos, timeout, speed)
     timeout = timeout or 20
     speed = speed or config.FLY_HOME_SPEED or 500
@@ -813,7 +858,6 @@ local function velocityFlyTo(targetPos, timeout, speed)
     return false
 end
 
--- ⭐ v10.4: Recovery check state dropped
 local function goHomeWithRecovery()
     log("🏃 BAY VỀ HOME")
     local startTime = os.clock()
@@ -830,12 +874,11 @@ local function goHomeWithRecovery()
     while os.clock() - t1 < 40 do
         if not isRunning then return false end
         if os.clock() - startTime > 60 then
-            log("🚨 HOME TIMEOUT 60s → FORCE TELE")
+            log("🚨 TIMEOUT → FORCE TELE")
             forceTeleHome()
             break
         end
         if restartCount >= MAX_RESTART then
-            log("🚨 RESTART QUÁ NHIỀU → FORCE TELE")
             forceTeleHome()
             break
         end
@@ -843,7 +886,6 @@ local function goHomeWithRecovery()
         if not hum or not r then break end
         keepHealth()
         if r.Position.Y < 10 then
-            log("🚨 Y thấp → FORCE TELE")
             forceTeleHome()
             break
         end
@@ -899,7 +941,6 @@ local function goHomeWithRecovery()
                 end
 
                 if nearestPrompt and nearestPos then
-                    -- ⭐ v10.4: Check state = dropped
                     local stillDropped = true
                     if EggState then
                         local found = false
@@ -915,26 +956,30 @@ local function goHomeWithRecovery()
                                             stillDropped = true
                                         elseif isOtherHolder(st) then
                                             stillDropped = false
-                                            log(string.format("⏭ Egg bị mang đi (state='%s') → BỎ", st))
+                                            log(string.format("⏭ Egg bị giữ (state='%s') → BỎ", st))
                                         end
                                         break
                                     end
                                 end
                             end
                         end)
-                        if not found then
-                            stillDropped = true
-                        end
+                        if not found then stillDropped = true end
                     end
 
                     if stillDropped then
-                        log(string.format("🎯 Egg rớt (cách target %.0f) → LƯỢM", 
+                        log(string.format("🎯 Egg rớt → LƯỢM (cách %.0f)", 
                             dist(nearestPos, searchPos)))
 
-                        velocityFlyTo(nearestPos, 20, config.SPEED_CAP)
+                        local dToEgg = dist(r2.Position, nearestPos)
+                        if dToEgg > 500 then
+                            log("📍 Xa > 500 → tele KHÔNG replace")
+                            teleToMap(nearestPos, false)
+                        else
+                            velocityFlyTo(nearestPos, 20, config.SPEED_CAP)
+                        end
                         task.wait(0.2)
+                        
                         local slotsBefore = getSlotSet()
-
                         for i = 1, config.MAX_FIRES do
                             if not isRunning then break end
                             forceRunningState()
@@ -978,11 +1023,8 @@ local function goHomeWithRecovery()
             local targetAir = Vector3.new(config.HOME_POS.X, flyY, config.HOME_POS.Z)
             local dir = targetAir - r.Position
             if dir.Magnitude > 0 then
-                r.AssemblyLinearVelocity = dir.Unit * (config.FLY_HOME_SPEED or 500)
-                if dir.Magnitude > 100 then
-                    local nudge = math.min(dir.Magnitude, 200) * 0.05
-                    r.CFrame = CFrame.new(r.Position + dir.Unit * nudge)
-                end
+                -- ⭐ v10.6: Bay về 350 (giảm từ 500)
+                r.AssemblyLinearVelocity = dir.Unit * 350
             end
         end)
         task.wait(0.01)
@@ -1015,7 +1057,7 @@ local function baitBoss(timeout)
         local speed = vel.Magnitude
         local state = hum:GetState()
         if state == Enum.HumanoidStateType.Physics and speed > 30 then
-            log(string.format("💥 PHYSICS speed=%.1f", speed)); return true
+            log(string.format("💥 PHYSICS %.1f", speed)); return true
         end
         if speed > 60 and vel.Y > 10 then
             log(string.format("💥 VELOCITY")); return true
@@ -1036,9 +1078,8 @@ local function baitBoss(timeout)
     return false
 end
 
--- ⭐ v10.4: stealAtPos
 local function stealAtPos(targetPos, label)
-    log("═══════ STEAL " .. label)
+    log("═══ STEAL " .. label)
     task.wait(0.05)
 
     local hrp = getHRP()
@@ -1048,12 +1089,8 @@ local function stealAtPos(targetPos, label)
     if d > config.ARRIVE_DIST then
         if d > config.MAP_RADIUS then
             log(string.format("📍 Xa %.0f → TELE", d))
-            teleToMap(targetPos)
-            local t0 = os.clock()
-            while os.clock() - t0 < 0.6 do
-                forceRunningState()
-                task.wait(0.05)
-            end
+            teleToMap(targetPos, false)
+            task.wait(0.6)
         else
             log(string.format("🏃 Cách %.0f → VELOCITY", d))
             velocityMoveTo(targetPos, 25)
@@ -1062,7 +1099,7 @@ local function stealAtPos(targetPos, label)
 
     local carrying = isCarryingEgg()
     if carrying then
-        log("⚠ Đang carry egg cũ → chờ drop")
+        log("⚠ Đang carry → chờ drop")
         local waitStart = os.clock()
         while os.clock() - waitStart < config.CARRY_WAIT_MAX do
             if not isRunning then return false end
@@ -1073,7 +1110,7 @@ local function stealAtPos(targetPos, label)
 
     local prompt = findPromptSteal(targetPos, 200)
     if not prompt then 
-        log("⚠ Không có prompt (bị steal/mang đi)")
+        log("⚠ Không có prompt")
         return false 
     end
 
@@ -1088,7 +1125,7 @@ local function stealAtPos(targetPos, label)
         if h2 then
             local p2 = findPromptSteal(h2.Position, 200)
             if not p2 then
-                log("⚠ Prompt biến mất → return false")
+                log("⚠ Prompt biến mất → return")
                 return false
             end
             local p2pos = getPromptPos(p2)
@@ -1112,7 +1149,7 @@ local function stealAtPos(targetPos, label)
             end
         end
     end
-    log("⚠ Fire " .. config.MAX_FIRES .. " lần không giảm slot")
+    log("⚠ Fire " .. config.MAX_FIRES .. " lần không giảm")
     return false
 end
 
@@ -1173,7 +1210,7 @@ end
 local function mainLoop()
     while isRunning do
         if cycleStartTime > 0 and os.clock() - cycleStartTime > 90 then
-            log("🚨 CHU KỲ 90s → RESET")
+            log("🚨 90s → RESET")
             stolenPrompts = {}
             consecutiveFails = 0
             forceTeleHome()
@@ -1189,13 +1226,17 @@ local function mainLoop()
         log("═══════════════════════")
         pcall(checkEggReset)
         consecutiveFails = 0
-        log("PHASE 1: Forest")
+        replacedThisCycle = false
+        log("PHASE 1: VELOCITY SLOW tới Forest")
 
-        if not velocityMoveTo(config.FOREST_POS, 30) then
+        -- ⭐ v10.6: Velocity slow (1000) tới Forest
+        if not velocityMoveSlow(config.FOREST_POS, 40) then
             if not isRunning then break end
-            task.wait(0.5)
+            log("❌ Không tới Forest → thử lại")
+            task.wait(1)
         else
-            log("✅ Tới Forest")
+            log("✅ Tới Forest (velocity 1000)")
+            task.wait(0.3)
             local prompt, ppos = findForestEggOnly()
 
             if prompt and ppos then
@@ -1312,13 +1353,15 @@ local function mainLoop()
                                         stealPos, stealMap = npos, nm
                                         stealTarget = npos + Vector3.new(0, 3, 0)
                                     else
-                                        log("⚠ Không egg nào → break")
                                         break
                                     end
                                 end
                             end
 
-                            teleToMap(stealTarget)
+                            if attempt == 1 then
+                                log("📍 Tele + replace từ Forest → map")
+                            end
+                            teleToMap(stealTarget, attempt == 1)
                             task.wait(0.05)
 
                             local stolen = stealAtPos(stealPos, stealMap.name)
@@ -1337,6 +1380,7 @@ local function mainLoop()
                                     lastTargetMap = nil
                                     consecutiveFails = 0
                                     cycleStartTime = os.clock()
+                                    replacedThisCycle = false
                                     break
                                 end
                             else
@@ -1438,8 +1482,9 @@ function M.start()
     consecutiveFails = 0
     cycleStartTime = 0
     lastClearTime = os.clock()
+    replacedThisCycle = false
     isRunning = true
-    log("▶ START v10.4")
+    log("▶ START v10.6")
     startWatchdog()
     task.spawn(mainLoop)
 end
@@ -1487,6 +1532,7 @@ function M.setForestRadius(n) config.FOREST_RADIUS = n or 300 end
 function M.setFlyHomeSpeed(n) config.FLY_HOME_SPEED = n or 500 end
 function M.setRecoveryRadius(n) config.RECOVERY_RADIUS = n or 500 end
 function M.setMaxRecovery(n) config.MAX_RECOVERY = n or 3 end
+function M.setSlowSpeed(n) config.SLOW_SPEED = n or 1000 end
 
 function M.getAllMaps() return ALL_MAPS end
 function M.setHome(p) if p then config.HOME_POS = p end end
