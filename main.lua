@@ -1,5 +1,6 @@
 -- ═══════════════════════════════════════════════════════════════
--- MAIN.lua v3.3 — Tích hợp Sell Manager + Style chữ mới
+-- MAIN.lua v3.4 — Full Code
+-- Resize mượt + Hover effect + Sell Manager + Pet Tab
 -- ═══════════════════════════════════════════════════════════════
 
 local BACKGROUND_ID = (Config and Config.BackgroundImageId) or "rbxassetid://116222439691339"
@@ -33,7 +34,6 @@ local SellManager = fetch("modules/sell_manager.lua")
 _G.StealEgg = {
     Steal = Steal, ESP = ESP, SellManager = SellManager,
     
-    -- Steal
     Start = function() if Steal then Steal.start() end end,
     Stop = function() if Steal then Steal.stop() end end,
     IsRunning = function() return Steal and Steal.isRunning() or false end,
@@ -52,14 +52,12 @@ _G.StealEgg = {
     IsBigEggMode = function() return Steal and Steal.isBigEggMode and Steal.isBigEggMode() or false end,
     ToggleBigEggMode = function() if Steal and Steal.toggleBigEggMode then return Steal.toggleBigEggMode() end end,
 
-    -- ESP
     ESP_Enable = function() if ESP then ESP.enable() end end,
     ESP_Disable = function() if ESP then ESP.disable() end end,
     ESP_Toggle = function() if ESP then return ESP.toggle() end end,
     ESP_IsEnabled = function() return ESP and ESP.isEnabled() or false end,
     ESP_SetMapFilter = function(list) if ESP then ESP.setMapFilter(list) end end,
 
-    -- ⭐ SELL MANAGER
     SM_Start = function() if SellManager then SellManager.start() end end,
     SM_Stop = function() if SellManager then SellManager.stop() end end,
     SM_IsRunning = function() return SellManager and SellManager.isRunning() or false end,
@@ -81,7 +79,7 @@ _G.StealEgg = {
     SM_ScanInfo = function() if SellManager then SellManager.scanInfo() end end,
     SM_OnLog = function(cb) if SellManager then SellManager.onLog(cb) end end,
 
-    Version = "3.3.0",
+    Version = "3.4.0",
 }
 local API = _G.StealEgg
 _G.MyScript = API
@@ -99,7 +97,7 @@ local function getParent()
 end
 local PARENT = getParent()
 
--- ⭐⭐⭐ BẢNG MÀU MỚI
+-- ══════════ COLORS ══════════
 local COLORS = {
     bg          = Color3.fromRGB(215, 220, 228),
     card        = Color3.fromRGB(255, 255, 255),
@@ -108,10 +106,9 @@ local COLORS = {
     activeBtn   = Color3.fromRGB(120, 125, 135),
     activeText  = Color3.fromRGB(255, 255, 255),
     
-    -- ⭐ Text mới — trắng-xám cho dễ đọc trên nền anime
-    textBold    = Color3.fromRGB(240, 240, 245),   -- Trắng-xám sáng
-    textDim     = Color3.fromRGB(180, 185, 195),   -- Xám nhạt
-    textShadow  = Color3.fromRGB(10, 10, 15),      -- Đen cho TextStroke
+    textBold    = Color3.fromRGB(240, 240, 245),
+    textDim     = Color3.fromRGB(180, 185, 195),
+    textShadow  = Color3.fromRGB(0, 0, 0),
     
     toggleOn    = Color3.fromRGB(70, 75, 85),
     toggleOff   = Color3.fromRGB(195, 200, 210),
@@ -120,7 +117,6 @@ local COLORS = {
     gray        = Color3.fromRGB(140, 145, 155),
 }
 
--- ⭐ Text Stroke Transparency mới — Đen nhẹ opacity 0.5
 local TEXT_STROKE_TRANSPARENCY = 0.5
 local TEXT_STROKE_COLOR = Color3.fromRGB(0, 0, 0)
 
@@ -144,7 +140,7 @@ sg.ResetOnSpawn = false
 sg.DisplayOrder = 999999
 sg.Parent = PARENT
 
--- Icon
+-- ══════════ ICON ══════════
 local icon = Instance.new("ImageButton")
 icon.Size = UDim2.new(0, 44, 0, 44)
 icon.Position = UDim2.new(0, 15, 0.4, 0)
@@ -159,7 +155,7 @@ local istk = Instance.new("UIStroke", icon)
 istk.Color = COLORS.cardBorder
 istk.Thickness = 2
 
--- Panel
+-- ══════════ PANEL ══════════
 local panel = Instance.new("Frame")
 panel.Size = UDim2.new(0, 540, 0, 420)
 panel.Position = UDim2.new(0.5, 0, 0.5, 0)
@@ -196,7 +192,7 @@ topIcon.BackgroundTransparency = 1
 topIcon.Image = ICON_ID
 topIcon.ZIndex = 2
 
--- Title: nửa trên hồng, nửa dưới xám
+-- Title
 local titleFrame = Instance.new("Frame", panel)
 titleFrame.Size = UDim2.new(1, -55, 0, 32)
 titleFrame.Position = UDim2.new(0, 50, 0, 8)
@@ -237,7 +233,7 @@ titlePink.TextStrokeColor3 = TEXT_STROKE_COLOR
 titlePink.TextXAlignment = Enum.TextXAlignment.Left
 titlePink.ZIndex = 5
 
--- Sidebar
+-- ══════════ SIDEBAR ══════════
 local sidebar = Instance.new("Frame", panel)
 sidebar.Position = UDim2.new(0, 14, 0, 48)
 sidebar.Size = UDim2.new(0, 130, 1, -62)
@@ -256,7 +252,7 @@ sidePad.PaddingBottom = UDim.new(0, 6)
 local sideLayout = Instance.new("UIListLayout", sidebar)
 sideLayout.Padding = UDim.new(0, 8)
 
--- Content
+-- ══════════ CONTENT ══════════
 local content = Instance.new("Frame", panel)
 content.Position = UDim2.new(0, 154, 0, 48)
 content.Size = UDim2.new(1, -168, 1, -62)
@@ -269,9 +265,17 @@ local tabBtns = {}
 local function setTab(id)
     for _, item in pairs(tabBtns) do
         if item.id == id then
-            TweenService:Create(item.btn, TweenInfo.new(0.2), {BackgroundColor3 = COLORS.activeBtn, BackgroundTransparency = 0.1, TextColor3 = COLORS.activeText}):Play()
+            TweenService:Create(item.btn, TweenInfo.new(0.2), {
+                BackgroundColor3 = COLORS.activeBtn, 
+                BackgroundTransparency = 0.1, 
+                TextColor3 = COLORS.activeText
+            }):Play()
         else
-            TweenService:Create(item.btn, TweenInfo.new(0.2), {BackgroundColor3 = COLORS.card, BackgroundTransparency = 0.75, TextColor3 = COLORS.textBold}):Play()
+            TweenService:Create(item.btn, TweenInfo.new(0.2), {
+                BackgroundColor3 = COLORS.card, 
+                BackgroundTransparency = 0.75, 
+                TextColor3 = COLORS.textBold
+            }):Play()
         end
     end
     for tid, page in pairs(pages) do page.Visible = (tid == id) end
@@ -305,7 +309,7 @@ mkTab("main", "Main")
 mkTab("pet", "Pet")
 mkTab("esp", "ESP")
 
--- Toggle Row
+-- ══════════ TOGGLE ROW ══════════
 local function createToggleRow(parent, labelText, defaultState, hasTextBox, onToggle, onInputChanged, boxDefault)
     local container = Instance.new("Frame", parent)
     container.Size = UDim2.new(1, -4, 0, 46)
@@ -394,7 +398,7 @@ local function createToggleRow(parent, labelText, defaultState, hasTextBox, onTo
     return container
 end
 
--- Dropdown
+-- ══════════ DROPDOWN ══════════
 local function createMultiSelectDropdown(parent, labelText, options, callback)
     local container = Instance.new("Frame", parent)
     container.Size = UDim2.new(1, -4, 0, 46)
@@ -549,14 +553,14 @@ pagePet.BackgroundTransparency = 1
 pagePet.Visible = false
 pagePet.BorderSizePixel = 0
 pagePet.ScrollBarThickness = 2
-pagePet.CanvasSize = UDim2.new(0, 0, 0, 200)
+pagePet.CanvasSize = UDim2.new(0, 0, 0, 260)
 pagePet.ZIndex = 3
 pages.pet = pagePet
 
 local petLayout = Instance.new("UIListLayout", pagePet)
 petLayout.Padding = UDim.new(0, 8)
 
--- Header pet
+-- Header Pet
 local petHeader = Instance.new("TextLabel", pagePet)
 petHeader.Size = UDim2.new(1, -4, 0, 26)
 petHeader.BackgroundTransparency = 1
@@ -569,7 +573,7 @@ petHeader.TextStrokeColor3 = TEXT_STROKE_COLOR
 petHeader.TextXAlignment = Enum.TextXAlignment.Left
 petHeader.LayoutOrder = 1
 
--- ⭐ Auto Sell Pet
+-- Auto Sell Pet
 local autoSellToggle = createToggleRow(pagePet, "Auto Sell Pet (value m)", API.SM_IsAutoSell(), true, function(state)
     API.SM_SetAutoSell(state)
     if state and not API.SM_IsRunning() then
@@ -580,7 +584,7 @@ end, function(value)
 end, "1")
 autoSellToggle.LayoutOrder = 2
 
--- ⭐ Auto Equip Best Pet
+-- Auto Equip Best Pet
 local autoEquipToggle = createToggleRow(pagePet, "Auto Equip Best Pet", API.SM_IsAutoEquip(), false, function(state)
     API.SM_SetAutoEquip(state)
     if state and not API.SM_IsRunning() then
@@ -589,7 +593,7 @@ local autoEquipToggle = createToggleRow(pagePet, "Auto Equip Best Pet", API.SM_I
 end, nil)
 autoEquipToggle.LayoutOrder = 3
 
--- Bán 1 lần
+-- RUN ONCE button
 local runOnceBtn = Instance.new("TextButton", pagePet)
 runOnceBtn.Size = UDim2.new(1, -4, 0, 34)
 runOnceBtn.BackgroundColor3 = COLORS.card
@@ -611,7 +615,7 @@ runOnceBtn.MouseButton1Click:Connect(function()
     API.SM_RunOnce()
 end)
 
--- Scan info
+-- SCAN INFO button
 local scanBtn = Instance.new("TextButton", pagePet)
 scanBtn.Size = UDim2.new(1, -4, 0, 34)
 scanBtn.BackgroundColor3 = COLORS.card
@@ -651,48 +655,87 @@ createToggleRow(pageESP, "ESP Egg", API.ESP_IsEnabled(), false, function(state)
     API.ESP_Toggle()
 end, nil)
 
--- Resize
-local resizeBtn = Instance.new("TextButton", panel)
-resizeBtn.Size = UDim2.new(0, 22, 0, 22)
-resizeBtn.Position = UDim2.new(1, -26, 1, -26)
-resizeBtn.BackgroundTransparency = 0.3
-resizeBtn.BackgroundColor3 = Color3.fromRGB(120, 125, 135)
-resizeBtn.BorderSizePixel = 0
-resizeBtn.Text = "◢"
-resizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-resizeBtn.Font = Enum.Font.GothamBold
-resizeBtn.TextSize = 14
-resizeBtn.AutoButtonColor = false
-resizeBtn.ZIndex = 10
-Instance.new("UICorner", resizeBtn).CornerRadius = UDim.new(0, 6)
+-- ═══════════════════════════════════════════════════════════════
+-- RESIZE BUTTON — Mượt + Hover effect
+-- ═══════════════════════════════════════════════════════════════
 
-local resizing = false
-local startSize, startMousePos
+local resizeBtn = Instance.new("TextButton")
+resizeBtn.Name = "ResizeButton"
+resizeBtn.Parent = panel
+resizeBtn.Size = UDim2.new(0, 28, 0, 28)
+resizeBtn.Position = UDim2.new(1, -28, 1, -28)
+
+resizeBtn.BackgroundTransparency = 1
+resizeBtn.BorderSizePixel = 0
+
+resizeBtn.Text = "◢"
+resizeBtn.Font = Enum.Font.GothamBold
+resizeBtn.TextSize = 18
+resizeBtn.TextColor3 = Color3.fromRGB(0, 255, 230)
+resizeBtn.TextTransparency = 0
+
+resizeBtn.AutoButtonColor = false
+resizeBtn.ZIndex = 100
+
+resizeBtn.TextXAlignment = Enum.TextXAlignment.Center
+resizeBtn.TextYAlignment = Enum.TextYAlignment.Center
+
+-- ══════════ RESIZE LOGIC ══════════
+local isResizing = false
+local resizeStartPos
+local resizeStartSize
+
+local MIN_WIDTH = 450
+local MIN_HEIGHT = 280
 
 resizeBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        resizing = true
-        startSize = panel.Size
-        startMousePos = input.Position
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        
+        isResizing = true
+        resizeStartPos = input.Position
+        resizeStartSize = panel.AbsoluteSize
+        panel.Draggable = false
     end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
-    if not resizing then return end
-    if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
-
-    local delta = input.Position - startMousePos
-    local newWidth = math.max(420, startSize.X.Offset + delta.X * 2)
-    local newHeight = math.max(250, startSize.Y.Offset + delta.Y)
-    panel.Size = UDim2.new(0, newWidth, 0, newHeight)
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        resizing = false
+    if not isResizing then return end
+    
+    if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+        
+        local delta = input.Position - resizeStartPos
+        local newWidth = math.max(MIN_WIDTH, resizeStartSize.X + delta.X)
+        local newHeight = math.max(MIN_HEIGHT, resizeStartSize.Y + delta.Y)
+        
+        panel.Size = UDim2.new(0, newWidth, 0, newHeight)
     end
 end)
 
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        
+        isResizing = false
+        panel.Draggable = true
+    end
+end)
+
+-- ══════════ HOVER EFFECT ══════════
+resizeBtn.MouseEnter:Connect(function()
+    TweenService:Create(resizeBtn, TweenInfo.new(0.15), {
+        TextColor3 = Color3.fromRGB(255, 255, 255)
+    }):Play()
+end)
+
+resizeBtn.MouseLeave:Connect(function()
+    TweenService:Create(resizeBtn, TweenInfo.new(0.15), {
+        TextColor3 = Color3.fromRGB(0, 255, 230)
+    }):Play()
+end)
+
+-- ══════════ INIT ══════════
 setTab("main")
 
 local initList = {}
@@ -718,5 +761,5 @@ if API.SM_OnLog then
     API.SM_OnLog(function(msg) print("[SellManager] " .. msg) end)
 end
 
-print("[Main] ✅ Ready v3.3 — Pet Tab + Sell Manager")
-print("[Main] Tab Pet: Auto Sell Pet + Auto Equip Best Pet")
+print("[Main] ✅ Ready v3.4 — Resize mượt + Hover")
+print("[Main] Tab: Main / Pet / ESP")
