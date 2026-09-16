@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v9.9 — Fix tàn hình + không bay + big egg
+-- STEAL MODULE v10.0 — Force Running state + Fix stuck sau recovery
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -137,6 +137,19 @@ local function forceTeleHome()
     end) end
 end
 
+-- ⭐ v10.0: Force state Running để lấy lại quyền control velocity
+local function forceRunningState()
+    local hum = getHum()
+    if hum then pcall(function()
+        local state = hum:GetState()
+        if state == Enum.HumanoidStateType.Physics
+            or state == Enum.HumanoidStateType.PlatformStanding
+            or state == Enum.HumanoidStateType.FallingDown then
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+        end
+    end) end
+end
+
 -- ⭐ v9.9: Force reset transparency (fix tàn hình)
 local function forceVisible()
     local c = P.Character
@@ -234,7 +247,7 @@ local function getEggInfoAtPos(eggPos, radius)
     return income, best.AssetScale or 1, best.BaseMutation, best.Uid or best.UID
 end
 
--- ⭐⭐⭐ v9.9: Big egg — loop candidate từ to → nhỏ
+-- ⭐ v9.9: Big egg — loop candidate từ to → nhỏ
 local function findBiggestEgg()
     local hrp = getHRP()
     if not hrp then return nil, nil, nil, nil end
@@ -343,7 +356,6 @@ local function findBiggestEgg()
             i, c.category, mut, c.map.name, c.avgSize))
     end
 
-    -- ⭐ v9.9: Loop candidate từ to → nhỏ, lấy cái đầu tiên có prompt
     local allPrompts = {}
     for _, v in ipairs(W:GetDescendants()) do
         if v:IsA("ProximityPrompt") and v.Enabled and not stolenPrompts[v] then
@@ -746,10 +758,10 @@ local function replaceHumanoidDirect()
         local h = c:FindFirstChildOfClass("Humanoid")
         if h then pcall(function() h:ChangeState(Enum.HumanoidStateType.Running) end) end
     end)
-    -- ⭐ v9.9: Fix tàn hình
     task.spawn(function()
         task.wait(0.3)
         forceVisible()
+        forceRunningState()
     end)
     return true
 end
@@ -771,6 +783,11 @@ local function teleToMap(targetPos)
         end) end
         task.wait(0.01)
     end
+    -- ⭐ v10.0: Force Running sau tele
+    task.spawn(function()
+        task.wait(0.15)
+        forceRunningState()
+    end)
 end
 
 local function firePromptOnce(prompt)
@@ -813,6 +830,7 @@ local function velocityMoveTo(targetPos, timeout, manual)
         hum, hrp = getHum(), getHRP()
         if not hum or not hrp then break end
         keepHealth()
+        forceRunningState()
         local d = dist(hrp.Position, targetPos)
         if d < config.ARRIVE_DIST then
             pcall(function() hrp.AssemblyLinearVelocity = Vector3.zero end)
@@ -833,6 +851,7 @@ local function velocityMoveTo(targetPos, timeout, manual)
         if moved < 0.3 then
             if os.clock() - stuckTime > 0.5 then
                 pcall(function() hum.Jump = true end)
+                forceRunningState()
                 stuckTime = os.clock()
             end
         else
@@ -859,6 +878,7 @@ local function velocityFlyTo(targetPos, timeout, speed)
         hum, hrp = getHum(), getHRP()
         if not hum or not hrp then break end
         keepHealth()
+        forceRunningState()
 
         local d = dist(hrp.Position, targetPos)
         if d < config.ARRIVE_DIST then
@@ -879,7 +899,7 @@ local function velocityFlyTo(targetPos, timeout, speed)
     return false
 end
 
--- ⭐ v9.9: goHomeWithRecovery với force tele
+-- ⭐ v10.0: goHomeWithRecovery với force Running state
 local function goHomeWithRecovery()
     log("🏃 BAY VỀ HOME (Y=100)")
     local startTime = os.clock()
@@ -891,6 +911,9 @@ local function goHomeWithRecovery()
 
     local flyY = config.HOME_FLY_ABSOLUTE_Y or 100
     log(string.format("🏃 Bay về Y=%.1f (cố định)", flyY))
+
+    -- ⭐ v10.0: Force Running ban đầu
+    forceRunningState()
 
     local t1 = os.clock()
     while os.clock() - t1 < 40 do
@@ -920,7 +943,7 @@ local function goHomeWithRecovery()
         end
         keepHealth()
         
-        -- ⭐ v9.9: Force tele nếu Y quá thấp (bị void)
+        -- ⭐ v9.9: Force tele nếu Y quá thấp
         if r.Position.Y < 10 then
             log("🚨 Y quá thấp (" .. math.floor(r.Position.Y) .. ") → FORCE TELE HOME")
             forceTeleHome()
@@ -932,6 +955,15 @@ local function goHomeWithRecovery()
         local speed = vel.Magnitude
         local state = hum:GetState()
         local hpNow = hum.Health
+
+        -- ⭐ v10.0: Force Running nếu đang Physics/PlatformStanding/FallingDown
+        if state == Enum.HumanoidStateType.Physics 
+            or state == Enum.HumanoidStateType.PlatformStanding
+            or state == Enum.HumanoidStateType.FallingDown then
+            pcall(function()
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+            end)
+        end
 
         local gotHit = false
         if state == Enum.HumanoidStateType.Physics and speed > 30 then
@@ -1008,10 +1040,18 @@ local function goHomeWithRecovery()
 
                     lastTargetPos = nearestPos
 
+                    -- ⭐ v10.0: Force state Running ngay
+                    local humReset = getHum()
+                    if humReset then
+                        pcall(function()
+                            humReset:ChangeState(Enum.HumanoidStateType.Running)
+                        end)
+                    end
+
                     lastHealth = nil
                     recoveryAttempts = 0
                     t1 = os.clock()
-                    log("🔄 Reset timer bay về (40s mới)")
+                    log("🔄 Reset timer + state Running → bay về tiếp")
                 else
                     log("⚠ Không tìm thấy egg rớt → tiếp tục về")
                 end
@@ -1032,6 +1072,11 @@ local function goHomeWithRecovery()
             local dir = targetAir - r.Position
             if dir.Magnitude > 0 then
                 r.AssemblyLinearVelocity = dir.Unit * (config.FLY_HOME_SPEED or 500)
+                -- ⭐ v10.0: Nudge CFrame để không bị stuck
+                if dir.Magnitude > 100 then
+                    local nudge = math.min(dir.Magnitude, 200) * 0.05
+                    r.CFrame = CFrame.new(r.Position + dir.Unit * nudge)
+                end
             end
         end)
         task.wait(0.01)
@@ -1040,25 +1085,36 @@ local function goHomeWithRecovery()
     log("⬇ Rớt xuống home")
     velocityFlyTo(config.HOME_POS, 5, config.DROP_SPEED or 250)
 
+    -- ⭐ v10.0: Check vị trí cuối, nếu xa → fallback velocityMoveTo
+    local rCheck = getHRP()
+    if rCheck then
+        local dCheck = dist(rCheck.Position, config.HOME_POS)
+        if dCheck > 30 then
+            log(string.format("🚨 Rớt xong vẫn cách home %.0f → velocityMoveTo", dCheck))
+            velocityMoveTo(config.HOME_POS, 15, true)
+            task.wait(0.3)
+            
+            local rCheck2 = getHRP()
+            if rCheck2 then
+                local dCheck2 = dist(rCheck2.Position, config.HOME_POS)
+                if dCheck2 > 100 then
+                    log("🚨 Vẫn xa → FORCE TELE")
+                    forceTeleHome()
+                    task.wait(0.3)
+                end
+            end
+        end
+    end
+
     local rEnd = getHRP()
     if rEnd then pcall(function()
         rEnd.AssemblyLinearVelocity = Vector3.zero
         rEnd.AssemblyAngularVelocity = Vector3.zero
     end) end
     
-    -- ⭐ v9.9: Force tele nếu vẫn xa home
-    local rFinal = getHRP()
-    if rFinal then
-        local dFinal = dist(rFinal.Position, config.HOME_POS)
-        if dFinal > 100 then
-            log(string.format("🚨 Vẫn xa home %.0f → FORCE TELE", dFinal))
-            forceTeleHome()
-            task.wait(0.3)
-        end
-    end
-    
-    -- ⭐ v9.9: Force visible sau recovery
+    -- ⭐ v10.0: Force visible + running
     forceVisible()
+    forceRunningState()
 
     log(string.format("✅ Về home (%.2fs, recovery x%d, restart x%d)",
         os.clock() - startTime, recoveryAttempts, restartCount))
@@ -1231,7 +1287,9 @@ local function startWatchdog()
             task.wait(2)
             if not isRunning then break end
 
-            -- ⭐ v9.9: Check visible mỗi 4s
+            -- ⭐ v10.0: Force Running + Visible mỗi 2s
+            forceRunningState()
+            
             local c = P.Character
             if c then
                 local hrp = c:FindFirstChild("HumanoidRootPart")
@@ -1553,7 +1611,7 @@ function M.start()
     cycleStartTime = 0
     lastClearTime = os.clock()
     isRunning = true
-    log("▶ START v9.9 — " .. #config.TARGETS .. " map(s)")
+    log("▶ START v10.0 — " .. #config.TARGETS .. " map(s)")
     startWatchdog()
     task.spawn(mainLoop)
 end
