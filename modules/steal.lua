@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v10.0 — Force Running state + Fix stuck sau recovery
+-- STEAL MODULE v10.1 — Bay sát prompt + Force Running + Fix tàn hình
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -32,7 +32,6 @@ local config = {
 
     PRIORITY_INCOME    = false,
     PRIORITY_THRESHOLD = 1000000,
-
     BIG_EGG_MODE       = false,
 
     HOME_FLY_ABSOLUTE_Y = 100,
@@ -44,6 +43,8 @@ local config = {
 
     FOREST_RADIUS       = 300,
     CARRY_WAIT_MAX      = 5,
+    PROMPT_NEAR_DIST    = 12,    -- ⭐ Ngưỡng bay sát prompt
+    PROMPT_SKIP_DIST    = 15,    -- ⭐ Ngưỡng skip fire nếu quá xa
 
     SPEED          = 1500,
     SPEED_CAP      = 500,
@@ -128,6 +129,15 @@ local function getEggRealMap(eggPos)
     return closestMap
 end
 
+local function getPromptPos(prompt)
+    if not prompt or not prompt.Parent then return nil end
+    local part = prompt.Parent
+    if part:IsA("BasePart") then return part.Position
+    elseif part:IsA("Attachment") then return part.WorldPosition
+    elseif part.Parent and part.Parent:IsA("BasePart") then return part.Parent.Position end
+    return nil
+end
+
 local function forceTeleHome()
     local r = getHRP()
     if r then pcall(function()
@@ -137,7 +147,6 @@ local function forceTeleHome()
     end) end
 end
 
--- ⭐ v10.0: Force state Running để lấy lại quyền control velocity
 local function forceRunningState()
     local hum = getHum()
     if hum then pcall(function()
@@ -150,7 +159,6 @@ local function forceRunningState()
     end) end
 end
 
--- ⭐ v9.9: Force reset transparency (fix tàn hình)
 local function forceVisible()
     local c = P.Character
     if not c then return end
@@ -247,7 +255,6 @@ local function getEggInfoAtPos(eggPos, radius)
     return income, best.AssetScale or 1, best.BaseMutation, best.Uid or best.UID
 end
 
--- ⭐ v9.9: Big egg — loop candidate từ to → nhỏ
 local function findBiggestEgg()
     local hrp = getHRP()
     if not hrp then return nil, nil, nil, nil end
@@ -299,12 +306,7 @@ local function findBiggestEgg()
                     or ((v.ObjectText or "") == "Egg"
                         and (v.ActionText or ""):lower():find("steal", 1, true))
                 if isEgg then
-                    local part = v.Parent
-                    local ppos
-                    if part and part:IsA("BasePart") then ppos = part.Position
-                    elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
-                    elseif part and part.Parent and part.Parent:IsA("BasePart") then
-                        ppos = part.Parent.Position end
+                    local ppos = getPromptPos(v)
                     if ppos and dist(ppos, config.HOME_POS) > 150 then
                         local nearestMap, nearestDist = nil, 99999
                         for _, m in ipairs(ALL_MAPS) do
@@ -363,12 +365,7 @@ local function findBiggestEgg()
                 or ((v.ObjectText or "") == "Egg"
                     and (v.ActionText or ""):lower():find("steal", 1, true))
             if isEgg then
-                local part = v.Parent
-                local ppos
-                if part and part:IsA("BasePart") then ppos = part.Position
-                elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
-                elseif part and part.Parent and part.Parent:IsA("BasePart") then
-                    ppos = part.Parent.Position end
+                local ppos = getPromptPos(v)
                 if ppos then
                     table.insert(allPrompts, { prompt = v, pos = ppos })
                 end
@@ -390,8 +387,8 @@ local function findBiggestEgg()
             matchedPrompt = bestP
             matchedPos = cand.pos
             matchedCand = cand
-            log(string.format("✅ Match: %s @ %s (prompt cách %.0f studs, radius %.0f)",
-                cand.category, cand.map.name, bestD, radius))
+            log(string.format("✅ Match: %s @ %s (cách %.0f studs)",
+                cand.category, cand.map.name, bestD))
             break
         else
             log(string.format("⚠ %s @ %s không có prompt trong %.0f studs → thử tiếp",
@@ -497,12 +494,7 @@ local function findHighestIncomeEgg()
                 or ((v.ObjectText or "") == "Egg"
                     and (v.ActionText or ""):lower():find("steal", 1, true))
             if isEgg then
-                local part = v.Parent
-                local ppos
-                if part and part:IsA("BasePart") then ppos = part.Position
-                elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
-                elseif part and part.Parent and part.Parent:IsA("BasePart") then
-                    ppos = part.Parent.Position end
+                local ppos = getPromptPos(v)
                 if ppos then
                     local d = (ppos - best.pos).Magnitude
                     if d < bestPromptDist then
@@ -540,12 +532,7 @@ local function findForestEggOnly()
                 or ((v.ObjectText or "") == "Egg"
                     and (v.ActionText or ""):lower():find("steal", 1, true))
             if isEgg then
-                local part = v.Parent
-                local ppos
-                if part and part:IsA("BasePart") then ppos = part.Position
-                elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
-                elseif part and part.Parent and part.Parent:IsA("BasePart") then
-                    ppos = part.Parent.Position end
+                local ppos = getPromptPos(v)
                 if ppos then
                     local dToForest = dist(ppos, forestMap.pos)
                     if dToForest < config.FOREST_RADIUS then
@@ -572,13 +559,7 @@ local function findEggInTargets()
                 or ((v.ObjectText or "") == "Egg"
                     and (v.ActionText or ""):lower():find("steal", 1, true))
             if isEgg then
-                local part = v.Parent
-                local ppos
-                if part and part:IsA("BasePart") then ppos = part.Position
-                elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
-                elseif part and part.Parent and part.Parent:IsA("BasePart") then
-                    ppos = part.Parent.Position end
-
+                local ppos = getPromptPos(v)
                 if ppos then
                     local realMap = getEggRealMap(ppos)
                     if realMap then
@@ -635,12 +616,7 @@ local function findPromptSteal(pos, radius)
                 or ((v.ObjectText or "") == "Egg"
                     and (v.ActionText or ""):lower():find("steal", 1, true))
             if isEgg then
-                local part = v.Parent
-                local ppos
-                if part and part:IsA("BasePart") then ppos = part.Position
-                elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
-                elseif part and part.Parent and part.Parent:IsA("BasePart") then
-                    ppos = part.Parent.Position end
+                local ppos = getPromptPos(v)
                 if ppos then
                     local d = dist(ppos, pos)
                     if d < bestDist then best, bestDist = v, d end
@@ -783,15 +759,32 @@ local function teleToMap(targetPos)
         end) end
         task.wait(0.01)
     end
-    -- ⭐ v10.0: Force Running sau tele
     task.spawn(function()
         task.wait(0.15)
         forceRunningState()
     end)
 end
 
+-- ⭐⭐⭐ v10.1: firePromptOnce check khoảng cách
 local function firePromptOnce(prompt)
     if not prompt or not prompt.Parent then return false end
+    
+    -- ⭐ Check khoảng cách
+    local hrp = getHRP()
+    local ppos = getPromptPos(prompt)
+    
+    if hrp and ppos then
+        local d = dist(hrp.Position, ppos)
+        if d > config.PROMPT_SKIP_DIST then
+            log(string.format("⚠ firePrompt: cách %.0f studs > %d → SKIP", 
+                d, config.PROMPT_SKIP_DIST))
+            return false
+        end
+    end
+    
+    -- ⭐ Force Running
+    forceRunningState()
+    
     pcall(function()
         prompt.Enabled = true
         prompt.HoldDuration = 0
@@ -899,7 +892,6 @@ local function velocityFlyTo(targetPos, timeout, speed)
     return false
 end
 
--- ⭐ v10.0: goHomeWithRecovery với force Running state
 local function goHomeWithRecovery()
     log("🏃 BAY VỀ HOME (Y=100)")
     local startTime = os.clock()
@@ -912,7 +904,6 @@ local function goHomeWithRecovery()
     local flyY = config.HOME_FLY_ABSOLUTE_Y or 100
     log(string.format("🏃 Bay về Y=%.1f (cố định)", flyY))
 
-    -- ⭐ v10.0: Force Running ban đầu
     forceRunningState()
 
     local t1 = os.clock()
@@ -943,7 +934,6 @@ local function goHomeWithRecovery()
         end
         keepHealth()
         
-        -- ⭐ v9.9: Force tele nếu Y quá thấp
         if r.Position.Y < 10 then
             log("🚨 Y quá thấp (" .. math.floor(r.Position.Y) .. ") → FORCE TELE HOME")
             forceTeleHome()
@@ -956,7 +946,6 @@ local function goHomeWithRecovery()
         local state = hum:GetState()
         local hpNow = hum.Health
 
-        -- ⭐ v10.0: Force Running nếu đang Physics/PlatformStanding/FallingDown
         if state == Enum.HumanoidStateType.Physics 
             or state == Enum.HumanoidStateType.PlatformStanding
             or state == Enum.HumanoidStateType.FallingDown then
@@ -995,12 +984,7 @@ local function goHomeWithRecovery()
                             or ((v.ObjectText or "") == "Egg"
                                 and (v.ActionText or ""):lower():find("steal", 1, true))
                         if isEgg then
-                            local part = v.Parent
-                            local ppos
-                            if part and part:IsA("BasePart") then ppos = part.Position
-                            elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
-                            elseif part and part.Parent and part.Parent:IsA("BasePart") then
-                                ppos = part.Parent.Position end
+                            local ppos = getPromptPos(v)
                             if ppos then
                                 local d = dist(ppos, searchPos)
                                 if d < nearestDist then
@@ -1021,10 +1005,26 @@ local function goHomeWithRecovery()
 
                     for i = 1, config.MAX_FIRES do
                         if not isRunning then break end
+                        
+                        -- ⭐ v10.1: Force Running trước fire
+                        forceRunningState()
+                        
                         local h3 = getHRP()
                         if h3 then
                             local p3 = findPromptSteal(h3.Position, 150)
-                            if p3 then firePromptOnce(p3) end
+                            if p3 then
+                                -- ⭐ v10.1: Bay sát prompt
+                                local p3pos = getPromptPos(p3)
+                                if p3pos then
+                                    local dP = dist(h3.Position, p3pos)
+                                    if dP > config.PROMPT_NEAR_DIST then
+                                        log(string.format("⚠ Prompt cách %.0f → bay sát", dP))
+                                        velocityMoveTo(p3pos, 5)
+                                        task.wait(0.1)
+                                    end
+                                end
+                                firePromptOnce(p3)
+                            end
                         end
                         task.wait(config.STEAL_VERIFY_WAIT)
                         local stolenCheck, _ = hasStolenSlot(slotsBeforePickup)
@@ -1040,7 +1040,6 @@ local function goHomeWithRecovery()
 
                     lastTargetPos = nearestPos
 
-                    -- ⭐ v10.0: Force state Running ngay
                     local humReset = getHum()
                     if humReset then
                         pcall(function()
@@ -1072,7 +1071,6 @@ local function goHomeWithRecovery()
             local dir = targetAir - r.Position
             if dir.Magnitude > 0 then
                 r.AssemblyLinearVelocity = dir.Unit * (config.FLY_HOME_SPEED or 500)
-                -- ⭐ v10.0: Nudge CFrame để không bị stuck
                 if dir.Magnitude > 100 then
                     local nudge = math.min(dir.Magnitude, 200) * 0.05
                     r.CFrame = CFrame.new(r.Position + dir.Unit * nudge)
@@ -1085,7 +1083,6 @@ local function goHomeWithRecovery()
     log("⬇ Rớt xuống home")
     velocityFlyTo(config.HOME_POS, 5, config.DROP_SPEED or 250)
 
-    -- ⭐ v10.0: Check vị trí cuối, nếu xa → fallback velocityMoveTo
     local rCheck = getHRP()
     if rCheck then
         local dCheck = dist(rCheck.Position, config.HOME_POS)
@@ -1112,7 +1109,6 @@ local function goHomeWithRecovery()
         rEnd.AssemblyAngularVelocity = Vector3.zero
     end) end
     
-    -- ⭐ v10.0: Force visible + running
     forceVisible()
     forceRunningState()
 
@@ -1177,6 +1173,7 @@ local function baitBoss(timeout)
     return false
 end
 
+-- ⭐⭐⭐ v10.1: stealAtPos với bay sát prompt
 local function stealAtPos(targetPos, label, expectedIncome)
     log("═══════")
     log("STEAL TẠI " .. label)
@@ -1235,10 +1232,26 @@ local function stealAtPos(targetPos, label, expectedIncome)
 
     for i = 1, config.MAX_FIRES do
         if not isRunning then return false end
+        
+        -- ⭐ v10.1: Force Running trước fire
+        forceRunningState()
+        
         local h2 = getHRP()
         if h2 then
             local p2 = findPromptSteal(h2.Position, 150)
-            if p2 then firePromptOnce(p2) end
+            if p2 then
+                -- ⭐ v10.1: Bay sát prompt
+                local p2pos = getPromptPos(p2)
+                if p2pos then
+                    local dP = dist(h2.Position, p2pos)
+                    if dP > config.PROMPT_NEAR_DIST then
+                        log(string.format("⚠ Prompt cách %.0f → bay sát", dP))
+                        velocityMoveTo(p2pos, 5)
+                        task.wait(0.1)
+                    end
+                end
+                firePromptOnce(p2)
+            end
         end
         task.wait(config.STEAL_VERIFY_WAIT)
         local _, countNow = getSlotSet()
@@ -1279,48 +1292,55 @@ local function checkEggReset()
     return false
 end
 
+-- ⭐ v10.1: Watchdog force visible mỗi 0.5s
 local function startWatchdog()
     task.spawn(function()
         lastMoveCheck = os.clock()
         lastMovePos = nil
+        local tick = 0
         while isRunning do
-            task.wait(2)
+            task.wait(0.5)
             if not isRunning then break end
+            tick = tick + 1
 
-            -- ⭐ v10.0: Force Running + Visible mỗi 2s
+            -- ⭐ v10.1: Force Running + Visible mỗi 0.5s
             forceRunningState()
             
             local c = P.Character
             if c then
-                local hrp = c:FindFirstChild("HumanoidRootPart")
-                if hrp and hrp.Transparency > 0.5 then
-                    log("🚨 HRP trong suốt → force visible")
+                local hrpC = c:FindFirstChild("HumanoidRootPart")
+                if hrpC and hrpC.Transparency > 0.1 then
+                    if tick % 4 == 0 then
+                        log("🚨 HRP trong suốt (" .. math.floor(hrpC.Transparency * 100) .. "%) → force visible")
+                    end
                     forceVisible()
                 end
             end
 
-            local hrp = getHRP()
-            if not hrp then
-                lastMovePos = nil
-                lastMoveCheck = os.clock()
-            else
-                if lastMovePos then
-                    local moved = dist(hrp.Position, lastMovePos)
-                    if moved < 5 then
-                        if os.clock() - lastMoveCheck > 15 then
-                            log("🚨 WATCHDOG: Đứng yên >15s → FORCE TELE HOME")
-                            forceTeleHome()
-                            task.wait(0.5)
+            if tick % 4 == 0 then
+                local hrp = getHRP()
+                if not hrp then
+                    lastMovePos = nil
+                    lastMoveCheck = os.clock()
+                else
+                    if lastMovePos then
+                        local moved = dist(hrp.Position, lastMovePos)
+                        if moved < 5 then
+                            if os.clock() - lastMoveCheck > 15 then
+                                log("🚨 WATCHDOG: Đứng yên >15s → FORCE TELE HOME")
+                                forceTeleHome()
+                                task.wait(0.5)
+                                lastMoveCheck = os.clock()
+                                lastMovePos = nil
+                            end
+                        else
+                            lastMovePos = hrp.Position
                             lastMoveCheck = os.clock()
-                            lastMovePos = nil
                         end
                     else
                         lastMovePos = hrp.Position
                         lastMoveCheck = os.clock()
                     end
-                else
-                    lastMovePos = hrp.Position
-                    lastMoveCheck = os.clock()
                 end
             end
         end
@@ -1377,10 +1397,18 @@ local function mainLoop()
                 log("⚡ Steal Forest")
                 for i = 1, 5 do
                     if not isRunning then break end
+                    forceRunningState()
                     local h2 = getHRP()
                     if h2 then
                         local p2 = findPromptSteal(h2.Position, config.FOREST_RADIUS)
-                        if p2 then firePromptOnce(p2) end
+                        if p2 then
+                            local p2pos = getPromptPos(p2)
+                            if p2pos and dist(h2.Position, p2pos) > config.PROMPT_NEAR_DIST then
+                                velocityMoveTo(p2pos, 5)
+                                task.wait(0.1)
+                            end
+                            firePromptOnce(p2)
+                        end
                     end
                     task.wait(0.3)
                     local stolen, slotName = hasStolenSlot(forestBefore)
@@ -1467,12 +1495,7 @@ local function mainLoop()
                                             or ((v.ObjectText or "") == "Egg"
                                                 and (v.ActionText or ""):lower():find("steal", 1, true))
                                         if isEgg then
-                                            local part = v.Parent
-                                            local pp
-                                            if part and part:IsA("BasePart") then pp = part.Position
-                                            elseif part and part:IsA("Attachment") then pp = part.WorldPosition
-                                            elseif part and part.Parent and part.Parent:IsA("BasePart") then
-                                                pp = part.Parent.Position end
+                                            local pp = getPromptPos(v)
                                             if pp then
                                                 local d = (pp - lastTargetPos).Magnitude
                                                 if d < pd then
@@ -1592,6 +1615,14 @@ task.spawn(function()
             then
                 carryingEggFlag = true
                 log("⚠ Chat: Already carrying an egg!")
+            elseif msg:find("get closer", 1, true)
+                or msg:find("knocked down", 1, true)
+            then
+                log("⚠ Chat: Get closer / knocked down → force Running")
+                local hum = getHum()
+                if hum then pcall(function()
+                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                end) end
             end
         end)
     end)
@@ -1611,7 +1642,7 @@ function M.start()
     cycleStartTime = 0
     lastClearTime = os.clock()
     isRunning = true
-    log("▶ START v10.0 — " .. #config.TARGETS .. " map(s)")
+    log("▶ START v10.1 — " .. #config.TARGETS .. " map(s)")
     startWatchdog()
     task.spawn(mainLoop)
 end
