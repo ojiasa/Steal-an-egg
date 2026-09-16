@@ -364,7 +364,7 @@ local function createToggleRow(parent, labelText, defaultState, hasTextBox, onTo
         box.FocusLost:Connect(function()
             local num = tonumber(box.Text)
             if num and onInputChanged then
-                onInputChanged(num * 1000000)
+                onInputChanged(num * 10000000)
             end
         end)
     end
@@ -592,7 +592,7 @@ local autoSellToggle = createToggleRow(pagePet, "Auto Sell Pet (value m)", API.S
     end
 end, function(value)
     API.SM_SetThreshold(value)
-end, "1")
+end, "10")
 autoSellToggle.LayoutOrder = 2
 
 local autoEquipToggle = createToggleRow(pagePet, "Auto Equip Best Pet", API.SM_IsAutoEquip(), false, function(state)
