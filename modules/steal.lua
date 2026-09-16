@@ -1,14 +1,18 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v10.3
+-- STEAL MODULE v10.4
 -- Flow: Home → Forest (velocity) → Bait boss → Knockback → TELE tới egg
---       → Steal → Về home → Check egg còn trên map?
--- v10.3: Fix tele sớm về home, warmup bait, giữ im sau tele
+--       → Steal → Về home (rebuild) → Check egg còn trên map?
+-- v10.4: Fix bay vút khi tele (freeze trước replace)
+--        Fix tàng hình (rebuild đầy đủ: camera + transparency)
+--        Rebuild cả khi tele VÀ khi về home
+--        Giảm nửa warmup time
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
 local RS                 = game:GetService("ReplicatedStorage")
 local W                  = workspace
 local ProximityPromptSvc = game:GetService("ProximityPromptService")
+local StarterPlayer      = game:GetService("StarterPlayer")
 
 local M = {}
 
@@ -50,11 +54,11 @@ local config = {
     FOREST_RUN_TIMEOUT  = 60,
     FOREST_RADIUS       = 300,
 
-    -- ⭐ v10.3: Warmup times
-    FOREST_WARMUP       = 1.0,    -- đứng yên tại forest trước khi steal/bait
-    BAIT_WARMUP         = 1.0,    -- đứng yên trước khi detect knockback
-    TELE_HOLD           = 0.8,    -- giữ im sau tele
-    TELE_STABILIZE      = 0.5,    -- chờ thêm sau tele
+    -- ⭐ v10.4: Giảm nửa warmup
+    FOREST_WARMUP       = 0.5,
+    BAIT_WARMUP         = 0.5,
+    TELE_HOLD           = 0.4,
+    TELE_STABILIZE      = 0.25,
 
     BAIT_TIMEOUT   = 15,
     KB_HEALTH_DROP = 0.1,
@@ -68,7 +72,7 @@ local config = {
     MAX_RETRY      = 3,
     STEAL_VERIFY_WAIT = 0.35,
     STEAL_TIMEOUT  = 1.5,
-    CHAT_WAIT      = 1.5,          -- ⭐ v10.3: 1.5s theo yêu cầu
+    CHAT_WAIT      = 1.5,
     EGG_VERIFY_R   = 40,
 
     CYCLE_TIMEOUT  = 120,
@@ -125,7 +129,7 @@ local function forceRunningState()
     end) end
 end
 
--- ⭐ v10.3: Giữ nhân vật im hoàn toàn (velocity + angular = 0, CFrame giữ nguyên)
+-- ⭐ v10.4: Bỏ MoveTo, chỉ set CFrame + velocity = 0
 local function freezeAt(position, duration)
     duration = duration or 0.5
     local t0 = os.clock()
@@ -142,7 +146,6 @@ local function freezeAt(position, duration)
             hrp.AssemblyLinearVelocity = Vector3.zero
             hrp.AssemblyAngularVelocity = Vector3.zero
         end)
-        pcall(function() hum:MoveTo(hrp.Position) end)
         task.wait(0.02)
     end
 end
@@ -248,7 +251,6 @@ local function verifyEggExists(eggPos, radius)
     return false
 end
 
--- ⭐ v10.3: Chỉ dùng EggState (chặt, không false positive)
 local function isCarryingEggStrict()
     if not EggState then return false end
     local ok, fd = pcall(EggState.ReadFieldEggs)
@@ -267,7 +269,6 @@ end
 
 local function isCarryingEgg()
     if isCarryingEggStrict() then return true end
-    -- Fallback: prompt Drop
     for _, v in ipairs(W:GetDescendants()) do
         if v:IsA("ProximityPrompt") and v.Enabled then
             local isEggPrompt = v.Name == "CarryAreaEgg" or v.Name == "DropEgg"
@@ -615,8 +616,8 @@ local function resetAnimateScript()
     pcall(function()
         local old = c:FindFirstChild("Animate")
         if old then old:Destroy() end
-        task.wait(0.1)
-        local starter = game:GetService("StarterPlayer"):FindFirstChild("StarterCharacterScripts")
+        task.wait(0.05)
+        local starter = StarterPlayer:FindFirstChild("StarterCharacterScripts")
         if starter then
             local tpl = starter:FindFirstChild("Animate")
             if tpl then
@@ -633,66 +634,197 @@ local function resetAnimateScript()
     end)
 end
 
-local function replaceHumanoidDirect()
-    local c = P.Character; if not c then return false end
-    local old = c:FindFirstChildOfClass("Humanoid"); if not old then return false end
-    local savedHip = old.HipHeight or 2
-    local savedJump = old.JumpPower or 50
-    local savedMax = old.MaxHealth or 100
-    local savedHP = old.Health or 100
-    local savedRig = old.RigType or Enum.HumanoidRigType.R15
-    local savedSlope = old.MaxSlopeAngle or 89
-    pcall(function() old:Destroy() end)
-    local new = Instance.new("Humanoid"); new.Parent = c
+-- ⭐⭐⭐ v10.4: REBUILD ĐẦY ĐỦ (fix tàng hình)
+local function rebuildCharacterFull()
+    local c = P.Character
+    if not c then return false end
+
+    local oldHum = c:FindFirstChildOfClass("Humanoid")
+    local savedHipHeight, savedJumpPower = 2, 50
+    local savedMaxHealth, savedHealth = 100, 100
+    local savedRigType = Enum.HumanoidRigType.R15
+
+    if oldHum then
+        savedHipHeight = oldHum.HipHeight
+        savedJumpPower = oldHum.JumpPower
+        savedMaxHealth = oldHum.MaxHealth
+        savedHealth = oldHum.Health
+        savedRigType = oldHum.RigType
+        pcall(function() oldHum:Destroy() end)
+    end
+
+    local newHum = Instance.new("Humanoid")
+    newHum.Parent = c
     pcall(function()
-        new.HipHeight = savedHip
-        new.JumpPower = savedJump
-        new.MaxHealth = savedMax
-        new.Health = savedHP
-        new.WalkSpeed = 60
-        new.RigType = savedRig
-        new.MaxSlopeAngle = savedSlope
-        new.AutoRotate = true
-        new:SetStateEnabled(Enum.HumanoidStateType.Dying, false)
-        new:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
-        new:SetStateEnabled(Enum.HumanoidStateType.Running, true)
-        new:SetStateEnabled(Enum.HumanoidStateType.RunningNoPhysics, true)
-        new:SetStateEnabled(Enum.HumanoidStateType.Landed, true)
-        new:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
-        new:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+        newHum.HipHeight = savedHipHeight
+        newHum.JumpPower = savedJumpPower
+        newHum.MaxHealth = savedMaxHealth
+        newHum.Health = savedHealth
+        newHum.WalkSpeed = 60
+        newHum.RigType = savedRigType
+        newHum.MaxSlopeAngle = 89
+        newHum.AutoRotate = true
+        newHum.BreakJointsOnDeath = false
+        newHum:SetStateEnabled(Enum.HumanoidStateType.Dying, false)
+        newHum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+        newHum:SetStateEnabled(Enum.HumanoidStateType.Running, true)
+        newHum:SetStateEnabled(Enum.HumanoidStateType.RunningNoPhysics, true)
+        newHum:SetStateEnabled(Enum.HumanoidStateType.Landed, true)
+        newHum:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
+        newHum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
     end)
+
+    -- Animator mới
     pcall(function()
-        if not c:FindFirstChildOfClass("Animator") then
-            local a = Instance.new("Animator"); a.Parent = new
+        local oldAnim = newHum:FindFirstChildOfClass("Animator")
+        if oldAnim then oldAnim:Destroy() end
+        local anim = Instance.new("Animator")
+        anim.Parent = newHum
+    end)
+
+    -- Load animations
+    pcall(function()
+        local isR15 = (newHum.RigType == Enum.HumanoidRigType.R15)
+        local anim = newHum:FindFirstChildOfClass("Animator")
+        if not anim then return end
+        local ids = isR15 and {
+            "rbxassetid://507766666","rbxassetid://507766951","rbxassetid://507777826",
+            "rbxassetid://507767714","rbxassetid://507765000","rbxassetid://507767968",
+            "rbxassetid://507765644","rbxassetid://507784897","rbxassetid://507785072",
+        } or {
+            "rbxassetid://180435571","rbxassetid://180435792","rbxassetid://180426354",
+            "rbxassetid://125750702","rbxassetid://180436148","rbxassetid://180436334",
+            "rbxassetid://182393478",
+        }
+        for _, id in ipairs(ids) do
+            pcall(function()
+                local a = Instance.new("Animation")
+                a.AnimationId = id
+                anim:LoadAnimation(a)
+            end)
         end
     end)
-    task.spawn(restoreAnimations)
-    task.spawn(function()
-        task.wait(0.1)
-        resetAnimateScript()
-        task.wait(0.2)
-        local h = c:FindFirstChildOfClass("Humanoid")
-        if h then pcall(function() h:ChangeState(Enum.HumanoidStateType.Running) end) end
+
+    -- Reset Animate script
+    pcall(function()
+        local old = c:FindFirstChild("Animate")
+        if old then old:Destroy() end
+        task.wait(0.05)
+        local starter = StarterPlayer:FindFirstChild("StarterCharacterScripts")
+        if starter then
+            local tpl = starter:FindFirstChild("Animate")
+            if tpl then
+                local new = tpl:Clone()
+                new.Parent = c
+                new.Disabled = false
+                return
+            end
+        end
+        local ps = P:FindFirstChild("PlayerScripts")
+        if ps then
+            local tpl = ps:FindFirstChild("Animate")
+            if tpl then
+                local new = tpl:Clone()
+                new.Parent = c
+                new.Disabled = false
+            end
+        end
     end)
+
+    -- ⭐ Fix CameraSubject
+    task.wait(0.1)
+    local camera = W.CurrentCamera
+    if camera then
+        pcall(function()
+            camera.CameraSubject = newHum
+            camera.CameraType = Enum.CameraType.Custom
+        end)
+    end
+
+    -- ⭐ Fix Transparency (fix tàng hình)
+    for _, part in ipairs(c:GetDescendants()) do
+        if part:IsA("BasePart") then
+            pcall(function() part.LocalTransparencyModifier = 0 end)
+        elseif part:IsA("Decal") or part:IsA("Texture") then
+            pcall(function() part.Transparency = 0 end)
+        end
+    end
+
+    -- Force Running
+    task.wait(0.1)
+    pcall(function()
+        newHum:ChangeState(Enum.HumanoidStateType.Running)
+    end)
+
     return true
 end
 
--- ⭐⭐⭐ v10.3: TELE + GIỮ IM (chống hất tung)
+-- ⭐⭐⭐ v10.4: TELE + FREEZE TRƯỚC REPLACE
 local function teleToMapStable(targetPos)
-    log("📍 TELE + giữ im (chống hất tung)")
+    log("📍 TELE + rebuild")
+
+    -- Freeze TRƯỚC khi tele
     local hrp = getHRP()
     if hrp then pcall(function()
-        hrp.CFrame = CFrame.new(targetPos)
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+    end) end
+    task.wait(0.05)
+
+    -- Tele lên cao 8 studs
+    local safePos = targetPos + Vector3.new(0, 8, 0)
+    hrp = getHRP()
+    if hrp then pcall(function()
+        hrp.CFrame = CFrame.new(safePos)
         hrp.AssemblyLinearVelocity = Vector3.zero
         hrp.AssemblyAngularVelocity = Vector3.zero
     end) end
 
-    replaceHumanoidDirect()
+    -- Freeze 0.3s TRƯỚC replace (assembly "nguội")
+    freezeAt(safePos, 0.3)
 
-    -- ⭐ v10.3: Giữ im 0.8s (set CFrame+velocity=0 liên tục)
-    freezeAt(targetPos, config.TELE_HOLD or 0.8)
+    -- Rebuild nếu state xấu
+    local hum = getHum()
+    if hum then
+        local state = hum:GetState()
+        if state == Enum.HumanoidStateType.Physics
+            or state == Enum.HumanoidStateType.PlatformStanding
+            or state == Enum.HumanoidStateType.Ragdoll
+            or state == Enum.HumanoidStateType.FallingDown then
+            log("   ⚠ State xấu (" .. tostring(state) .. ") → rebuild")
+            rebuildCharacterFull()
+            freezeAt(safePos, 0.3)
+        end
+    end
 
-    log("   ✅ Humanoid ổn định")
+    -- Rớt xuống target (Y luôn âm)
+    local t0 = os.clock()
+    while os.clock() - t0 < 1.5 do
+        if not isRunning then return end
+        local h, r = getHum(), getHRP()
+        if not h or not r then break end
+        keepHealth(); forceRunningState()
+        local d = dist(r.Position, targetPos)
+        if d < 5 then break end
+        pcall(function()
+            local dir = targetPos - r.Position
+            local horiz = Vector3.new(dir.X, 0, dir.Z)
+            if horiz.Magnitude > 0.1 then
+                local nrm = horiz.Unit
+                r.AssemblyLinearVelocity = Vector3.new(
+                    nrm.X * math.min(30, horiz.Magnitude * 2),
+                    -30,
+                    nrm.Z * math.min(30, horiz.Magnitude * 2)
+                )
+            else
+                r.AssemblyLinearVelocity = Vector3.new(0, -30, 0)
+            end
+        end)
+        task.wait(0.02)
+    end
+
+    freezeAt(targetPos, config.TELE_HOLD or 0.4)
+    log("   ✅ Ổn định")
 end
 
 local function firePromptOnce(prompt)
@@ -792,13 +924,14 @@ local function velocityFlyTo(targetPos, timeout, speed)
     return false
 end
 
--- ⭐ v10.3: runToForest + đứng yên sau khi tới
+-- ⭐ v10.4: runToForest với DAMPING + Y=0
 local function runToForest()
     log(string.format("🏃 CHẠY RA FOREST (velocity %d)", config.FOREST_RUN_SPEED))
     local t0 = os.clock()
     local lastPos = nil
     local stuckCount = 0
     local arrived = false
+    local ARRIVE = config.ARRIVE_DIST + 15
 
     while isRunning and os.clock() - t0 < config.FOREST_RUN_TIMEOUT do
         local hum, hrp = getHum(), getHRP()
@@ -806,22 +939,31 @@ local function runToForest()
         keepHealth(); forceRunningState()
 
         local d = dist(hrp.Position, config.FOREST_POS)
-        if d < config.ARRIVE_DIST + 20 then
-            log(string.format("✅ Đã tới Forest (còn %.1f studs, %.1fs)",
-                d, os.clock() - t0))
-            pcall(function() hrp.AssemblyLinearVelocity = Vector3.zero end)
+        if d < ARRIVE then
+            pcall(function()
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+            end)
+            log(string.format("✅ Đã tới Forest (còn %.1f studs, %.1fs)", d, os.clock() - t0))
             arrived = true
             break
         end
 
+        -- ⭐ Damping khi gần tới
+        local speed = config.FOREST_RUN_SPEED
+        if d < 60 then
+            speed = math.max(20, config.FOREST_RUN_SPEED * (d / 60))
+        end
+
         pcall(function()
             local dir = config.FOREST_POS - hrp.Position
-            if dir.Magnitude > 0 then
+            if dir.Magnitude > 0.1 then
                 local nrm = dir.Unit
+                -- ⭐ Ép Y = 0 (tránh trôi dọc)
                 hrp.AssemblyLinearVelocity = Vector3.new(
-                    nrm.X * config.FOREST_RUN_SPEED,
-                    hrp.AssemblyLinearVelocity.Y,
-                    nrm.Z * config.FOREST_RUN_SPEED
+                    nrm.X * speed,
+                    0,
+                    nrm.Z * speed
                 )
             end
         end)
@@ -847,13 +989,13 @@ local function runToForest()
         return false
     end
 
-    -- ⭐ v10.3: Đứng yên 1s để humanoid ổn định (tránh momentum)
-    log(string.format("   ⏸ Đứng yên %.1fs cho humanoid ổn định...", config.FOREST_WARMUP or 1.0))
-    freezeAt(nil, config.FOREST_WARMUP or 1.0)
+    log(string.format("   ⏸ Đứng yên %.1fs cho humanoid ổn định...", config.FOREST_WARMUP or 0.5))
+    freezeAt(nil, config.FOREST_WARMUP or 0.5)
 
     return true
 end
 
+-- ⭐ v10.4: goHome + REBUILD khi về
 local function goHome()
     log("🏃 BAY VỀ HOME")
     local startTime = os.clock()
@@ -893,8 +1035,13 @@ local function goHome()
     log("⬇ Rớt xuống home")
     velocityFlyTo(config.HOME_POS, 8, config.DROP_SPEED or 250)
 
-    -- ⭐ v10.3: Đứng yên tại home 0.5s
-    freezeAt(config.HOME_POS, 0.5)
+    -- Đứng yên tại home
+    freezeAt(config.HOME_POS, 0.4)
+
+    -- ⭐⭐⭐ v10.4: REBUILD khi về home (dọn state xấu từ boss)
+    log("🔨 Rebuild nhân vật tại home...")
+    rebuildCharacterFull()
+    freezeAt(config.HOME_POS, 0.3)
 
     local rEnd = getHRP()
     if rEnd then pcall(function()
@@ -903,20 +1050,19 @@ local function goHome()
     end) end
     forceRunningState()
 
-    log(string.format("✅ Về home (%.2fs)", os.clock() - startTime))
+    log(string.format("✅ Về home + rebuild (%.2fs)", os.clock() - startTime))
     return true
 end
 
--- ⭐⭐⭐ v10.3: BAIT BOSS với WARMUP
+-- BAIT BOSS
 local function baitBoss(timeout)
     timeout = timeout or config.BAIT_TIMEOUT
     log("🎯 Bait boss...")
 
-    -- ⭐ v10.3: Warmup — đứng yên 1s, KHÔNG detect
-    log(string.format("   ⏸ Warmup %.1fs (đứng yên, chưa detect)...", config.BAIT_WARMUP or 1.0))
-    freezeAt(nil, config.BAIT_WARMUP or 1.0)
+    log(string.format("   ⏸ Warmup %.1fs...", config.BAIT_WARMUP or 0.5))
+    freezeAt(nil, config.BAIT_WARMUP or 0.5)
 
-    log("   ⏳ Bắt đầu detect knockback")
+    log("   ⏳ Detect knockback")
 
     local t0 = os.clock()
     local hum0, hrp0 = getHum(), getHRP()
@@ -948,14 +1094,14 @@ local function baitBoss(timeout)
         end
         if startPos then
             local pd = (hrp.Position - startPos).Magnitude
-            if pd > 15 then  -- ⭐ v10.3: tăng 10 → 15
+            if pd > 15 then
                 log(string.format("💥 SHIFT %.1f", pd)); return true
             end
         end
         if startCFrame then
             local dot = math.clamp(startCFrame.LookVector:Dot(hrp.CFrame.LookVector), -1, 1)
             local angleDiff = math.deg(math.acos(dot))
-            if angleDiff > 60 then  -- ⭐ v10.3: tăng 45° → 60°
+            if angleDiff > 60 then
                 log(string.format("💥 ROTATE %.1f°", angleDiff)); return true
             end
         end
@@ -967,7 +1113,6 @@ local function baitBoss(timeout)
     return false
 end
 
--- ⭐⭐⭐ v10.3: stealAtPos — BỎ check carry đầu hàm
 local function stealAtPos(targetPos, label, eggUid)
     log("═══════")
     log("STEAL TẠI " .. label)
@@ -1193,7 +1338,7 @@ local function pickNextEgg()
     end
 end
 
--- ⭐⭐⭐ v10.3: MAIN LOOP với tele stable
+-- MAIN LOOP
 local function mainLoop()
     while isRunning do
         log("═══════════════════════════════")
@@ -1229,13 +1374,10 @@ local function mainLoop()
 
                         local targetPos = eggPos + Vector3.new(0, 3, 0)
 
-                        -- ⭐ v10.3: TELE + giữ im 0.8s
                         teleToMapStable(targetPos)
 
-                        -- ⭐ v10.3: Chờ thêm 0.5s cho ổn định
-                        task.wait(config.TELE_STABILIZE or 0.5)
+                        task.wait(config.TELE_STABILIZE or 0.25)
 
-                        -- ⭐ v10.3: Steal (không check carry sớm)
                         local stolen = stealAtPos(eggPos, eggMap.name, eggUid)
 
                         if stolen then
@@ -1271,7 +1413,6 @@ local function mainLoop()
                             goHome()
                         end
 
-                        -- ⭐ v10.3: Chờ 1.5s rồi tiếp (theo yêu cầu)
                         task.wait(config.CHAT_WAIT)
                     end
                 end
@@ -1327,9 +1468,9 @@ function M.start()
     lastStolenUid = nil
     lastStolenPos = nil
     isRunning = true
-    log("▶ START v10.3")
+    log("▶ START v10.4")
     log(string.format("   Home: %.2f,%.2f,%.2f", config.HOME_POS.X, config.HOME_POS.Y, config.HOME_POS.Z))
-    log(string.format("   Forest speed: %d | Forest warmup: %.1fs | Bait warmup: %.1fs | Tele hold: %.1fs",
+    log(string.format("   Forest speed: %d | Warmup: %.1fs/%.1fs | Tele hold: %.1fs",
         config.FOREST_RUN_SPEED, config.FOREST_WARMUP, config.BAIT_WARMUP, config.TELE_HOLD))
     log(string.format("   Big Egg: %s | Priority Income: %s",
         config.BIG_EGG_MODE and "ON" or "OFF",
@@ -1352,14 +1493,12 @@ end
 function M.setPriorityIncome(enabled)
     config.PRIORITY_INCOME = enabled and true or false
     log("💰 Priority Income: " .. (config.PRIORITY_INCOME and "BẬT" or "TẮT"))
-    log("   Big Egg: " .. (config.BIG_EGG_MODE and "BẬT" or "TẮT"))
     return config.PRIORITY_INCOME
 end
 
 function M.setBigEggMode(enabled)
     config.BIG_EGG_MODE = enabled and true or false
     log("🥚 Big Egg mode: " .. (config.BIG_EGG_MODE and "BẬT" or "TẮT"))
-    log("   Priority Income: " .. (config.PRIORITY_INCOME and "BẬT" or "TẮT"))
     return config.BIG_EGG_MODE
 end
 
@@ -1381,19 +1520,18 @@ function M.setBaitTimeout(n)
     log("🎯 Bait timeout: " .. config.BAIT_TIMEOUT)
 end
 
--- ⭐ v10.3: Set warmup times
 function M.setForestWarmup(n)
-    config.FOREST_WARMUP = n or 1.0
+    config.FOREST_WARMUP = n or 0.5
     log("⏸ Forest warmup: " .. config.FOREST_WARMUP .. "s")
 end
 
 function M.setBaitWarmup(n)
-    config.BAIT_WARMUP = n or 1.0
+    config.BAIT_WARMUP = n or 0.5
     log("⏸ Bait warmup: " .. config.BAIT_WARMUP .. "s")
 end
 
 function M.setTeleHold(n)
-    config.TELE_HOLD = n or 0.8
+    config.TELE_HOLD = n or 0.4
     log("🔒 Tele hold: " .. config.TELE_HOLD .. "s")
 end
 
@@ -1402,13 +1540,11 @@ function M.getAllMaps() return ALL_MAPS end
 function M.isCarrying() return isCarryingEgg() end
 function M.clearStolenUids() stolenEggUids = {}; log("🔄 Clear UIDs") end
 function M.isEggStillOnMap(uid, pos) return isEggStillOnMap(uid, pos) end
-
 function M.isPriorityIncome() return config.PRIORITY_INCOME end
 
 function M.togglePriorityIncome()
     config.PRIORITY_INCOME = not config.PRIORITY_INCOME
     log("💰 Priority Income: " .. (config.PRIORITY_INCOME and "BẬT" or "TẮT"))
-    log("   Big Egg: " .. (config.BIG_EGG_MODE and "BẬT" or "TẮT"))
     return config.PRIORITY_INCOME
 end
 
@@ -1417,7 +1553,6 @@ function M.isBigEggMode() return config.BIG_EGG_MODE end
 function M.toggleBigEggMode()
     config.BIG_EGG_MODE = not config.BIG_EGG_MODE
     log("🥚 Big Egg mode: " .. (config.BIG_EGG_MODE and "BẬT" or "TẮT"))
-    log("   Priority Income: " .. (config.PRIORITY_INCOME and "BẬT" or "TẮT"))
     return config.BIG_EGG_MODE
 end
 
@@ -1434,8 +1569,8 @@ function M.setFlyHomeSpeed(n)
     log("🏃 Fly home speed: " .. config.FLY_HOME_SPEED)
 end
 
-function M.setRecoveryRadius(n) log("📍 Không dùng v10.3") end
-function M.setMaxRecovery(n) log("📍 Không dùng v10.3") end
+function M.setRecoveryRadius(n) log("📍 Không dùng v10.4") end
+function M.setMaxRecovery(n) log("📍 Không dùng v10.4") end
 
 function M.setHomeTimeout(n)
     config.HOME_TIMEOUT = n or 30
@@ -1452,7 +1587,7 @@ function M.setSlowSpeed(n)
     log("🐢 Forest run speed: " .. config.FOREST_RUN_SPEED)
 end
 
-function M.setWarmupTime(n) log("⏱ Không dùng v10.3") end
+function M.setWarmupTime(n) log("⏱ Không dùng v10.4") end
 
 function M.setChatWait(n)
     config.CHAT_WAIT = n or 1.5
@@ -1464,8 +1599,8 @@ function M.setCycleWait(n)
     log("⏱ Cycle wait: " .. config.WAIT_BETWEEN .. "s")
 end
 
-function M.setMaxEggsPerCycle(n) log("📊 Không dùng v10.3") end
-function M.setTeleToForest(enabled) log("ℹ Không dùng v10.3") end
+function M.setMaxEggsPerCycle(n) log("📊 Không dùng v10.4") end
+function M.setTeleToForest(enabled) log("ℹ Không dùng v10.4") end
 
 function M.setMaxRetry(n)
     config.MAX_RETRY = n or 3
