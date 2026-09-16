@@ -1,3 +1,7 @@
+-- ═══════════════════════════════════════════════════════════════
+-- MAIN.lua v3.3 — Tích hợp Sell Manager + Style chữ mới
+-- ═══════════════════════════════════════════════════════════════
+
 local BACKGROUND_ID = (Config and Config.BackgroundImageId) or "rbxassetid://116222439691339"
 local ICON_ID = (Config and Config.IconImageId) or "rbxassetid://130473788814906"
 
@@ -20,11 +24,16 @@ local function fetch(path)
     return nil
 end
 
+-- ⭐ Load modules
 local Steal = fetch("modules/steal.lua")
 local ESP   = fetch("modules/esp.lua")
+local SellManager = fetch("modules/sell_manager.lua")
 
+-- ⭐ API wrapper
 _G.StealEgg = {
-    Steal = Steal, ESP = ESP,
+    Steal = Steal, ESP = ESP, SellManager = SellManager,
+    
+    -- Steal
     Start = function() if Steal then Steal.start() end end,
     Stop = function() if Steal then Steal.stop() end end,
     IsRunning = function() return Steal and Steal.isRunning() or false end,
@@ -43,13 +52,36 @@ _G.StealEgg = {
     IsBigEggMode = function() return Steal and Steal.isBigEggMode and Steal.isBigEggMode() or false end,
     ToggleBigEggMode = function() if Steal and Steal.toggleBigEggMode then return Steal.toggleBigEggMode() end end,
 
+    -- ESP
     ESP_Enable = function() if ESP then ESP.enable() end end,
     ESP_Disable = function() if ESP then ESP.disable() end end,
     ESP_Toggle = function() if ESP then return ESP.toggle() end end,
     ESP_IsEnabled = function() return ESP and ESP.isEnabled() or false end,
     ESP_SetMapFilter = function(list) if ESP then ESP.setMapFilter(list) end end,
 
-    Version = "3.2.0",
+    -- ⭐ SELL MANAGER
+    SM_Start = function() if SellManager then SellManager.start() end end,
+    SM_Stop = function() if SellManager then SellManager.stop() end end,
+    SM_IsRunning = function() return SellManager and SellManager.isRunning() or false end,
+
+    SM_SetAutoSell = function(on) if SellManager then return SellManager.setAutoSell(on) end end,
+    SM_ToggleAutoSell = function() if SellManager then return SellManager.toggleAutoSell() end end,
+    SM_IsAutoSell = function() return SellManager and SellManager.isAutoSellEnabled() or false end,
+
+    SM_SetAutoEquip = function(on) if SellManager then return SellManager.setAutoEquip(on) end end,
+    SM_ToggleAutoEquip = function() if SellManager then return SellManager.toggleAutoEquip() end end,
+    SM_IsAutoEquip = function() return SellManager and SellManager.isAutoEquipEnabled() or false end,
+
+    SM_SetThreshold = function(v) if SellManager then SellManager.setSellThreshold(v) end end,
+    SM_GetThreshold = function() return SellManager and SellManager.getSellThreshold() or 1000000 end,
+
+    SM_SetIncludeZero = function(on) if SellManager then SellManager.setIncludeZero(on) end end,
+    SM_GetStats = function() return SellManager and SellManager.getStats() or {} end,
+    SM_RunOnce = function() if SellManager then SellManager.runOnce() end end,
+    SM_ScanInfo = function() if SellManager then SellManager.scanInfo() end end,
+    SM_OnLog = function(cb) if SellManager then SellManager.onLog(cb) end end,
+
+    Version = "3.3.0",
 }
 local API = _G.StealEgg
 _G.MyScript = API
@@ -67,6 +99,7 @@ local function getParent()
 end
 local PARENT = getParent()
 
+-- ⭐⭐⭐ BẢNG MÀU MỚI
 local COLORS = {
     bg          = Color3.fromRGB(215, 220, 228),
     card        = Color3.fromRGB(255, 255, 255),
@@ -74,14 +107,22 @@ local COLORS = {
     sidebar     = Color3.fromRGB(195, 200, 210),
     activeBtn   = Color3.fromRGB(120, 125, 135),
     activeText  = Color3.fromRGB(255, 255, 255),
-    textBold    = Color3.fromRGB(5, 8, 15),
-    textDim     = Color3.fromRGB(40, 45, 55),
+    
+    -- ⭐ Text mới — trắng-xám cho dễ đọc trên nền anime
+    textBold    = Color3.fromRGB(240, 240, 245),   -- Trắng-xám sáng
+    textDim     = Color3.fromRGB(180, 185, 195),   -- Xám nhạt
+    textShadow  = Color3.fromRGB(10, 10, 15),      -- Đen cho TextStroke
+    
     toggleOn    = Color3.fromRGB(70, 75, 85),
     toggleOff   = Color3.fromRGB(195, 200, 210),
     white       = Color3.fromRGB(255, 255, 255),
     pink        = Color3.fromRGB(255, 120, 180),
     gray        = Color3.fromRGB(140, 145, 155),
 }
+
+-- ⭐ Text Stroke Transparency mới — Đen nhẹ opacity 0.5
+local TEXT_STROKE_TRANSPARENCY = 0.5
+local TEXT_STROKE_COLOR = Color3.fromRGB(0, 0, 0)
 
 local ALL_MAPS = {
     "Forest","Lake","Desert","Jungle","Snow","Volcano",
@@ -120,7 +161,7 @@ istk.Thickness = 2
 
 -- Panel
 local panel = Instance.new("Frame")
-panel.Size = UDim2.new(0, 540, 0, 360)
+panel.Size = UDim2.new(0, 540, 0, 420)
 panel.Position = UDim2.new(0.5, 0, 0.5, 0)
 panel.AnchorPoint = Vector2.new(0.5, 0.5)
 panel.BackgroundColor3 = COLORS.bg
@@ -143,7 +184,7 @@ bgImg.Size = UDim2.new(1, 0, 1, 0)
 bgImg.BackgroundTransparency = 1
 bgImg.ScaleType = Enum.ScaleType.Crop
 bgImg.Image = BACKGROUND_ID
-bgImg.ImageTransparency = 0
+bgImg.ImageTransparency = 0.1
 bgImg.ZIndex = 0
 Instance.new("UICorner", bgImg).CornerRadius = UDim.new(0, 14)
 
@@ -170,7 +211,9 @@ titleGray.BackgroundTransparency = 1
 titleGray.Text = "STEAL AN EGG HUB"
 titleGray.Font = Enum.Font.GothamBlack
 titleGray.TextSize = 17
-titleGray.TextColor3 = COLORS.gray
+titleGray.TextColor3 = COLORS.textBold
+titleGray.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
+titleGray.TextStrokeColor3 = TEXT_STROKE_COLOR
 titleGray.TextXAlignment = Enum.TextXAlignment.Left
 titleGray.ZIndex = 3
 
@@ -189,6 +232,8 @@ titlePink.Text = "STEAL AN EGG HUB"
 titlePink.Font = Enum.Font.GothamBlack
 titlePink.TextSize = 17
 titlePink.TextColor3 = COLORS.pink
+titlePink.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
+titlePink.TextStrokeColor3 = TEXT_STROKE_COLOR
 titlePink.TextXAlignment = Enum.TextXAlignment.Left
 titlePink.ZIndex = 5
 
@@ -241,8 +286,8 @@ local function mkTab(id, text)
     b.Font = Enum.Font.GothamBlack
     b.TextSize = 15
     b.TextColor3 = COLORS.textBold
-    b.TextStrokeTransparency = 0.3
-    b.TextStrokeColor3 = COLORS.textBold
+    b.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
+    b.TextStrokeColor3 = TEXT_STROKE_COLOR
     b.AutoButtonColor = false
     b.ZIndex = 3
     Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
@@ -257,7 +302,8 @@ local function mkTab(id, text)
 end
 
 mkTab("main", "Main")
-mkTab("esp",  "ESP")
+mkTab("pet", "Pet")
+mkTab("esp", "ESP")
 
 -- Toggle Row
 local function createToggleRow(parent, labelText, defaultState, hasTextBox, onToggle, onInputChanged, boxDefault)
@@ -280,15 +326,15 @@ local function createToggleRow(parent, labelText, defaultState, hasTextBox, onTo
     lbl.TextColor3 = COLORS.textBold
     lbl.Font = Enum.Font.GothamBlack
     lbl.TextSize = 16
-    lbl.TextStrokeTransparency = 0.3
-    lbl.TextStrokeColor3 = COLORS.textBold
+    lbl.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
+    lbl.TextStrokeColor3 = TEXT_STROKE_COLOR
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.ZIndex = 4
 
     if hasTextBox then
         local box = Instance.new("TextBox", container)
-        box.Size = UDim2.new(0, 50, 0, 26)
-        box.Position = UDim2.new(1, -112, 0.5, -13)
+        box.Size = UDim2.new(0, 60, 0, 26)
+        box.Position = UDim2.new(1, -122, 0.5, -13)
         box.BackgroundColor3 = COLORS.white
         box.BackgroundTransparency = 0.1
         box.TextColor3 = COLORS.textBold
@@ -363,8 +409,8 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     lbl.TextColor3 = COLORS.textBold
     lbl.Font = Enum.Font.GothamBlack
     lbl.TextSize = 14
-    lbl.TextStrokeTransparency = 0.3
-    lbl.TextStrokeColor3 = COLORS.textBold
+    lbl.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
+    lbl.TextStrokeColor3 = TEXT_STROKE_COLOR
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.ZIndex = 3
 
@@ -377,8 +423,8 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     dropBtn.TextColor3 = COLORS.textBold
     dropBtn.Font = Enum.Font.GothamBlack
     dropBtn.TextSize = 14
-    dropBtn.TextStrokeTransparency = 0.3
-    dropBtn.TextStrokeColor3 = COLORS.textBold
+    dropBtn.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
+    dropBtn.TextStrokeColor3 = TEXT_STROKE_COLOR
     dropBtn.AutoButtonColor = false
     dropBtn.ZIndex = 4
     Instance.new("UICorner", dropBtn).CornerRadius = UDim.new(0, 8)
@@ -440,8 +486,8 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
         optBtn.TextColor3 = COLORS.textBold
         optBtn.Font = Enum.Font.GothamBlack
         optBtn.TextSize = 13
-        optBtn.TextStrokeTransparency = 0.3
-        optBtn.TextStrokeColor3 = COLORS.textBold
+        optBtn.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
+        optBtn.TextStrokeColor3 = TEXT_STROKE_COLOR
         optBtn.TextXAlignment = Enum.TextXAlignment.Left
         optBtn.AutoButtonColor = false
         optBtn.ZIndex = 102
@@ -461,7 +507,7 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     return container
 end
 
--- Tab MAIN
+-- ══════════ TAB MAIN ══════════
 local pageMain = Instance.new("ScrollingFrame", content)
 pageMain.Size = UDim2.new(1, 0, 1, 0)
 pageMain.BackgroundTransparency = 1
@@ -496,7 +542,98 @@ local autoFarmToggle = createToggleRow(pageMain, "Auto Steal Egg", false, false,
 end, nil)
 autoFarmToggle.LayoutOrder = 4
 
--- Tab ESP
+-- ══════════ TAB PET ══════════
+local pagePet = Instance.new("ScrollingFrame", content)
+pagePet.Size = UDim2.new(1, 0, 1, 0)
+pagePet.BackgroundTransparency = 1
+pagePet.Visible = false
+pagePet.BorderSizePixel = 0
+pagePet.ScrollBarThickness = 2
+pagePet.CanvasSize = UDim2.new(0, 0, 0, 200)
+pagePet.ZIndex = 3
+pages.pet = pagePet
+
+local petLayout = Instance.new("UIListLayout", pagePet)
+petLayout.Padding = UDim.new(0, 8)
+
+-- Header pet
+local petHeader = Instance.new("TextLabel", pagePet)
+petHeader.Size = UDim2.new(1, -4, 0, 26)
+petHeader.BackgroundTransparency = 1
+petHeader.Text = "🐾 PET MANAGER"
+petHeader.TextColor3 = COLORS.pink
+petHeader.Font = Enum.Font.GothamBlack
+petHeader.TextSize = 14
+petHeader.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
+petHeader.TextStrokeColor3 = TEXT_STROKE_COLOR
+petHeader.TextXAlignment = Enum.TextXAlignment.Left
+petHeader.LayoutOrder = 1
+
+-- ⭐ Auto Sell Pet
+local autoSellToggle = createToggleRow(pagePet, "Auto Sell Pet (value m)", API.SM_IsAutoSell(), true, function(state)
+    API.SM_SetAutoSell(state)
+    if state and not API.SM_IsRunning() then
+        API.SM_Start()
+    end
+end, function(value)
+    API.SM_SetThreshold(value)
+end, "1")
+autoSellToggle.LayoutOrder = 2
+
+-- ⭐ Auto Equip Best Pet
+local autoEquipToggle = createToggleRow(pagePet, "Auto Equip Best Pet", API.SM_IsAutoEquip(), false, function(state)
+    API.SM_SetAutoEquip(state)
+    if state and not API.SM_IsRunning() then
+        API.SM_Start()
+    end
+end, nil)
+autoEquipToggle.LayoutOrder = 3
+
+-- Bán 1 lần
+local runOnceBtn = Instance.new("TextButton", pagePet)
+runOnceBtn.Size = UDim2.new(1, -4, 0, 34)
+runOnceBtn.BackgroundColor3 = COLORS.card
+runOnceBtn.BackgroundTransparency = 0.75
+runOnceBtn.Text = "▶ RUN ONCE (Equip + Sell)"
+runOnceBtn.TextColor3 = COLORS.textBold
+runOnceBtn.Font = Enum.Font.GothamBlack
+runOnceBtn.TextSize = 13
+runOnceBtn.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
+runOnceBtn.TextStrokeColor3 = TEXT_STROKE_COLOR
+runOnceBtn.AutoButtonColor = false
+runOnceBtn.LayoutOrder = 4
+Instance.new("UICorner", runOnceBtn).CornerRadius = UDim.new(0, 8)
+local roStk = Instance.new("UIStroke", runOnceBtn)
+roStk.Color = Color3.fromRGB(255, 255, 255)
+roStk.Thickness = 1
+roStk.Transparency = 0.4
+runOnceBtn.MouseButton1Click:Connect(function()
+    API.SM_RunOnce()
+end)
+
+-- Scan info
+local scanBtn = Instance.new("TextButton", pagePet)
+scanBtn.Size = UDim2.new(1, -4, 0, 34)
+scanBtn.BackgroundColor3 = COLORS.card
+scanBtn.BackgroundTransparency = 0.75
+scanBtn.Text = "📊 SCAN INFO"
+scanBtn.TextColor3 = COLORS.textBold
+scanBtn.Font = Enum.Font.GothamBlack
+scanBtn.TextSize = 13
+scanBtn.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
+scanBtn.TextStrokeColor3 = TEXT_STROKE_COLOR
+scanBtn.AutoButtonColor = false
+scanBtn.LayoutOrder = 5
+Instance.new("UICorner", scanBtn).CornerRadius = UDim.new(0, 8)
+local scStk = Instance.new("UIStroke", scanBtn)
+scStk.Color = Color3.fromRGB(255, 255, 255)
+scStk.Thickness = 1
+scStk.Transparency = 0.4
+scanBtn.MouseButton1Click:Connect(function()
+    API.SM_ScanInfo()
+end)
+
+-- ══════════ TAB ESP ══════════
 local pageESP = Instance.new("ScrollingFrame", content)
 pageESP.Size = UDim2.new(1, 0, 1, 0)
 pageESP.BackgroundTransparency = 1
@@ -570,12 +707,16 @@ icon.MouseButton1Click:Connect(function()
         panel.Size = UDim2.new(0, 100, 0, 60)
         panel.BackgroundTransparency = 1
         TweenService:Create(panel, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-            Size = UDim2.new(0, 540, 0, 360),
+            Size = UDim2.new(0, 540, 0, 420),
             BackgroundTransparency = 0.85
         }):Play()
     end
 end)
 
 API.OnLog(function(msg) print("[StealEgg] " .. msg) end)
+if API.SM_OnLog then
+    API.SM_OnLog(function(msg) print("[SellManager] " .. msg) end)
+end
 
-print("[Main] ✅ Ready v3.2 — Bold Text + TextStroke")
+print("[Main] ✅ Ready v3.3 — Pet Tab + Sell Manager")
+print("[Main] Tab Pet: Auto Sell Pet + Auto Equip Best Pet")
