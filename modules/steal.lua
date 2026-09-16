@@ -263,7 +263,8 @@ local function findBiggestEgg()
             local cf = eggData.BoundsCFrame
             if cf then
                 local pos = cf.Position
-                if dist(pos, config.HOME_POS) > 150 then
+                -- ⭐ v10.6.2: Không filter khoảng cách, lấy size lớn nhất toàn server
+                if true then  -- Always include
                     local st = tostring(eggData.State or "slot"):lower()
                     local bs = eggData.BoundsSize
                     local avgSize = bs and ((bs.X + bs.Y + bs.Z) / 3) or (3.5 * (eggData.AssetScale or 1))
@@ -1008,30 +1009,52 @@ local function goHomeWithRecovery()
                         if not pickupSuccess then
                             log("⚠ Lượm không được → SKIP")
                             stolenPrompts = {}
+                            lastHealth = nil
+                            recoveryAttempts = 0
+                            t1 = os.clock()
                         else
                             -- ⭐ FIX v10.6.2: Mark egg đã lượm để không retry
                             if nearestPrompt then
                                 stolenPrompts[nearestPrompt] = true
                                 log("🔖 Mark egg lượm rồi")
                             end
-                            -- Chờ egg được carry
+                            
+                            -- Chờ egg được carry (tối đa 2 giây)
                             local carryWait = 0
-                            while carryWait < 3 and not isCarryingEgg() do
+                            while carryWait < 2 and not isCarryingEgg() do
                                 task.wait(0.1)
                                 carryWait = carryWait + 0.1
                             end
+                            
                             if isCarryingEgg() then
-                                log("✅ Egg được carry → BAY VỀ HOME NGAY!")
-                                -- ⭐ v10.6.2: Force home flight immediately
-                                velocityFlyTo(config.HOME_POS, 10, config.DROP_SPEED)
+                                log("✅ Egg carry rồi → BAY VỀ HOME NGAY!")
+                                
+                                -- ⭐ v10.6.2: FLY HOME IMMEDIATELY (CRITICAL!)
+                                forceRunningState()
+                                task.wait(0.1)
+                                
+                                -- Fly to home absolute
+                                local success = velocityFlyTo(config.HOME_POS, 8, 200)
+                                
+                                -- Force stop velocity
                                 local rFinal = getHRP()
                                 if rFinal then pcall(function()
+                                    rFinal.CFrame = CFrame.new(config.HOME_POS)
                                     rFinal.AssemblyLinearVelocity = Vector3.zero
+                                    rFinal.AssemblyAngularVelocity = Vector3.zero
                                 end) end
-                                log("✅ TRỞ VỀ HOME THÀNH CÔNG")
-                                return true  -- ⭐ Exit goHomeWithRecovery immediately
+                                
+                                forceVisible()
+                                forceRunningState()
+                                log("✅ VỀ HOME THÀNH CÔNG")
+                                
+                                -- ⭐ CRITICAL: Return from entire goHomeWithRecovery
+                                return true
                             else
-                                log("⚠ Egg chưa được carry → continue")
+                                log("⚠ Egg chưa carry → tiếp tục bay về")
+                                lastHealth = nil
+                                recoveryAttempts = 0
+                                t1 = os.clock()
                             end
                         end
                         lastTargetPos = nearestPos
@@ -1061,6 +1084,7 @@ local function goHomeWithRecovery()
         task.wait(0.01)
     end
 
+    -- ⭐ Normal home fly (recovery already returned from loop nếu thành công)
     velocityFlyTo(config.HOME_POS, 5, config.DROP_SPEED or 250)
     local rEnd = getHRP()
     if rEnd then pcall(function()
@@ -1570,3 +1594,4 @@ function M.setForest(p) if p then config.FOREST_POS = p end end
 function M.getConfig() return config end
 
 return M
+
