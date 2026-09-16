@@ -1,6 +1,6 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v9.4-FIXED
--- Base: v9.3 + Fix detect carry egg (5 tầng) + Fix không về home sau steal
+-- STEAL MODULE v9.5-FIXED
+-- Base: v9.4 + Fix false positive carry check + Fix fire prompt quá xa
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -49,6 +49,7 @@ local config = {
     SPEED_CAP      = 500,
     MAP_RADIUS     = 800,
     ARRIVE_DIST    = 10,
+    PROMPT_NEAR    = 12,       -- ⭐ v9.5: khoảng cách tối đa để fire prompt
     BAIT_TIMEOUT   = 15,
     KB_HEALTH_DROP = 0.1,
     MAX_FIRES      = 8,
@@ -56,6 +57,7 @@ local config = {
     STEAL_VERIFY_WAIT = 0.35,
     CHAT_WAIT      = 2.0,
     HOME_TIMEOUT   = 60,
+    STEAL_TIMEOUT  = 1.5,      -- ⭐ v9.5: chờ tối đa 1.5s sau fire để verify
 }
 
 local isRunning      = false
@@ -147,6 +149,15 @@ local function getEggRealMap(eggPos)
     return closestMap
 end
 
+local function getPromptPos(prompt)
+    if not prompt or not prompt.Parent then return nil end
+    local part = prompt.Parent
+    if part:IsA("BasePart") then return part.Position
+    elseif part:IsA("Attachment") then return part.WorldPosition
+    elseif part.Parent and part.Parent:IsA("BasePart") then return part.Parent.Position end
+    return nil
+end
+
 -- ══════════ INCOME MODULES ══════════
 local AssetEarnings, EggState
 local incomeCache = {}
@@ -166,9 +177,9 @@ pcall(function()
     end
 end)
 
--- ⭐⭐⭐ v9.4: DETECT CARRY EGG ĐA TẦNG (5 nguồn)
+-- ⭐⭐⭐ v9.5: DETECT CARRY EGG SIẾT CHẶT (3 tầng, không false positive)
 local function isCarryingEgg()
-    -- ⭐ Cách 1: Check EggState — mở rộng state list
+    -- ⭐ Cách 1: EggState (CHÍNH XÁC NHẤT)
     if EggState then
         local ok, fd = pcall(EggState.ReadFieldEggs)
         if ok and type(fd) == "table" and type(fd.Records) == "table" then
@@ -184,73 +195,44 @@ local function isCarryingEgg()
         end
     end
 
-    -- ⭐ Cách 2: Check prompt "Drop"/"Thả" trong workspace
+    -- ⭐ Cách 2: Prompt "Drop"/"Thả" của CHÍNH egg (không match tên khác)
     for _, v in ipairs(W:GetDescendants()) do
-        if v:IsA("ProximityPrompt") then
-            local action = tostring(v.ActionText or ""):lower()
-            local obj = tostring(v.ObjectText or ""):lower()
-            if (action == "drop" or action == "thả"
-                or action:find("drop", 1, true)
-                or action:find("thả", 1, true))
-                and (obj:find("egg", 1, true) or obj:find("trứng", 1, true)
-                    or v.Name:lower():find("egg", 1, true)
-                    or v.Name:lower():find("drop", 1, true)) then
-                return true
+        if v:IsA("ProximityPrompt") and v.Enabled then
+            -- Chỉ prompt của egg mới count
+            local isEggPrompt = v.Name == "CarryAreaEgg"
+                or v.Name == "DropEgg"
+                or (v.ObjectText or "") == "Egg"
+            if isEggPrompt then
+                local action = tostring(v.ActionText or ""):lower()
+                if action == "drop" or action == "thả"
+                    or action:find("drop egg", 1, true)
+                    or action:find("thả egg", 1, true) then
+                    return true
+                end
             end
         end
     end
 
-    -- ⭐ Cách 3: Check UI button "Thả"/"Drop" trong PlayerGui
+    -- ⭐ Cách 3: UI button "Thả"/"Drop" (chỉ ScreenGui enabled)
     local pg = P:FindFirstChild("PlayerGui")
     if pg then
-        for _, gui in ipairs(pg:GetDescendants()) do
-            if gui:IsA("TextButton") or gui:IsA("TextLabel") then
-                local txt = tostring(gui.Text or ""):lower()
-                if txt == "thả" or txt == "drop"
-                    or txt:find("thả", 1, true)
-                    or txt:find("drop", 1, true) then
-                    if gui.Visible and gui.Parent and gui.Parent.Visible ~= false then
-                        return true
+        for _, gui in ipairs(pg:GetChildren()) do
+            if gui:IsA("ScreenGui") and gui.Enabled then
+                for _, d in ipairs(gui:GetDescendants()) do
+                    if d:IsA("TextButton") and d.Visible then
+                        local txt = tostring(d.Text or ""):lower()
+                        if txt == "thả" or txt == "drop"
+                            or txt == "thả egg" or txt == "drop egg" then
+                            return true
+                        end
                     end
                 end
             end
         end
     end
 
-    -- ⭐ Cách 4: Check Character có attachment/part egg không
-    local c = P.Character
-    if c then
-        for _, v in ipairs(c:GetChildren()) do
-            local n = v.Name:lower()
-            if n:find("egg", 1, true) or n:find("carry", 1, true)
-                or n:find("held", 1, true) or n:find("stolen", 1, true) then
-                return true
-            end
-        end
-    end
-
-    -- ⭐ Cách 5: Check Backpack/Tool
-    local backpack = P:FindFirstChild("Backpack")
-    if backpack then
-        for _, tool in ipairs(backpack:GetChildren()) do
-            if tool:IsA("Tool") then
-                local n = tool.Name:lower()
-                if n:find("egg", 1, true) or n:find("carry", 1, true) then
-                    return true
-                end
-            end
-        end
-    end
-    if c then
-        for _, tool in ipairs(c:GetChildren()) do
-            if tool:IsA("Tool") then
-                local n = tool.Name:lower()
-                if n:find("egg", 1, true) or n:find("carry", 1, true) then
-                    return true
-                end
-            end
-        end
-    end
+    -- ❌ v9.5: BỎ Cách 4 (character parts) & Cách 5 (backpack tools)
+    -- → Vì `EggToolDisplay` luôn tồn tại → false positive
 
     return false
 end
@@ -345,12 +327,7 @@ local function findBiggestEgg()
                     or ((v.ObjectText or "") == "Egg"
                         and (v.ActionText or ""):lower():find("steal", 1, true))
                 if isEgg then
-                    local part = v.Parent
-                    local ppos
-                    if part and part:IsA("BasePart") then ppos = part.Position
-                    elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
-                    elseif part and part.Parent and part.Parent:IsA("BasePart") then
-                        ppos = part.Parent.Position end
+                    local ppos = getPromptPos(v)
                     if ppos and dist(ppos, config.HOME_POS) > 150 then
                         local nearestMap, nearestDist = nil, 99999
                         for _, m in ipairs(ALL_MAPS) do
@@ -362,12 +339,8 @@ local function findBiggestEgg()
                         end
                         if nearestMap then
                             table.insert(candidates, {
-                                prompt = v,
-                                pos = ppos,
-                                scale = 0,
-                                avgSize = 0,
-                                map = nearestMap,
-                                category = "Egg (dropped)",
+                                prompt = v, pos = ppos, scale = 0, avgSize = 0,
+                                map = nearestMap, category = "Egg (dropped)",
                                 mutation = nil,
                             })
                         end
@@ -416,12 +389,7 @@ local function findBiggestEgg()
                 or ((v.ObjectText or "") == "Egg"
                     and (v.ActionText or ""):lower():find("steal", 1, true))
             if isEgg then
-                local part = v.Parent
-                local ppos
-                if part and part:IsA("BasePart") then ppos = part.Position
-                elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
-                elseif part and part.Parent and part.Parent:IsA("BasePart") then
-                    ppos = part.Parent.Position end
+                local ppos = getPromptPos(v)
                 if ppos then
                     local d = (ppos - best.pos).Magnitude
                     if d < bestPromptDist then
@@ -442,12 +410,7 @@ local function findBiggestEgg()
                     or ((v.ObjectText or "") == "Egg"
                         and (v.ActionText or ""):lower():find("steal", 1, true))
                 if isEgg then
-                    local part = v.Parent
-                    local ppos
-                    if part and part:IsA("BasePart") then ppos = part.Position
-                    elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
-                    elseif part and part.Parent and part.Parent:IsA("BasePart") then
-                        ppos = part.Parent.Position end
+                    local ppos = getPromptPos(v)
                     if ppos then
                         local d = (ppos - best.pos).Magnitude
                         if d < fallbackDist then
@@ -559,12 +522,7 @@ local function findHighestIncomeEgg()
                 or ((v.ObjectText or "") == "Egg"
                     and (v.ActionText or ""):lower():find("steal", 1, true))
             if isEgg then
-                local part = v.Parent
-                local ppos
-                if part and part:IsA("BasePart") then ppos = part.Position
-                elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
-                elseif part and part.Parent and part.Parent:IsA("BasePart") then
-                    ppos = part.Parent.Position end
+                local ppos = getPromptPos(v)
                 if ppos then
                     local d = (ppos - best.pos).Magnitude
                     if d < bestPromptDist then
@@ -602,12 +560,7 @@ local function findForestEggOnly()
                 or ((v.ObjectText or "") == "Egg"
                     and (v.ActionText or ""):lower():find("steal", 1, true))
             if isEgg then
-                local part = v.Parent
-                local ppos
-                if part and part:IsA("BasePart") then ppos = part.Position
-                elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
-                elseif part and part.Parent and part.Parent:IsA("BasePart") then
-                    ppos = part.Parent.Position end
+                local ppos = getPromptPos(v)
                 if ppos then
                     local dToForest = dist(ppos, forestMap.pos)
                     if dToForest < config.FOREST_RADIUS then
@@ -634,13 +587,7 @@ local function findEggInTargets()
                 or ((v.ObjectText or "") == "Egg"
                     and (v.ActionText or ""):lower():find("steal", 1, true))
             if isEgg then
-                local part = v.Parent
-                local ppos
-                if part and part:IsA("BasePart") then ppos = part.Position
-                elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
-                elseif part and part.Parent and part.Parent:IsA("BasePart") then
-                    ppos = part.Parent.Position end
-
+                local ppos = getPromptPos(v)
                 if ppos then
                     local realMap = getEggRealMap(ppos)
                     if realMap then
@@ -697,12 +644,7 @@ local function findPromptSteal(pos, radius)
                 or ((v.ObjectText or "") == "Egg"
                     and (v.ActionText or ""):lower():find("steal", 1, true))
             if isEgg then
-                local part = v.Parent
-                local ppos
-                if part and part:IsA("BasePart") then ppos = part.Position
-                elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
-                elseif part and part.Parent and part.Parent:IsA("BasePart") then
-                    ppos = part.Parent.Position end
+                local ppos = getPromptPos(v)
                 if ppos then
                     local d = dist(ppos, pos)
                     if d < bestDist then best, bestDist = v, d end
@@ -873,6 +815,21 @@ local function firePromptOnce(prompt)
     return true
 end
 
+-- ⭐⭐⭐ v9.5: FIRE PROMPT với CHECK KHOẢNG CÁCH
+local function firePromptWithCheck(prompt, myPos)
+    if not prompt or not prompt.Parent then return false end
+    local ppos = getPromptPos(prompt)
+    if not ppos then return false end
+
+    local d = dist(myPos, ppos)
+    if d > config.PROMPT_NEAR then
+        -- ⭐ v9.5: Di chuyển tới gần trước
+        return false, d
+    end
+    firePromptOnce(prompt)
+    return true, d
+end
+
 -- ══════════ MOVEMENT ══════════
 local function velocityMoveTo(targetPos, timeout, manual)
     timeout = timeout or 20
@@ -956,7 +913,7 @@ local function velocityFlyTo(targetPos, timeout, speed)
     return false
 end
 
--- ⭐⭐⭐ v9.4: goHomeWithRecovery — FIX LỤM EGG + VERIFY CARRY
+-- ⭐⭐⭐ v9.5: goHomeWithRecovery
 local function goHomeWithRecovery()
     log("🏃 BAY VỀ HOME (Y=" .. (config.HOME_FLY_ABSOLUTE_Y or 100) .. ")")
     local startTime = os.clock()
@@ -1012,12 +969,7 @@ local function goHomeWithRecovery()
                             or ((v.ObjectText or "") == "Egg"
                                 and (v.ActionText or ""):lower():find("steal", 1, true))
                         if isEgg then
-                            local part = v.Parent
-                            local ppos
-                            if part and part:IsA("BasePart") then ppos = part.Position
-                            elseif part and part:IsA("Attachment") then ppos = part.WorldPosition
-                            elseif part and part.Parent and part.Parent:IsA("BasePart") then
-                                ppos = part.Parent.Position end
+                            local ppos = getPromptPos(v)
                             if ppos then
                                 local d = dist(ppos, r2.Position)
                                 if d < nearestDist then
@@ -1046,23 +998,24 @@ local function goHomeWithRecovery()
 
                         local h3 = getHRP()
                         if h3 then
+                            -- ⭐ v9.5: Check khoảng cách trước khi fire
                             local p3 = findPromptSteal(h3.Position, 150)
                             if p3 then
-                                firePromptOnce(p3)
+                                local p3pos = getPromptPos(p3)
+                                if p3pos then
+                                    local dToEgg = dist(h3.Position, p3pos)
+                                    if dToEgg > config.PROMPT_NEAR then
+                                        velocityMoveTo(p3pos, 2, true)
+                                    end
+                                    firePromptOnce(p3)
+                                end
                             end
                         end
                         task.wait(config.STEAL_VERIFY_WAIT)
 
                         local stolen = hasStolenSlot(slotsBefore)
-                        if stolen then
-                            pickedUp = true
-                            break
-                        end
-                        -- ⭐ v9.4: Dùng isCarryingEgg() đa tầng
-                        if isCarryingEgg() then
-                            pickedUp = true
-                            break
-                        end
+                        if stolen then pickedUp = true; break end
+                        if isCarryingEgg() then pickedUp = true; break end
                     end
 
                     if pickedUp then
@@ -1129,7 +1082,7 @@ local function goHomeWithRecovery()
     return true
 end
 
--- ⭐⭐⭐ v9.4: baitBoss nhạy hơn
+-- ⭐⭐⭐ v9.5: baitBoss
 local function baitBoss(timeout)
     timeout = timeout or config.BAIT_TIMEOUT
     log("🎯 Bait boss...")
@@ -1182,53 +1135,36 @@ local function baitBoss(timeout)
     return false
 end
 
--- ⭐⭐⭐ v9.4: stealAtPos — Check carry NGAY ĐẦU HÀM
+-- ⭐⭐⭐ v9.5: stealAtPos — FIX CHÍNH
 local function stealAtPos(targetPos, label, expectedIncome)
     log("═══════")
     log("STEAL TẠI " .. label)
     task.wait(0.05)
 
-    -- ⭐ v9.4: Nếu đã carry egg từ trước → coi như thành công
-    if isCarryingEgg() then
-        log("⚠ Đã carry egg từ trước → coi như steal OK")
-        return true
-    end
-
     local hrp = getHRP()
     if not hrp then return false end
 
+    -- ⭐ Di chuyển tới gần egg trước
     local d = dist(hrp.Position, targetPos)
     if d > config.ARRIVE_DIST then
         if d > config.MAP_RADIUS then
             log(string.format("📍 Xa %.0f studs → TELE", d))
             teleToMap(targetPos)
-            task.wait(0.1)
-
-            local hrp2 = getHRP()
-            if hrp2 then
-                local d2 = dist(hrp2.Position, targetPos)
-                if d2 > 50 then
-                    log(string.format("⚠ Tele xong vẫn xa %.0f → VELOCITY", d2))
-                    velocityMoveTo(targetPos, 15)
-                else
-                    log(string.format("✅ Tele OK (d=%.0f)", d2))
-                end
-            end
+            task.wait(0.6)
         else
             log(string.format("🏃 Cách %.0f studs → VELOCITY", d))
             velocityMoveTo(targetPos, 25)
         end
     end
 
-    local prompt = findPromptSteal(targetPos, 150)
-    if not prompt then 
-        log("⚠ Không có prompt")
-        -- ⭐ v9.4: Nếu đã carry rồi thì vẫn OK
-        if isCarryingEgg() then
-            log("✅ Carry check OK")
-            return true
-        end
-        return false 
+    -- ⭐ v9.5: Sau khi move, check lại khoảng cách
+    local hrp2 = getHRP()
+    if not hrp2 then return false end
+    local d2 = dist(hrp2.Position, targetPos)
+    log(string.format("📏 Khoảng cách tới egg: %.1f studs", d2))
+    if d2 > config.PROMPT_NEAR then
+        log(string.format("⚠ Vẫn xa %.1f > %d → move thêm", d2, config.PROMPT_NEAR))
+        velocityMoveTo(targetPos, 5, true)
     end
 
     local slotsBefore, countBefore = getSlotSet()
@@ -1239,36 +1175,65 @@ local function stealAtPos(targetPos, label, expectedIncome)
         forceRunningState()
 
         local h2 = getHRP()
-        if h2 then
-            local p2 = findPromptSteal(h2.Position, 150)
-            if p2 then firePromptOnce(p2) end
-        end
-        task.wait(config.STEAL_VERIFY_WAIT)
+        if not h2 then break end
 
-        -- ⭐ v9.4: Check carry TRƯỚC khi check slot (ưu tiên carry)
-        if isCarryingEgg() then
-            log("✅ ĐÃ STEAL (carry check)")
-            return true
+        -- ⭐ v9.5: Tìm prompt + check khoảng cách
+        local p2, pd = findPromptSteal(h2.Position, 150)
+        if not p2 then
+            log("⚠ Không có prompt gần → break")
+            break
         end
 
-        local _, countNow = getSlotSet()
-        local stolen, slotName = hasStolenSlot(slotsBefore)
+        local p2pos = getPromptPos(p2)
+        if not p2pos then break end
+        local dToPrompt = dist(h2.Position, p2pos)
+        
+        if dToPrompt > config.PROMPT_NEAR then
+            log(string.format("🏃 Prompt cách %.1f → move tới gần", dToPrompt))
+            velocityMoveTo(p2pos, 3, true)
+            -- Re-fetch prompt sau khi move
+            p2, pd = findPromptSteal(h2.Position, 150)
+            if not p2 then break end
+        end
+
+        -- Fire prompt
+        firePromptOnce(p2)
+
+        -- ⭐ v9.5: Chờ verify với timeout
+        local verifyStart = os.clock()
+        local stolen = false
+        local stolenName = nil
+        while os.clock() - verifyStart < config.STEAL_TIMEOUT do
+            task.wait(0.15)
+
+            -- Check slot mất
+            local s, sn = hasStolenSlot(slotsBefore)
+            if s then
+                stolen = true
+                stolenName = sn
+                break
+            end
+            -- Check carry (chỉ tin nếu slot không còn)
+            if isCarryingEgg() then
+                -- ⭐ v9.5: Verify carry thêm 1 lần nữa sau 0.2s
+                task.wait(0.2)
+                if isCarryingEgg() then
+                    stolen = true
+                    stolenName = "carry-check"
+                    break
+                end
+            end
+        end
+
         if stolen then
-            log("🎒 SLOT MẤT: " .. slotName)
+            log(string.format("✅ ĐÃ STEAL (fire %d, %s)", i, stolenName))
+            local _, countNow = getSlotSet()
             log(string.format("📊 Slots: %d → %d", countBefore, countNow))
-            log("✅ ĐÃ STEAL")
             return true
         end
     end
 
-    log("⚠ Fire " .. config.MAX_FIRES .. " lần không giảm slot")
-
-    -- ⭐ v9.4: Final check carry trước khi return false
-    if isCarryingEgg() then
-        log("✅ Carry check OK (final)")
-        return true
-    end
-
+    log("⚠ Fire " .. config.MAX_FIRES .. " lần không thành công")
     return false
 end
 
@@ -1283,7 +1248,6 @@ local function checkEggReset()
     return false
 end
 
--- ⭐⭐⭐ v9.4: Watchdog phát hiện state xấu + đứng yên
 local function startWatchdog()
     task.spawn(function()
         local lastMoveCheck = os.clock()
@@ -1369,169 +1333,178 @@ local function mainLoop()
                 log("📊 Forest global slots: " .. forestCount)
 
                 log("⚡ Steal Forest")
+                local forestStolen = false
                 for i = 1, 5 do
                     if not isRunning then break end
                     forceRunningState()
                     local h2 = getHRP()
                     if h2 then
                         local p2 = findPromptSteal(h2.Position, config.FOREST_RADIUS)
-                        if p2 then firePromptOnce(p2) end
+                        if p2 then 
+                            local p2pos = getPromptPos(p2)
+                            if p2pos then
+                                local dToEgg = dist(h2.Position, p2pos)
+                                if dToEgg > config.PROMPT_NEAR then
+                                    log(string.format("🏃 Move tới Forest egg (%.1f)", dToEgg))
+                                    velocityMoveTo(p2pos, 3, true)
+                                end
+                                firePromptOnce(p2)
+                            end
+                        end
                     end
-                    task.wait(0.3)
+                    task.wait(0.5)
+
+                    -- ⭐ v9.5: CHỈ TIN SLOT CHECK (không tin carry)
                     local stolen, slotName = hasStolenSlot(forestBefore)
                     if stolen then
-                        log("🎒 Forest OK: " .. slotName)
-                        break
-                    end
-                    -- ⭐ v9.4: Check carry
-                    if isCarryingEgg() then
-                        log("🎒 Forest OK (carry check)")
+                        log("🎒 Forest OK (slot): " .. slotName)
+                        forestStolen = true
                         break
                     end
                 end
+                
+                -- ⭐ v9.5: Nếu slot không mất nhưng carry check → verify thêm 1s
+                if not forestStolen then
+                    log("⚠ Slot không mất → verify carry...")
+                    task.wait(1)
+                    if isCarryingEgg() then
+                        log("🎒 Forest OK (carry verify sau 1s)")
+                        forestStolen = true
+                    else
+                        log("❌ Forest FAIL (không slot, không carry)")
+                    end
+                end
+
                 stolenPrompts[prompt] = true
                 task.wait(0.1)
 
-                log("PHASE 3: Bait boss Forest")
-                local gotKnockback = baitBoss(config.BAIT_TIMEOUT)
+                if not forestStolen then
+                    log("⚠ Forest steal thất bại → chờ cycle sau")
+                else
+                    log("PHASE 3: Bait boss Forest")
+                    local gotKnockback = baitBoss(config.BAIT_TIMEOUT)
 
-                if not gotKnockback then
-                    log("⚠ Không detect knockback → ÉP TIẾP TỤC (force replace)")
-                    replaceHumanoidDirect()
-                    gotKnockback = true
-                end
+                    if not gotKnockback then
+                        log("⚠ Không detect knockback → ÉP TIẾP TỤC (force replace)")
+                        replaceHumanoidDirect()
+                        gotKnockback = true
+                    end
 
-                if gotKnockback then
-                    local eggPrompt, eggPos, eggDist, eggMap
+                    if gotKnockback then
+                        local eggPrompt, eggPos, eggDist, eggMap
 
-                    if config.BIG_EGG_MODE then
-                        log("🥚 Mode: BIG EGG")
-                        eggPrompt, eggPos, eggDist, eggMap = findBiggestEgg()
-                        if not eggPos then
-                            log("⚠ Không có big egg → chuyển priority")
+                        if config.BIG_EGG_MODE then
+                            log("🥚 Mode: BIG EGG")
+                            eggPrompt, eggPos, eggDist, eggMap = findBiggestEgg()
+                            if not eggPos then
+                                log("⚠ Không có big egg → chuyển priority")
+                            end
                         end
-                    end
 
-                    if not eggPos and config.PRIORITY_INCOME then
-                        log("💰 Mode: ƯU TIÊN TIỀN CAO")
-                        eggPrompt, eggPos, eggDist, eggMap = findHighestIncomeEgg()
-                        if not eggPos then
-                            log("⚠ Không có egg đạt ngưỡng → DỪNG")
-                            isRunning = false
-                            break
+                        if not eggPos and config.PRIORITY_INCOME then
+                            log("💰 Mode: ƯU TIÊN TIỀN CAO")
+                            eggPrompt, eggPos, eggDist, eggMap = findHighestIncomeEgg()
+                            if not eggPos then
+                                log("⚠ Không có egg đạt ngưỡng → DỪNG")
+                                isRunning = false
+                                break
+                            end
                         end
-                    end
 
-                    if not eggPos then
-                        log("PHASE 4: Tìm egg trong " .. #config.TARGETS .. " map")
-                        eggPrompt, eggPos, eggDist, eggMap = findEggInTargets()
-                    end
+                        if not eggPos then
+                            log("PHASE 4: Tìm egg trong " .. #config.TARGETS .. " map")
+                            eggPrompt, eggPos, eggDist, eggMap = findEggInTargets()
+                        end
 
-                    if not eggPos then
-                        log("⚠ Không tìm egg nào → quay lại Forest sau 1s")
-                        task.wait(1)
-                    else
-                        log(string.format("🎯 Map: %s @ %.1f,%.1f,%.1f",
-                            eggMap.name, eggPos.X, eggPos.Y, eggPos.Z))
+                        if not eggPos then
+                            log("⚠ Không tìm egg nào → quay lại Forest sau 1s")
+                            task.wait(1)
+                        else
+                            log(string.format("🎯 Map: %s @ %.1f,%.1f,%.1f",
+                                eggMap.name, eggPos.X, eggPos.Y, eggPos.Z))
 
-                        lastTargetPos = eggPos
-                        lastTargetMap = eggMap
+                            lastTargetPos = eggPos
+                            lastTargetMap = eggMap
 
-                        local targetPos = eggPos + Vector3.new(0, 3, 0)
-                        local success = false
-                        for attempt = 1, config.MAX_RETRY do
-                            if not isRunning then break end
-                            log("═══════════════════════")
-                            log(string.format("🔄 ATTEMPT %d/%d", attempt, config.MAX_RETRY))
-                            deliveryFailed = false
+                            local targetPos = eggPos + Vector3.new(0, 3, 0)
+                            local success = false
+                            for attempt = 1, config.MAX_RETRY do
+                                if not isRunning then break end
+                                log("═══════════════════════")
+                                log(string.format("🔄 ATTEMPT %d/%d", attempt, config.MAX_RETRY))
+                                deliveryFailed = false
 
-                            local stealPos = eggPos
-                            local stealMap = eggMap
-                            local stealTarget = targetPos
+                                local stealPos = eggPos
+                                local stealMap = eggMap
+                                local stealTarget = targetPos
 
-                            if attempt > 1 and lastTargetPos then
-                                local p, ppos, pd = nil, nil, 500
-                                for _, v in ipairs(W:GetDescendants()) do
-                                    if v:IsA("ProximityPrompt") and v.Enabled and not stolenPrompts[v] then
-                                        local isEgg = v.Name == "CarryAreaEgg"
-                                            or ((v.ObjectText or "") == "Egg"
-                                                and (v.ActionText or ""):lower():find("steal", 1, true))
-                                        if isEgg then
-                                            local part = v.Parent
-                                            local pp
-                                            if part and part:IsA("BasePart") then pp = part.Position
-                                            elseif part and part:IsA("Attachment") then pp = part.WorldPosition
-                                            elseif part and part.Parent and part.Parent:IsA("BasePart") then
-                                                pp = part.Parent.Position end
-                                            if pp then
-                                                local d = (pp - lastTargetPos).Magnitude
-                                                if d < pd then
-                                                    p, ppos, pd = v, pp, d
+                                if attempt > 1 and lastTargetPos then
+                                    local p, ppos, pd = nil, nil, 500
+                                    for _, v in ipairs(W:GetDescendants()) do
+                                        if v:IsA("ProximityPrompt") and v.Enabled and not stolenPrompts[v] then
+                                            local isEgg = v.Name == "CarryAreaEgg"
+                                                or ((v.ObjectText or "") == "Egg"
+                                                    and (v.ActionText or ""):lower():find("steal", 1, true))
+                                            if isEgg then
+                                                local pp = getPromptPos(v)
+                                                if pp then
+                                                    local d = (pp - lastTargetPos).Magnitude
+                                                    if d < pd then
+                                                        p, ppos, pd = v, pp, d
+                                                    end
                                                 end
                                             end
                                         end
                                     end
-                                end
-                                if p and ppos then
-                                    log(string.format("🔄 Retry: egg cũ cách %.0f studs → steal lại", pd))
-                                    stealPos = ppos
-                                    stealMap = getEggRealMap(ppos) or eggMap
-                                    stealTarget = ppos + Vector3.new(0, 3, 0)
-                                else
-                                    log("⚠ Không tìm thấy egg cũ → steal egg mới")
-                                    if config.BIG_EGG_MODE then
-                                        local np, npos, nd, nm = findBiggestEgg()
-                                        if npos then
-                                            stealPos, stealMap = npos, nm
-                                            stealTarget = npos + Vector3.new(0, 3, 0)
+                                    if p and ppos then
+                                        log(string.format("🔄 Retry: egg cũ cách %.0f studs → steal lại", pd))
+                                        stealPos = ppos
+                                        stealMap = getEggRealMap(ppos) or eggMap
+                                        stealTarget = ppos + Vector3.new(0, 3, 0)
+                                    else
+                                        log("⚠ Không tìm thấy egg cũ → steal egg mới")
+                                        if config.BIG_EGG_MODE then
+                                            local np, npos, nd, nm = findBiggestEgg()
+                                            if npos then
+                                                stealPos, stealMap = npos, nm
+                                                stealTarget = npos + Vector3.new(0, 3, 0)
+                                            end
                                         end
                                     end
                                 end
-                            end
 
-                            teleToMap(stealTarget)
-                            task.wait(0.05)
+                                teleToMap(stealTarget)
+                                task.wait(0.6)
 
-                            local stolen = stealAtPos(stealPos, stealMap.name)
-                            
-                            -- ⭐ v9.4: Xử lý kết quả
-                            if stolen then
-                                goHomeWithRecovery()
-                                task.wait(config.CHAT_WAIT)
-                                if deliveryFailed then
-                                    log("❌ Chat báo fail — RETRY")
-                                    task.wait(0.2)
-                                else
-                                    log("🎉 THÀNH CÔNG")
-                                    success = true
-                                    lastTargetPos = nil
-                                    lastTargetMap = nil
-                                    break
-                                end
-                            else
-                                -- ⭐ v9.4: stealAtPos fail nhưng đang carry → coi như OK
-                                if isCarryingEgg() then
-                                    log("⚠ stealAtPos fail nhưng ĐANG CARRY → coi như OK")
+                                local stolen = stealAtPos(stealPos, stealMap.name)
+
+                                if stolen then
                                     goHomeWithRecovery()
                                     task.wait(config.CHAT_WAIT)
-                                    log("🎉 THÀNH CÔNG (carry final check)")
-                                    success = true
-                                    lastTargetPos = nil
-                                    lastTargetMap = nil
-                                    break
+                                    if deliveryFailed then
+                                        log("❌ Chat báo fail — RETRY")
+                                        task.wait(0.2)
+                                    else
+                                        log("🎉 THÀNH CÔNG")
+                                        success = true
+                                        lastTargetPos = nil
+                                        lastTargetMap = nil
+                                        break
+                                    end
+                                else
+                                    log("⚠ Steal fail — retry")
+                                    task.wait(0.2)
                                 end
-                                log("⚠ Steal fail — retry")
-                                task.wait(0.2)
                             end
-                        end
 
-                        if success then
-                            deliveryFailed = false
-                            log("🎉 HOÀN THÀNH")
-                        else
-                            log("❌ Hết " .. config.MAX_RETRY .. " lần retry")
-                            lastTargetPos = nil
-                            lastTargetMap = nil
+                            if success then
+                                deliveryFailed = false
+                                log("🎉 HOÀN THÀNH")
+                            else
+                                log("❌ Hết " .. config.MAX_RETRY .. " lần retry")
+                                lastTargetPos = nil
+                                lastTargetMap = nil
+                            end
                         end
                     end
                 end
@@ -1588,7 +1561,7 @@ function M.start()
     lastTargetPos = nil
     lastTargetMap = nil
     isRunning = true
-    log("▶ START v9.4-FIXED — " .. #config.TARGETS .. " map(s)")
+    log("▶ START v9.5-FIXED — " .. #config.TARGETS .. " map(s)")
     startWatchdog()
     task.spawn(mainLoop)
 end
@@ -1665,7 +1638,12 @@ function M.setHomeTimeout(n)
     log("⏱ Home timeout: " .. config.HOME_TIMEOUT .. "s")
 end
 
-function M.isCarrying() return isCarryingEgg() end  -- ⭐ v9.4: expose API
+function M.setPromptNear(n)
+    config.PROMPT_NEAR = n or 12
+    log("📏 Prompt near distance: " .. config.PROMPT_NEAR .. " studs")
+end
+
+function M.isCarrying() return isCarryingEgg() end
 
 function M.getAllMaps() return ALL_MAPS end
 function M.setHome(p) if p then config.HOME_POS = p; log("📍 Home") end end
