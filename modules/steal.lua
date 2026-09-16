@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v9.6 — Big egg size + Fix tàn hình + Recovery bay về
+-- STEAL MODULE v9.7 — Fix stuck sau recovery
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -135,49 +135,13 @@ local function forceTeleHome()
     end) end
 end
 
--- ⭐ v9.6: Check + restore humanoid nếu bị tàn hình
-local function ensureHumanoidVisible()
+-- ⭐ v9.7: Chỉ log, KHÔNG tạo Humanoid mới (tránh gây stuck)
+local function checkHumanoid()
     local c = P.Character
     if not c then return end
     local hum = c:FindFirstChildOfClass("Humanoid")
     if not hum then
-        -- ⭐ Humanoid bị mất → tạo mới
-        log("🚨 Humanoid mất → tạo lại")
-        local new = Instance.new("Humanoid")
-        new.Parent = c
-        pcall(function()
-            new.MaxHealth = 100
-            new.Health = 100
-            new.WalkSpeed = 60
-        end)
-    end
-    
-    -- ⭐ Kiểm tra HRP tồn tại
-    local hrp = c:FindFirstChild("HumanoidRootPart")
-    if not hrp then
-        log("🚨 HRP mất → cần respawn")
-        return
-    end
-    
-    -- ⭐ Check transparency
-    local parts = {
-        hrp,
-        c:FindFirstChild("Head"),
-        c:FindFirstChild("Torso"),
-        c:FindFirstChild("UpperTorso"),
-        c:FindFirstChild("LowerTorso"),
-    }
-    local invisible = false
-    for _, part in ipairs(parts) do
-        if part and part:IsA("BasePart") then
-            if part.Transparency > 0.9 and part.Name ~= "HumanoidRootPart" then
-                invisible = true
-                part.Transparency = 0  -- Reset transparency
-            end
-        end
-    end
-    if invisible then
-        log("🚨 Nhân vật tàn hình → reset transparency")
+        warn("[Steal] ⚠ Humanoid mất — cần respawn")
     end
 end
 
@@ -238,7 +202,6 @@ local function getEggInfoAtPos(eggPos, radius)
     return income, best.AssetScale or 1, best.BaseMutation, best.Uid or best.UID
 end
 
--- ⭐⭐⭐ v9.6: Big egg — size to nhất TRƯỚC (bỏ ưu tiên map xa)
 local function findBiggestEgg()
     local hrp = getHRP()
     if not hrp then return nil, nil, nil, nil end
@@ -338,7 +301,6 @@ local function findBiggestEgg()
         return best.prompt, best.pos, best.scale, best.map
     end
 
-    -- ⭐ v9.6: Sort SIZE to nhất TRƯỚC
     table.sort(candidates, function(a, b)
         if a.avgSize ~= b.avgSize then return a.avgSize > b.avgSize end
         return a.scale > b.scale
@@ -766,11 +728,6 @@ local function replaceHumanoidDirect()
         local h = c:FindFirstChildOfClass("Humanoid")
         if h then pcall(function() h:ChangeState(Enum.HumanoidStateType.Running) end) end
     end)
-    -- ⭐ v9.6: Đảm bảo visible sau khi thay humanoid
-    task.spawn(function()
-        task.wait(0.3)
-        ensureHumanoidVisible()
-    end)
     return true
 end
 
@@ -897,7 +854,7 @@ local function velocityFlyTo(targetPos, timeout, speed)
     return false
 end
 
--- ⭐⭐⭐ v9.6 FIX: Recovery dùng velocity (không teleToMap để tránh tàn hình)
+-- ⭐⭐⭐ v9.7: goHomeWithRecovery — KHÔNG can thiệp humanoid
 local function goHomeWithRecovery()
     log("🏃 BAY VỀ HOME (Y=100)")
     local startTime = os.clock()
@@ -909,9 +866,6 @@ local function goHomeWithRecovery()
 
     local flyY = config.HOME_FLY_ABSOLUTE_Y or 100
     log(string.format("🏃 Bay về Y=%.1f (cố định)", flyY))
-
-    -- ⭐ v9.6: Đảm bảo humanoid OK trước khi bay
-    ensureHumanoidVisible()
 
     local t1 = os.clock()
     while os.clock() - t1 < 40 do
@@ -931,12 +885,8 @@ local function goHomeWithRecovery()
 
         local hum, r = getHum(), getHRP()
         if not hum or not r then
-            -- ⭐ v9.6: Nếu mất humanoid → tạo lại
-            log("🚨 Mất Humanoid/HRP → restore")
-            ensureHumanoidVisible()
-            task.wait(0.3)
-            hum, r = getHum(), getHRP()
-            if not hum or not r then break end
+            log("🚨 Mất Humanoid/HRP — dừng recovery")
+            break
         end
         keepHealth()
 
@@ -994,11 +944,10 @@ local function goHomeWithRecovery()
                 if nearestPrompt and nearestPos then
                     log(string.format("🎯 Egg rớt cách lastTargetPos %.0f studs → CHẠY LẠI", nearestDist))
 
-                    -- ⭐ v9.6: Bay bằng VELOCITY (không teleToMap để tránh tàn hình)
+                    -- ⭐ Bay bằng velocity (không teleToMap để tránh replaceHumanoid)
                     velocityFlyTo(nearestPos, 20, config.SPEED_CAP)
                     task.wait(0.2)
 
-                    -- ⭐ Check slot trước khi fire
                     local slotsBeforePickup = getSlotSet()
 
                     for i = 1, config.MAX_FIRES do
@@ -1022,14 +971,11 @@ local function goHomeWithRecovery()
 
                     lastTargetPos = nearestPos
 
-                    -- ⭐ v9.6: RESET hoàn toàn state
+                    -- ⭐ RESET state
                     lastHealth = nil
                     recoveryAttempts = 0
                     t1 = os.clock()
                     log("🔄 Reset timer bay về (40s mới)")
-
-                    -- ⭐ v9.6: Đảm bảo humanoid OK sau khi lượm
-                    ensureHumanoidVisible()
                 else
                     log("⚠ Không tìm thấy egg rớt → tiếp tục về")
                 end
@@ -1063,9 +1009,6 @@ local function goHomeWithRecovery()
         rEnd.AssemblyLinearVelocity = Vector3.zero
         rEnd.AssemblyAngularVelocity = Vector3.zero
     end) end
-
-    -- ⭐ v9.6: Đảm bảo visible
-    ensureHumanoidVisible()
 
     log(string.format("✅ Về home (%.2fs, recovery x%d, restart x%d)",
         os.clock() - startTime, recoveryAttempts, restartCount))
@@ -1197,6 +1140,7 @@ local function checkEggReset()
     return false
 end
 
+-- ⭐ v9.7: Watchdog đơn giản — KHÔNG gọi checkHumanoid
 local function startWatchdog()
     task.spawn(function()
         lastMoveCheck = os.clock()
@@ -1204,9 +1148,6 @@ local function startWatchdog()
         while isRunning do
             task.wait(2)
             if not isRunning then break end
-
-            -- ⭐ v9.6: Check humanoid visible mỗi 2s
-            ensureHumanoidVisible()
 
             local hrp = getHRP()
             if not hrp then
@@ -1216,8 +1157,8 @@ local function startWatchdog()
                 if lastMovePos then
                     local moved = dist(hrp.Position, lastMovePos)
                     if moved < 5 then
-                        if os.clock() - lastMoveCheck > 12 then
-                            log("🚨 WATCHDOG: Đứng yên >12s → FORCE TELE HOME")
+                        if os.clock() - lastMoveCheck > 15 then
+                            log("🚨 WATCHDOG: Đứng yên >15s → FORCE TELE HOME")
                             forceTeleHome()
                             task.wait(0.5)
                             lastMoveCheck = os.clock()
@@ -1308,7 +1249,7 @@ local function mainLoop()
                     local eggPrompt, eggPos, eggDist, eggMap
 
                     if config.BIG_EGG_MODE then
-                        log("🥚 Mode: BIG EGG (size to nhất)")
+                        log("🥚 Mode: BIG EGG")
                         eggPrompt, eggPos, eggDist, eggMap = findBiggestEgg()
                         if not eggPos then
                             log("⚠ Không có big egg → chuyển priority")
@@ -1513,7 +1454,7 @@ function M.start()
     cycleStartTime = 0
     lastClearTime = os.clock()
     isRunning = true
-    log("▶ START v9.6 — " .. #config.TARGETS .. " map(s)")
+    log("▶ START v9.7 — " .. #config.TARGETS .. " map(s)")
     startWatchdog()
     task.spawn(mainLoop)
 end
