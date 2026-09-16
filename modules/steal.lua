@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v10.6.1 — FIX STUCK RECOVERY
+-- STEAL MODULE v10.6.2 — Fix khối xám + Delay
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -33,7 +33,7 @@ local config = {
     PRIORITY_THRESHOLD = 1000000,
     BIG_EGG_MODE       = false,
     HOME_FLY_ABSOLUTE_Y = 100,
-    FLY_HOME_SPEED      = 350,      -- ⭐ v10.6.1: Giảm từ 500
+    FLY_HOME_SPEED      = 350,
     DROP_SPEED          = 250,
     RECOVERY_RADIUS     = 500,
     MAX_RECOVERY        = 3,
@@ -43,16 +43,16 @@ local config = {
     PROMPT_NEAR_DIST    = 12,
     PROMPT_SKIP_DIST    = 15,
     SPEED          = 1500,
-    SPEED_CAP      = 350,           -- ⭐ v10.6.1: Giảm từ 500
+    SPEED_CAP      = 350,
     SLOW_SPEED     = 1000,
     MAP_RADIUS     = 800,
     ARRIVE_DIST    = 10,
-    BAIT_TIMEOUT   = 12,            -- ⭐ v10.6.1: Giảm từ 15
+    BAIT_TIMEOUT   = 12,
     KB_HEALTH_DROP = 0.5,
     MAX_FIRES      = 8,
     MAX_RETRY      = 3,
-    STEAL_VERIFY_WAIT = 0.25,       -- ⭐ v10.6.1: Giảm từ 0.35
-    CHAT_WAIT      = 2.0,
+    STEAL_VERIFY_WAIT = 0.25,
+    CHAT_WAIT      = 0.5,       -- ⭐ v10.6.2: 2.0 → 0.5
 }
 
 local isRunning = false
@@ -156,30 +156,7 @@ local function forceRunningState()
     end) end
 end
 
-local function forceVisible()
-    local c = P.Character
-    if not c then return end
-    local hrp = c:FindFirstChild("HumanoidRootPart")
-    if hrp then pcall(function()
-        hrp.Transparency = 1
-        hrp.LocalTransparencyModifier = 0
-    end) end
-    for _, part in ipairs(c:GetDescendants()) do
-        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-            pcall(function()
-                part.Transparency = 0
-                part.LocalTransparencyModifier = 0
-            end)
-        end
-        if part:IsA("Decal") then
-            pcall(function() part.Transparency = 0 end)
-        end
-    end
-    local animate = c:FindFirstChild("Animate")
-    if animate and animate:IsA("BaseScript") then
-        pcall(function() animate.Disabled = false end)
-    end
-end
+-- ⭐ v10.6.2: forceVisible ĐÃ XÓA — gây khối xám trên nhân vật
 
 -- ══════════ INCOME MODULES ══════════
 local AssetEarnings, EggState
@@ -263,25 +240,22 @@ local function findBiggestEgg()
             local cf = eggData.BoundsCFrame
             if cf then
                 local pos = cf.Position
-                -- ⭐ v10.6.2: Không filter khoảng cách, lấy size lớn nhất toàn server
-                if true then  -- Always include
-                    local st = tostring(eggData.State or "slot"):lower()
-                    local bs = eggData.BoundsSize
-                    local avgSize = bs and ((bs.X + bs.Y + bs.Z) / 3) or (3.5 * (eggData.AssetScale or 1))
-                    local nearestMap, nearestDist = nil, 99999
-                    for _, m in ipairs(ALL_MAPS) do
-                        local d = dist(pos, m.pos)
-                        if d < nearestDist then nearestMap = m; nearestDist = d end
-                    end
-                    if nearestMap then
-                        table.insert(candidates, {
-                            uid = uid, pos = pos, scale = eggData.AssetScale or 1,
-                            avgSize = avgSize, map = nearestMap,
-                            category = eggData.AssetCategory,
-                            mutation = eggData.BaseMutation,
-                            rawState = st,
-                        })
-                    end
+                local st = tostring(eggData.State or "slot"):lower()
+                local bs = eggData.BoundsSize
+                local avgSize = bs and ((bs.X + bs.Y + bs.Z) / 3) or (3.5 * (eggData.AssetScale or 1))
+                local nearestMap, nearestDist = nil, 99999
+                for _, m in ipairs(ALL_MAPS) do
+                    local d = dist(pos, m.pos)
+                    if d < nearestDist then nearestMap = m; nearestDist = d end
+                end
+                if nearestMap then
+                    table.insert(candidates, {
+                        uid = uid, pos = pos, scale = eggData.AssetScale or 1,
+                        avgSize = avgSize, map = nearestMap,
+                        category = eggData.AssetCategory,
+                        mutation = eggData.BaseMutation,
+                        rawState = st,
+                    })
                 end
             end
         end
@@ -661,7 +635,6 @@ local function replaceHumanoidDirect()
         task.wait(0.2)
         local h = c:FindFirstChildOfClass("Humanoid")
         if h then pcall(function() h:ChangeState(Enum.HumanoidStateType.Running) end) end
-        forceVisible()
     end)
     return true
 end
@@ -1013,13 +986,11 @@ local function goHomeWithRecovery()
                             recoveryAttempts = 0
                             t1 = os.clock()
                         else
-                            -- ⭐ FIX v10.6.2: Mark egg đã lượm để không retry
                             if nearestPrompt then
                                 stolenPrompts[nearestPrompt] = true
                                 log("🔖 Mark egg lượm rồi")
                             end
                             
-                            -- Chờ egg được carry (tối đa 2 giây)
                             local carryWait = 0
                             while carryWait < 2 and not isCarryingEgg() do
                                 task.wait(0.1)
@@ -1029,14 +1000,12 @@ local function goHomeWithRecovery()
                             if isCarryingEgg() then
                                 log("✅ Egg carry rồi → BAY VỀ HOME NGAY!")
                                 
-                                -- ⭐ v10.6.2: FLY HOME IMMEDIATELY (CRITICAL!)
                                 forceRunningState()
                                 task.wait(0.1)
                                 
-                                -- Fly to home absolute
-                                local success = velocityFlyTo(config.HOME_POS, 8, 200)
+                                -- ⭐ v10.6.2: 4s timeout, speed 300
+                                local success = velocityFlyTo(config.HOME_POS, 4, 300)
                                 
-                                -- Force stop velocity
                                 local rFinal = getHRP()
                                 if rFinal then pcall(function()
                                     rFinal.CFrame = CFrame.new(config.HOME_POS)
@@ -1044,11 +1013,8 @@ local function goHomeWithRecovery()
                                     rFinal.AssemblyAngularVelocity = Vector3.zero
                                 end) end
                                 
-                                forceVisible()
                                 forceRunningState()
                                 log("✅ VỀ HOME THÀNH CÔNG")
-                                
-                                -- ⭐ CRITICAL: Return from entire goHomeWithRecovery
                                 return true
                             else
                                 log("⚠ Egg chưa carry → tiếp tục bay về")
@@ -1084,14 +1050,12 @@ local function goHomeWithRecovery()
         task.wait(0.01)
     end
 
-    -- ⭐ Normal home fly (recovery already returned from loop nếu thành công)
     velocityFlyTo(config.HOME_POS, 5, config.DROP_SPEED or 250)
     local rEnd = getHRP()
     if rEnd then pcall(function()
         rEnd.AssemblyLinearVelocity = Vector3.zero
         rEnd.AssemblyAngularVelocity = Vector3.zero
     end) end
-    forceVisible()
     forceRunningState()
     log(string.format("✅ Về home (%.2fs)", os.clock() - startTime))
     return true
@@ -1229,13 +1193,6 @@ local function startWatchdog()
             if not isRunning then break end
             tick = tick + 1
             forceRunningState()
-            local c = P.Character
-            if c then
-                local hrpC = c:FindFirstChild("HumanoidRootPart")
-                if hrpC and hrpC.Transparency > 0.1 then
-                    forceVisible()
-                end
-            end
             if tick % 4 == 0 then
                 local hrp = getHRP()
                 if hrp then
@@ -1422,18 +1379,20 @@ local function mainLoop()
                             if stolen then
                                 consecutiveFails = 0
                                 goHomeWithRecovery()
-                                task.wait(config.CHAT_WAIT)
+                                -- ⭐ v10.6.2: Chỉ chờ khi CHAT_WAIT > 0
+                                if config.CHAT_WAIT > 0 then
+                                    task.wait(config.CHAT_WAIT)
+                                end
                                 if deliveryFailed then
                                     consecutiveFails = consecutiveFails + 1
                                     log(string.format("❌ Delivery fail (%d)", consecutiveFails))
-                                    task.wait(1)
+                                    task.wait(0.5)
                                 else
                                     log("🎉 THÀNH CÔNG")
                                     success = true
                                     lastTargetPos = nil
                                     lastTargetMap = nil
                                     consecutiveFails = 0
-                                    cycleStartTime = os.clock()
                                     replacedThisCycle = false
                                     break
                                 end
@@ -1463,6 +1422,11 @@ local function mainLoop()
                         if success then
                             deliveryFailed = false
                             log("🎉 HOÀN THÀNH")
+                            cycleStartTime = os.clock()
+                            replacedThisCycle = false
+                            lastTargetPos = nil
+                            lastTargetMap = nil
+                            consecutiveFails = 0
                         else
                             log("❌ Hết retry")
                             lastTargetPos = nil
@@ -1538,7 +1502,7 @@ function M.start()
     lastClearTime = os.clock()
     replacedThisCycle = false
     isRunning = true
-    log("▶ START v10.6.1 - FIX STUCK RECOVERY")
+    log("▶ START v10.6.2")
     startWatchdog()
     task.spawn(mainLoop)
 end
@@ -1594,4 +1558,3 @@ function M.setForest(p) if p then config.FOREST_POS = p end end
 function M.getConfig() return config end
 
 return M
-
