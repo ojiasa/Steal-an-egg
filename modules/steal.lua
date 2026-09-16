@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v10.1 — Bay sát prompt + Force Running + Fix tàn hình
+-- STEAL MODULE v10.2 — Fix knocked down + Force Running liên tục
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -43,8 +43,8 @@ local config = {
 
     FOREST_RADIUS       = 300,
     CARRY_WAIT_MAX      = 5,
-    PROMPT_NEAR_DIST    = 12,    -- ⭐ Ngưỡng bay sát prompt
-    PROMPT_SKIP_DIST    = 15,    -- ⭐ Ngưỡng skip fire nếu quá xa
+    PROMPT_NEAR_DIST    = 12,
+    PROMPT_SKIP_DIST    = 15,
 
     SPEED          = 1500,
     SPEED_CAP      = 500,
@@ -147,9 +147,13 @@ local function forceTeleHome()
     end) end
 end
 
+-- ⭐ v10.2: Force Running + off PlatformStand/Sit
 local function forceRunningState()
     local hum = getHum()
     if hum then pcall(function()
+        hum.PlatformStand = false
+        hum.Sit = false
+        
         local state = hum:GetState()
         if state == Enum.HumanoidStateType.Physics
             or state == Enum.HumanoidStateType.PlatformStanding
@@ -159,9 +163,19 @@ local function forceRunningState()
     end) end
 end
 
+-- ⭐ v10.2: Force visible HRP ngay
 local function forceVisible()
     local c = P.Character
     if not c then return end
+    
+    local hrp = c:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        pcall(function()
+            hrp.Transparency = 1
+            hrp.LocalTransparencyModifier = 0
+        end)
+    end
+    
     for _, part in ipairs(c:GetDescendants()) do
         if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
             pcall(function()
@@ -759,17 +773,24 @@ local function teleToMap(targetPos)
         end) end
         task.wait(0.01)
     end
+    -- ⭐ v10.2: Force Running liên tục 0.5s
     task.spawn(function()
-        task.wait(0.15)
-        forceRunningState()
+        local t0 = os.clock()
+        while os.clock() - t0 < 0.5 do
+            forceRunningState()
+            local hum = getHum()
+            if hum then pcall(function()
+                hum.PlatformStand = false
+                hum.Sit = false
+            end) end
+            task.wait(0.03)
+        end
     end)
 end
 
--- ⭐⭐⭐ v10.1: firePromptOnce check khoảng cách
 local function firePromptOnce(prompt)
     if not prompt or not prompt.Parent then return false end
     
-    -- ⭐ Check khoảng cách
     local hrp = getHRP()
     local ppos = getPromptPos(prompt)
     
@@ -782,7 +803,6 @@ local function firePromptOnce(prompt)
         end
     end
     
-    -- ⭐ Force Running
     forceRunningState()
     
     pcall(function()
@@ -1006,14 +1026,12 @@ local function goHomeWithRecovery()
                     for i = 1, config.MAX_FIRES do
                         if not isRunning then break end
                         
-                        -- ⭐ v10.1: Force Running trước fire
                         forceRunningState()
                         
                         local h3 = getHRP()
                         if h3 then
                             local p3 = findPromptSteal(h3.Position, 150)
                             if p3 then
-                                -- ⭐ v10.1: Bay sát prompt
                                 local p3pos = getPromptPos(p3)
                                 if p3pos then
                                     local dP = dist(h3.Position, p3pos)
@@ -1173,7 +1191,7 @@ local function baitBoss(timeout)
     return false
 end
 
--- ⭐⭐⭐ v10.1: stealAtPos với bay sát prompt
+-- ⭐ v10.2: stealAtPos với chờ sau tele
 local function stealAtPos(targetPos, label, expectedIncome)
     log("═══════")
     log("STEAL TẠI " .. label)
@@ -1187,16 +1205,23 @@ local function stealAtPos(targetPos, label, expectedIncome)
         if d > config.MAP_RADIUS then
             log(string.format("📍 Xa %.0f studs → TELE", d))
             teleToMap(targetPos)
-            task.wait(0.1)
-
-            local hrp2 = getHRP()
-            if hrp2 then
-                local d2 = dist(hrp2.Position, targetPos)
-                if d2 > 50 then
-                    log(string.format("⚠ Tele xong vẫn xa %.0f → VELOCITY", d2))
+            
+            -- ⭐ v10.2: Chờ 0.6s + force Running liên tục
+            log("⏳ Chờ 0.6s để state ổn định...")
+            local t0 = os.clock()
+            while os.clock() - t0 < 0.6 do
+                forceRunningState()
+                task.wait(0.05)
+            end
+            
+            local hrp0 = getHRP()
+            if hrp0 then
+                local d0 = dist(hrp0.Position, targetPos)
+                log(string.format("✅ Sau chờ: cách %.0f studs", d0))
+                
+                if d0 > 50 then
+                    log(string.format("⚠ Vẫn xa %.0f → VELOCITY", d0))
                     velocityMoveTo(targetPos, 15)
-                else
-                    log(string.format("✅ Tele OK (d=%.0f)", d2))
                 end
             end
         else
@@ -1233,14 +1258,12 @@ local function stealAtPos(targetPos, label, expectedIncome)
     for i = 1, config.MAX_FIRES do
         if not isRunning then return false end
         
-        -- ⭐ v10.1: Force Running trước fire
         forceRunningState()
         
         local h2 = getHRP()
         if h2 then
             local p2 = findPromptSteal(h2.Position, 150)
             if p2 then
-                -- ⭐ v10.1: Bay sát prompt
                 local p2pos = getPromptPos(p2)
                 if p2pos then
                     local dP = dist(h2.Position, p2pos)
@@ -1264,16 +1287,18 @@ local function stealAtPos(targetPos, label, expectedIncome)
         end
         
         if i == 3 then
-            local stillCarrying = isCarryingEgg()
-            if stillCarrying then
-                log("🚨 Fire 3 lần vẫn carry → chờ 1.5s để server drop")
-                task.wait(1.5)
-                local stolenAfter, slotAfter = hasStolenSlot(slotsBefore)
-                if stolenAfter then
-                    log("🎒 SLOT MẤT sau chờ: " .. slotAfter)
-                    log("✅ ĐÃ STEAL")
-                    return true
-                end
+            -- ⭐ v10.2: Force Running liên tục 1.5s
+            log("🚨 Fire 3 lần không giảm → chờ 1.5s + force Running")
+            local t0 = os.clock()
+            while os.clock() - t0 < 1.5 do
+                forceRunningState()
+                task.wait(0.05)
+            end
+            local stolenAfter, slotAfter = hasStolenSlot(slotsBefore)
+            if stolenAfter then
+                log("🎒 SLOT MẤT sau chờ: " .. slotAfter)
+                log("✅ ĐÃ STEAL")
+                return true
             end
         end
     end
@@ -1292,7 +1317,6 @@ local function checkEggReset()
     return false
 end
 
--- ⭐ v10.1: Watchdog force visible mỗi 0.5s
 local function startWatchdog()
     task.spawn(function()
         lastMoveCheck = os.clock()
@@ -1303,7 +1327,6 @@ local function startWatchdog()
             if not isRunning then break end
             tick = tick + 1
 
-            -- ⭐ v10.1: Force Running + Visible mỗi 0.5s
             forceRunningState()
             
             local c = P.Character
@@ -1617,12 +1640,21 @@ task.spawn(function()
                 log("⚠ Chat: Already carrying an egg!")
             elseif msg:find("get closer", 1, true)
                 or msg:find("knocked down", 1, true)
+                or msg:find("cannot carry", 1, true)
             then
-                log("⚠ Chat: Get closer / knocked down → force Running")
-                local hum = getHum()
-                if hum then pcall(function()
-                    hum:ChangeState(Enum.HumanoidStateType.Running)
-                end) end
+                log("⚠ Chat: Get closer / knocked down → chờ 1.5s + force Running")
+                task.spawn(function()
+                    local t0 = os.clock()
+                    while os.clock() - t0 < 1.5 do
+                        local hum = getHum()
+                        if hum then pcall(function()
+                            hum.PlatformStand = false
+                            hum.Sit = false
+                            hum:ChangeState(Enum.HumanoidStateType.Running)
+                        end) end
+                        task.wait(0.05)
+                    end
+                end)
             end
         end)
     end)
@@ -1642,7 +1674,7 @@ function M.start()
     cycleStartTime = 0
     lastClearTime = os.clock()
     isRunning = true
-    log("▶ START v10.1 — " .. #config.TARGETS .. " map(s)")
+    log("▶ START v10.2 — " .. #config.TARGETS .. " map(s)")
     startWatchdog()
     task.spawn(mainLoop)
 end
