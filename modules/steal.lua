@@ -1263,7 +1263,123 @@ function M.getConfig() return config end
 function M.getAllMaps() return ALL_MAPS end
 function M.isCarrying() return isCarryingEgg() end
 function M.clearStolenUids() stolenEggUids = {}; log("🔄 Clear UIDs") end
-
 function M.isEggStillOnMap(uid, pos) return isEggStillOnMap(uid, pos) end
+
+-- ⭐⭐⭐ v10.1.1: Bổ sung API còn thiếu cho UI tương thích ⭐⭐⭐
+function M.isPriorityIncome() return config.PRIORITY_INCOME end
+function M.togglePriorityIncome()
+    config.PRIORITY_INCOME = not config.PRIORITY_INCOME
+    if config.PRIORITY_INCOME then config.BIG_EGG_MODE = false end
+    log("💰 Priority Income: " .. (config.PRIORITY_INCOME and "BẬT" or "TẮT"))
+    return config.PRIORITY_INCOME
+end
+
+function M.isBigEggMode() return config.BIG_EGG_MODE end
+function M.toggleBigEggMode()
+    config.BIG_EGG_MODE = not config.BIG_EGG_MODE
+    if config.BIG_EGG_MODE then config.PRIORITY_INCOME = false end
+    log("🥚 Big Egg mode: " .. (config.BIG_EGG_MODE and "BẬT" or "TẮT"))
+    return config.BIG_EGG_MODE
+end
+
+function M.getPriorityThreshold() return config.PRIORITY_THRESHOLD end
+function M.clearIncomeCache() log("🔄 Income cache cleared") end
+
+function M.setHomeFlyY(n)
+    config.HOME_FLY_ABSOLUTE_Y = n or 100
+    log("📏 Home fly Y: " .. config.HOME_FLY_ABSOLUTE_Y)
+end
+
+function M.setFlyHomeSpeed(n)
+    config.FLY_HOME_SPEED = n or 500
+    log("🏃 Fly home speed: " .. config.FLY_HOME_SPEED)
+end
+
+function M.setRecoveryRadius(n)
+    log("📍 Recovery radius không dùng trong v10.1 (không chase egg)")
+end
+
+function M.setMaxRecovery(n)
+    log("📍 Max recovery không dùng trong v10.1 (không chase egg)")
+end
+
+function M.setHomeTimeout(n)
+    config.HOME_TIMEOUT = n or 30
+    log("⏱ Home timeout: " .. config.HOME_TIMEOUT .. "s")
+end
+
+function M.setPromptNear(n)
+    config.PROMPT_NEAR = n or 12
+    log("📏 Prompt near: " .. config.PROMPT_NEAR .. " studs")
+end
+
+function M.setSlowSpeed(n)
+    config.FOREST_RUN_SPEED = n or 150
+    log("🐢 Forest run speed: " .. config.FOREST_RUN_SPEED)
+end
+
+function M.setWarmupTime(n)
+    log("⏱ Warmup time: " .. (n or 3) .. "s (không dùng trong v10.1)")
+end
+
+function M.setChatWait(n)
+    config.CHAT_WAIT = n or 2.0
+    log("💬 Chat wait: " .. config.CHAT_WAIT .. "s")
+end
+
+function M.setCycleWait(n)
+    config.WAIT_BETWEEN = n or 1.0
+    log("⏱ Cycle wait: " .. config.WAIT_BETWEEN .. "s")
+end
+
+function M.setMaxEggsPerCycle(n)
+    log("📊 Max eggs/cycle không dùng trong v10.1 (1 egg/cycle)")
+end
+
+function M.setTeleToForest(enabled)
+    log("ℹ Tele to Forest không dùng trong v10.1 (luôn chạy bộ)")
+end
+
+function M.setMaxRetry(n)
+    config.MAX_RETRY = n or 3
+    log("🔄 Max retry: " .. config.MAX_RETRY)
+end
+
+function M.getCurrentTarget()
+    return lastStolenUid and { uid = lastStolenUid, pos = lastStolenPos } or nil
+end
+
+function M.clearCurrentTarget()
+    lastStolenUid = nil
+    lastStolenPos = nil
+    log("🔓 Clear current target")
+end
+
+function M.setAutoStart(enabled)
+    log("ℹ Auto start: " .. (enabled and "BẬT" or "TẮT"))
+end
+
+function M.getStolenCount()
+    local c = 0
+    for _ in pairs(stolenEggUids) do c = c + 1 end
+    return c
+end
+
+function M.getStolenUids()
+    return stolenEggUids
+end
+
+function M.getStatus()
+    return {
+        isRunning = isRunning,
+        bigEggMode = config.BIG_EGG_MODE,
+        priorityIncome = config.PRIORITY_INCOME,
+        priorityThreshold = config.PRIORITY_THRESHOLD,
+        targets = config.TARGETS,
+        stolenCount = M.getStolenCount(),
+        lastStolenUid = lastStolenUid,
+        forestRunSpeed = config.FOREST_RUN_SPEED,
+    }
+end
 
 return M
