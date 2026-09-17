@@ -101,20 +101,13 @@ local isRunning      = false
 local stolenPrompts  = {}
 local stolenEggUids  = {}
 local deliveryFailed = false
-local logCallbacks   = {}
 local lastEggCount   = -1
 local cycleStartTime = 0
 local lastStolenUid  = nil
 local lastStolenPos  = nil
 local mainThread     = nil   -- ⭐ để kill thread cũ
 
-local function log(s)
-    for _, cb in ipairs(logCallbacks) do pcall(cb, s) end
-    print("[Steal] " .. tostring(s))
-end
-
-function M.onLog(cb) if type(cb) == "function" then table.insert(logCallbacks, cb) end end
-
+local function log(s) end
 -- ══════════ HELPERS ══════════
 local function getHRP() local c = P.Character; return c and c:FindFirstChild("HumanoidRootPart") end
 local function getHum() local c = P.Character; return c and c:FindFirstChildOfClass("Humanoid") end
