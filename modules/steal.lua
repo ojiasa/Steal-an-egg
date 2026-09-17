@@ -1511,6 +1511,11 @@ local function mainLoop()
                         log(string.format("   📏 Cách player: %.0f studs",
                             dist(eggPos, (getHRP() and getHRP().Position) or Vector3.zero)))
 
+-- ⭐⭐⭐ THÊM DÒNG NÀY — BẮT BUỘC
+local targetPos = eggPos + Vector3.new(0, 3, 0)
+log(string.format("   📍 Target pos: (%.1f, %.1f, %.1f)",
+    targetPos.X, targetPos.Y, targetPos.Z))
+                        
                         -- TELE
                         log("   🚀 Bắt đầu tele...")
                         local teleStartPos = getHRP() and getHRP().Position
