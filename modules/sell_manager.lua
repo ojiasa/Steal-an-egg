@@ -37,14 +37,16 @@ local stats = {
 
 -- ══════════ REMOTES ══════════
 local NET = RS:FindFirstChild("Packages") and RS.Packages:FindFirstChild("Networking")
-local Satchel = NET and NET:FindFirstChild("PetSatchel")
 
 local remotes = {
-    sellPet       = Satchel and Satchel:FindFirstChild("SellPet"),
-    sellSelection = Satchel and Satchel:FindFirstChild("SellSelection"),
-    sellEveryPet  = Satchel and Satchel:FindFirstChild("SellEveryPet"),
+    sellPet       = NET and NET:FindFirstChild("RE/PetSatchel/SellPet"),
+    sellSelection = NET and NET:FindFirstChild("RE/PetSatchel/SellSelection"),
+    sellEveryPet  = NET and NET:FindFirstChild("RE/PetSatchel/SellEveryPet"),
     wearBest      = NET and NET:FindFirstChild("RF/Haul/WearBest"),
 }
+
+local Satchel = NET and NET:FindFirstChild("PetSatchel")
+
 
 -- ══════════ ASSET EARNINGS ══════════
 local AssetEarnings
