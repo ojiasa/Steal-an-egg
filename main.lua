@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- MAIN.lua v3.8.1 — Số ô nhập nhẹ & dễ nhìn + Bỏ viền trắng
+-- MAIN.lua v3.8.2 — Resize 2 cạnh (phải + dưới) + Auto Sell Pet All
 -- ═══════════════════════════════════════════════════════════════
 
 local BACKGROUND_ID = (Config and Config.BackgroundImageId) or "rbxassetid://116222439691339"
@@ -76,7 +76,7 @@ _G.StealEgg = {
     SM_ScanInfo = function() if SellManager then SellManager.scanInfo() end end,
     SM_OnLog = function(cb) if SellManager then SellManager.onLog(cb) end end,
 
-    Version = "3.8.1",
+    Version = "3.8.2",
 }
 local API = _G.StealEgg
 _G.MyScript = API
@@ -176,7 +176,7 @@ panel.BorderSizePixel = 0
 panel.ClipsDescendants = false
 panel.Visible = false
 panel.Active = true
-panel.Draggable = true
+panel.Draggable = false
 panel.Parent = sg
 Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 14)
 local pstk = Instance.new("UIStroke", panel)
@@ -286,7 +286,6 @@ local function setTab(id)
     for tid, page in pairs(pages) do page.Visible = (tid == id) end
 end
 
--- ⭐ TAB: viền đen dày 3, không viền trắng
 local function mkTab(id, text)
     local b = Instance.new("TextButton", sidebar)
     b.Size = UDim2.new(1, 0, 0, 44)
@@ -338,15 +337,13 @@ local function createToggleRow(parent, labelText, defaultState, hasTextBox, onTo
         box.BackgroundColor3 = COLORS.white
         box.BackgroundTransparency = 0.1
         box.TextColor3 = COLORS.textBlack
-        box.Font = Enum.Font.GothamMedium      -- ⭐ nhẹ hơn GothamBold
-        box.TextSize = 13                       -- ⭐ tăng nhẹ cho dễ đọc
+        box.Font = Enum.Font.GothamMedium
+        box.TextSize = 13
         box.Text = boxDefault or "1"
         box.PlaceholderText = "1"
         box.PlaceholderColor3 = Color3.fromRGB(120, 120, 120)
         box.ZIndex = 4
         Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
-
-        -- ⭐ viền đen mỏng + mờ cho số dễ nhìn
         addTextStroke(box, 1, 0.35)
 
         box.FocusLost:Connect(function()
@@ -561,14 +558,13 @@ petHeader.TextXAlignment = Enum.TextXAlignment.Left
 petHeader.LayoutOrder = 1
 addTextStroke(petHeader, 2)
 
-local autoSellToggle = createToggleRow(pagePet, "Auto Sell Pet (value m)", API.SM_IsAutoSell(), true, function(state)
+-- ⭐ ĐÃ ĐỔI TEXT: "Auto Sell All" → "Auto Sell Pet All"
+local autoSellToggle = createToggleRow(pagePet, "Auto Sell Pet All", API.SM_IsAutoSell(), false, function(state)
     API.SM_SetAutoSell(state)
     if state and not API.SM_IsRunning() then
         API.SM_Start()
     end
-end, function(value)
-    API.SM_SetThreshold(value)
-end, "10")
+end, nil)
 autoSellToggle.LayoutOrder = 2
 
 local autoEquipToggle = createToggleRow(pagePet, "Auto Equip Best Pet", API.SM_IsAutoEquip(), false, function(state)
@@ -602,7 +598,39 @@ createToggleRow(pageESP, "ESP Egg", API.ESP_IsEnabled(), false, function(state)
 end, nil)
 
 -- ═══════════════════════════════════════════════════════════════
--- RESIZE BUTTON
+-- DRAG PANEL (kéo bằng title)
+-- ═══════════════════════════════════════════════════════════════
+local isDragging = false
+local dragStartPos
+local dragStartAbsPos
+
+titleFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isDragging = true
+        dragStartPos = input.Position
+        dragStartAbsPos = panel.AbsolutePosition
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if not isDragging then return end
+    
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        local delta = input.Position - dragStartPos
+        -- ⭐ Neo góc trên-trái để drag chính xác
+        panel.AnchorPoint = Vector2.new(0, 0)
+        panel.Position = UDim2.fromOffset(dragStartAbsPos.X + delta.X, dragStartAbsPos.Y + delta.Y)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isDragging = false
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════════
+-- ⭐ RESIZE — CHỈ KÉO CẠNH PHẢI + CẠNH DƯỚI
 -- ═══════════════════════════════════════════════════════════════
 local resizeBtn = Instance.new("TextButton")
 resizeBtn.Name = "ResizeButton"
@@ -624,52 +652,44 @@ resizeBtn.TextYAlignment = Enum.TextYAlignment.Center
 local isResizing = false
 local resizeStartPos
 local resizeStartSize
-local resizeInputType
+local resizeStartAbsPos
 
 local MIN_WIDTH = 450
 local MIN_HEIGHT = 280
+local MAX_WIDTH = 1200
+local MAX_HEIGHT = 800
 
 resizeBtn.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch then
         isResizing = true
-        resizeInputType = input.UserInputType
         resizeStartPos = input.Position
         resizeStartSize = panel.AbsoluteSize
+        resizeStartAbsPos = panel.AbsolutePosition   -- ⭐ chốt góc trên-trái
     end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
     if not isResizing then return end
     
-    if resizeInputType == Enum.UserInputType.Touch 
-        and input.UserInputType ~= Enum.UserInputType.Touch then
-        return
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        local delta = input.Position - resizeStartPos
+        
+        -- ⭐ Chỉ tính delta.X (rộng) và delta.Y (cao)
+        local newWidth  = math.clamp(resizeStartSize.X + delta.X, MIN_WIDTH,  MAX_WIDTH)
+        local newHeight = math.clamp(resizeStartSize.Y + delta.Y, MIN_HEIGHT, MAX_HEIGHT)
+        
+        -- ⭐ Giữ nguyên góc trên-trái → CHỈ cạnh phải và cạnh dưới di chuyển
+        panel.AnchorPoint = Vector2.new(0, 0)
+        panel.Position = UDim2.fromOffset(resizeStartAbsPos.X, resizeStartAbsPos.Y)
+        panel.Size = UDim2.fromOffset(newWidth, newHeight)
     end
-    if resizeInputType == Enum.UserInputType.MouseButton1
-        and input.UserInputType ~= Enum.UserInputType.MouseMovement then
-        return
-    end
-    
-    local delta = input.Position - resizeStartPos
-    local newWidth = math.max(MIN_WIDTH, resizeStartSize.X + delta.X)
-    local newHeight = math.max(MIN_HEIGHT, resizeStartSize.Y + delta.Y)
-    
-    panel.Size = UDim2.new(0, newWidth, 0, newHeight)
 end)
 
 UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch then
         isResizing = false
-        resizeInputType = nil
-    end
-end)
-
-UserInputService.TouchEnded:Connect(function(input)
-    if isResizing then
-        isResizing = false
-        resizeInputType = nil
     end
 end)
 
@@ -697,10 +717,20 @@ API.SetTargets(initList)
 icon.MouseButton1Click:Connect(function()
     panel.Visible = not panel.Visible
     if panel.Visible then
+        -- ⭐ Khi mở lần đầu: căn giữa màn hình
+        if panel.AnchorPoint == Vector2.new(0, 0) then
+            -- Nếu đã từng resize → mở tại vị trí cũ
+            panel.AnchorPoint = Vector2.new(0, 0)
+        else
+            panel.AnchorPoint = Vector2.new(0.5, 0.5)
+            panel.Position = UDim2.new(0.5, 0, 0.5, 0)
+        end
+        
+        local targetSize = panel.Size
         panel.Size = UDim2.new(0, 100, 0, 60)
         panel.BackgroundTransparency = 1
         TweenService:Create(panel, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-            Size = UDim2.new(0, PANEL_WIDTH, 0, PANEL_HEIGHT),
+            Size = targetSize,
             BackgroundTransparency = 0.85
         }):Play()
     end
@@ -711,4 +741,4 @@ if API.SM_OnLog then
     API.SM_OnLog(function(msg) print("[SellManager] " .. msg) end)
 end
 
-print("[Main] ✅ Ready v3.8.1 — Số ô nhập nhẹ & dễ nhìn")
+print("[Main] ✅ Ready v3.8.2 — Resize 2 cạnh + Auto Sell Pet All")
