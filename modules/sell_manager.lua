@@ -1,7 +1,8 @@
 -- ═══════════════════════════════════════════════════════════════
--- PET TOOL MODULE v16.6 — FIX FINAL
--- ⭐ Tìm remote bằng EXACT NAME (giữ prefix RE/ RF/)
+-- PET TOOL MODULE v16.7 — FIX BÁN PET THÀNH CÔNG
+-- ⭐ SellPet:FireServer(uid, true) — arg thứ 2 là confirm flag
 -- ⭐ Income tính bằng AssetEarnings (chính xác 100%)
+-- ⭐ Auto Equip qua RF/Haul/WearBest
 -- ═══════════════════════════════════════════════════════════════
 
 local P = game:GetService("Players").LocalPlayer
@@ -30,7 +31,6 @@ local stats = {
     cyclesRun = 0,
 }
 
--- ⭐ FIX: Tìm remote bằng EXACT NAME (có prefix)
 local Networking = RS:FindFirstChild("Packages") and RS.Packages:FindFirstChild("Networking")
 
 local remotes = {
@@ -40,13 +40,11 @@ local remotes = {
     wearBest      = Networking and Networking:FindFirstChild("RF/Haul/WearBest"),
 }
 
--- Log kết quả
-print("[PetTool v16.6] Remote search:")
+print("[PetTool v16.7] Remote search:")
 for k, v in pairs(remotes) do
     print(string.format("  %s = %s", k, v and v:GetFullName() or "❌ nil"))
 end
 
--- AssetEarnings
 local AssetEarnings
 pcall(function()
     local shared = RS:FindFirstChild("Shared")
@@ -75,7 +73,6 @@ local function fmtMoney(n)
     return string.format("$%.0f", n)
 end
 
--- INCOME từ AssetEarnings
 local function computeIncomeFromTool(tool)
     if not AssetEarnings then return 0 end
     local cat = tool:GetAttribute("Category") or tool:GetAttribute("AssetCategory")
@@ -215,8 +212,9 @@ local function runAutoSell()
     local soldCount = 0
     for i, item in ipairs(toSell) do
         local pet = item.pet
+        -- ⭐ v16.7: Thêm arg `true` (confirm flag)
         local success = pcall(function()
-            remotes.sellPet:FireServer(pet.uid)
+            remotes.sellPet:FireServer(pet.uid, true)
         end)
 
         if success then
@@ -236,7 +234,7 @@ end
 
 local function mainLoop()
     log("═══════════════════════════")
-    log("🚀 PET TOOL v16.6 STARTED")
+    log("🚀 PET TOOL v16.7 STARTED")
     log(string.format("   Auto Sell: %s | Auto Equip: %s",
         config.AUTO_SELL_ENABLED and "ON" or "OFF",
         config.AUTO_EQUIP_ENABLED and "ON" or "OFF"))
@@ -308,7 +306,7 @@ function M.setSellThreshold(value)
 end
 
 function M.getSellThreshold() return config.SELL_THRESHOLD end
-function M.setIncludeZero(enabled) log("ℹ v16.6 không dùng") end
+function M.setIncludeZero(enabled) log("ℹ v16.7 không dùng") end
 function M.setEquipInterval(seconds) config.EQUIP_INTERVAL = tonumber(seconds) or 5 end
 function M.setEquipSyncWait(seconds) config.EQUIP_SYNC_WAIT = tonumber(seconds) or 1.0 end
 
@@ -366,7 +364,7 @@ end
 function M.getLogs() return logs end
 function M.clearLogs() logs = {} end
 function M.getConfig() return config end
-function M.clearCache() log("ℹ v16.6 không dùng cache") end
+function M.clearCache() log("ℹ v16.7 không dùng cache") end
 function M.getIncomeCache() return {} end
 function M.setLoopDelay(s) config.LOOP_DELAY = tonumber(s) or 1.0 end
 function M.setSellDelay(s) config.SELL_DELAY = tonumber(s) or 0.3 end
