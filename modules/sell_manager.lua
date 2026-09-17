@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════
--- PET TOOL MODULE v16.4 — FIX HOÀN CHỈNH
--- ⭐ Dùng AssetEarnings để tính income (không cần remote)
--- ⭐ Dùng RE/PetSatchel/SellPet để bán
+-- PET TOOL MODULE v16.6 — FIX FINAL
+-- ⭐ Tìm remote bằng EXACT NAME (giữ prefix RE/ RF/)
+-- ⭐ Income tính bằng AssetEarnings (chính xác 100%)
 -- ═══════════════════════════════════════════════════════════════
 
 local P = game:GetService("Players").LocalPlayer
@@ -9,22 +9,17 @@ local RS = game:GetService("ReplicatedStorage")
 
 local M = {}
 
--- ══════════ CONFIG ══════════
 local config = {
     AUTO_SELL_ENABLED   = false,
     AUTO_EQUIP_ENABLED  = false,
-
     SELL_THRESHOLD      = 10000000,
-
     EQUIP_INTERVAL      = 5,
     EQUIP_ON_START      = true,
-
     LOOP_DELAY          = 1.0,
     SELL_DELAY          = 0.3,
     EQUIP_SYNC_WAIT     = 1.0,
 }
 
--- ══════════ STATE ══════════
 local isRunning = false
 local logs = {}
 local logCallbacks = {}
@@ -35,20 +30,23 @@ local stats = {
     cyclesRun = 0,
 }
 
--- ══════════ REMOTES ══════════
-local NET = RS:FindFirstChild("Packages") and RS.Packages:FindFirstChild("Networking")
+-- ⭐ FIX: Tìm remote bằng EXACT NAME (có prefix)
+local Networking = RS:FindFirstChild("Packages") and RS.Packages:FindFirstChild("Networking")
 
 local remotes = {
-    sellPet       = NET and NET:FindFirstChild("RE/PetSatchel/SellPet"),
-    sellSelection = NET and NET:FindFirstChild("RE/PetSatchel/SellSelection"),
-    sellEveryPet  = NET and NET:FindFirstChild("RE/PetSatchel/SellEveryPet"),
-    wearBest      = NET and NET:FindFirstChild("RF/Haul/WearBest"),
+    sellPet       = Networking and Networking:FindFirstChild("RE/PetSatchel/SellPet"),
+    sellSelection = Networking and Networking:FindFirstChild("RE/PetSatchel/SellSelection"),
+    sellEveryPet  = Networking and Networking:FindFirstChild("RE/PetSatchel/SellEveryPet"),
+    wearBest      = Networking and Networking:FindFirstChild("RF/Haul/WearBest"),
 }
 
-local Satchel = NET and NET:FindFirstChild("PetSatchel")
+-- Log kết quả
+print("[PetTool v16.6] Remote search:")
+for k, v in pairs(remotes) do
+    print(string.format("  %s = %s", k, v and v:GetFullName() or "❌ nil"))
+end
 
-
--- ══════════ ASSET EARNINGS ══════════
+-- AssetEarnings
 local AssetEarnings
 pcall(function()
     local shared = RS:FindFirstChild("Shared")
@@ -57,7 +55,6 @@ pcall(function()
     if mod then AssetEarnings = require(mod) end
 end)
 
--- ══════════ LOG ══════════
 local function log(txt, color)
     table.insert(logs, { text = tostring(txt), time = os.clock(), color = color })
     if #logs > 200 then table.remove(logs, 1) end
@@ -69,7 +66,6 @@ function M.onLog(cb)
     if type(cb) == "function" then table.insert(logCallbacks, cb) end
 end
 
--- ══════════ FORMAT ══════════
 local function fmtMoney(n)
     if type(n) ~= "number" then return "?" end
     if n >= 1e12 then return string.format("$%.2fT", n/1e12) end
@@ -79,49 +75,33 @@ local function fmtMoney(n)
     return string.format("$%.0f", n)
 end
 
--- ══════════ TÍNH INCOME TỪ ATTRIBUTE ⭐ v16.4 ══════════
+-- INCOME từ AssetEarnings
 local function computeIncomeFromTool(tool)
     if not AssetEarnings then return 0 end
-
     local cat = tool:GetAttribute("Category") or tool:GetAttribute("AssetCategory")
     local scale = tool:GetAttribute("Scale") or tool:GetAttribute("AssetScale") or 1
-    local mutationsStr = tool:GetAttribute("Mutations") or ""
-
+    local mutStr = tool:GetAttribute("Mutations") or ""
     if not cat then return 0 end
 
-    -- Parse Mutations string → table
-    -- VD: "Silver, Boss" → { "Silver", "Boss" }
-    -- VD: "" → {}
     local mutations = {}
-    if type(mutationsStr) == "string" and #mutationsStr > 0 then
-        for m in mutationsStr:gmatch("[^,]+") do
-            m = m:match("^%s*(.-)%s*$")  -- trim
+    if type(mutStr) == "string" and #mutStr > 0 then
+        for m in mutStr:gmatch("[^,]+") do
+            m = m:match("^%s*(.-)%s*$")
             if #m > 0 then table.insert(mutations, m) end
         end
     end
 
-    local input = {
-        Category = cat,
-        Scale = scale,
-        Mutations = mutations,
-    }
-
-    -- Thử LiveRatePerSecond trước
+    local input = { Category = cat, Scale = scale, Mutations = mutations }
     local ok, val = pcall(AssetEarnings.LiveRatePerSecond, input)
     if ok and type(val) == "number" and val > 0 then return val end
-
-    -- Fallback RatePerSecond
     ok, val = pcall(AssetEarnings.RatePerSecond, input)
     if ok and type(val) == "number" and val > 0 then return val end
-
     return 0
 end
 
--- ══════════ SCAN EQUIPPED ══════════
 local function scanEquippedUids()
     local equippedUids = {}
     local myUserId = P.UserId
-
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("Model") then
             local ownerAttr = obj:GetAttribute("OwnerUserId") or obj:GetAttribute("Owner")
@@ -134,28 +114,22 @@ local function scanEquippedUids()
     return equippedUids
 end
 
--- ══════════ SCAN BACKPACK ══════════
 local function scanBackpackPets()
     local pets = {}
     local backpack = P:FindFirstChild("Backpack")
     if not backpack then return pets end
-
     for _, tool in ipairs(backpack:GetChildren()) do
         if tool:IsA("Tool") then
             local cat = tool:GetAttribute("Category") or tool:GetAttribute("AssetCategory")
             local uid = tool:GetAttribute("Uid") or tool:GetAttribute("UID")
                 or tool:GetAttribute("Id") or tool:GetAttribute("ID")
-
             if cat and uid then
                 local ln = tool.Name:lower()
                 local lc = tostring(cat):lower()
-
-                -- Bỏ non-pet items
                 if not ln:find("egg", 1, true) and not lc:find("egg", 1, true)
                     and not ln:find("trap", 1, true) and not ln:find("bat", 1, true)
                     and not ln:find("gậy", 1, true) and not ln:find("consumable", 1, true)
                     and not ln:find("mutation", 1, true) and not ln:find("rod", 1, true) then
-
                     table.insert(pets, {
                         name = tool.Name,
                         uid = tostring(uid),
@@ -169,7 +143,6 @@ local function scanBackpackPets()
     return pets
 end
 
--- ══════════ AUTO EQUIP ══════════
 local lastEquipTime = 0
 
 local function runAutoEquip()
@@ -179,9 +152,12 @@ local function runAutoEquip()
     end
     log("🎽 AUTO EQUIP BEST...")
 
-    local ok, result = pcall(function() return remotes.wearBest:InvokeServer() end)
-    if ok and result == true then
-        log("✅ Equip thành công")
+    local ok, result = pcall(function()
+        return remotes.wearBest:InvokeServer()
+    end)
+
+    if ok then
+        log(string.format("✅ Equip OK (result=%s)", tostring(result)))
         stats.totalEquipped = stats.totalEquipped + 1
         lastEquipTime = os.clock()
         return true
@@ -191,14 +167,13 @@ local function runAutoEquip()
     end
 end
 
--- ══════════ AUTO SELL ⭐ v16.4 ══════════
 local function runAutoSell()
     if not remotes.sellPet then
-        log("❌ Không có RE/PetSatchel/SellPet")
+        log("❌ Không có SellPet")
         return 0
     end
     if not AssetEarnings then
-        log("❌ Không có AssetEarnings module")
+        log("❌ Không có AssetEarnings")
         return 0
     end
 
@@ -210,20 +185,17 @@ local function runAutoSell()
 
     local backpackPets = scanBackpackPets()
     if #backpackPets == 0 then
-        log("ℹ Không có pet trong backpack")
+        log("ℹ Không có pet")
         return 0
     end
 
     local equippedUids = scanEquippedUids()
-
-    -- ⭐ TÍNH INCOME CHO TỪNG PET
     local toSell = {}
     local keepCount = 0
 
     for _, pet in ipairs(backpackPets) do
         if not equippedUids[pet.uid] then
             local income = computeIncomeFromTool(pet.instance)
-
             if income < config.SELL_THRESHOLD then
                 table.insert(toSell, { pet = pet, income = income })
             else
@@ -233,8 +205,8 @@ local function runAutoSell()
     end
 
     if #toSell == 0 then
-        log(string.format("ℹ Không pet nào < %s (giữ: %d)",
-            fmtMoney(config.SELL_THRESHOLD), keepCount))
+        log(string.format("ℹ Không pet nào < %s (giữ: %d, tổng: %d)",
+            fmtMoney(config.SELL_THRESHOLD), keepCount, #backpackPets))
         return 0
     end
 
@@ -244,7 +216,7 @@ local function runAutoSell()
     for i, item in ipairs(toSell) do
         local pet = item.pet
         local success = pcall(function()
-            return remotes.sellPet:FireServer(pet.uid)
+            remotes.sellPet:FireServer(pet.uid)
         end)
 
         if success then
@@ -262,16 +234,16 @@ local function runAutoSell()
     return soldCount
 end
 
--- ══════════ MAIN LOOP ══════════
 local function mainLoop()
     log("═══════════════════════════")
-    log("🚀 PET TOOL v16.4 STARTED")
+    log("🚀 PET TOOL v16.6 STARTED")
     log(string.format("   Auto Sell: %s | Auto Equip: %s",
         config.AUTO_SELL_ENABLED and "ON" or "OFF",
         config.AUTO_EQUIP_ENABLED and "ON" or "OFF"))
     log(string.format("   Threshold: %s", fmtMoney(config.SELL_THRESHOLD)))
+    log(string.format("   SellPet: %s", remotes.sellPet and "✅" or "❌"))
+    log(string.format("   WearBest: %s", remotes.wearBest and "✅" or "❌"))
     log(string.format("   AssetEarnings: %s", AssetEarnings and "✅" or "❌"))
-    log(string.format("   SellPet remote: %s", remotes.sellPet and "✅" or "❌"))
     log("═══════════════════════════")
 
     while isRunning do
@@ -298,27 +270,17 @@ local function mainLoop()
     log("🛑 STOPPED")
 end
 
--- ══════════ PUBLIC API ══════════
 function M.start()
     if isRunning then return end
-    if not AssetEarnings then
-        log("❌ AssetEarnings module không tìm thấy — không start được")
-        return
-    end
-    if not remotes.sellPet then
-        log("❌ SellPet remote không tìm thấy — không start được")
-        return
-    end
+    if not AssetEarnings then log("❌ AssetEarnings nil"); return end
+    if not remotes.sellPet then log("❌ SellPet nil"); return end
     isRunning = true
     config.EQUIP_ON_START = true
     lastEquipTime = 0
     task.spawn(mainLoop)
 end
 
-function M.stop()
-    isRunning = false
-end
-
+function M.stop() isRunning = false end
 function M.isRunning() return isRunning end
 
 function M.setAutoSell(enabled)
@@ -346,19 +308,9 @@ function M.setSellThreshold(value)
 end
 
 function M.getSellThreshold() return config.SELL_THRESHOLD end
-
-function M.setIncludeZero(enabled)
-    -- v16.4 không dùng nữa nhưng giữ API để tương thích
-    log("⚠ v16.4 không cần include_zero (đã dùng AssetEarnings)")
-end
-
-function M.setEquipInterval(seconds)
-    config.EQUIP_INTERVAL = tonumber(seconds) or 5
-end
-
-function M.setEquipSyncWait(seconds)
-    config.EQUIP_SYNC_WAIT = tonumber(seconds) or 1.0
-end
+function M.setIncludeZero(enabled) log("ℹ v16.6 không dùng") end
+function M.setEquipInterval(seconds) config.EQUIP_INTERVAL = tonumber(seconds) or 5 end
+function M.setEquipSyncWait(seconds) config.EQUIP_SYNC_WAIT = tonumber(seconds) or 1.0 end
 
 function M.runOnce()
     task.spawn(function()
@@ -388,13 +340,9 @@ function M.scanInfo()
             local pet = bp[i]
             local income = computeIncomeFromTool(pet.instance)
             local status
-            if eq[pet.uid] then
-                status = "[EQUIP]"
-            elseif income < config.SELL_THRESHOLD then
-                status = "→ SELL"
-            else
-                status = "→ KEEP"
-            end
+            if eq[pet.uid] then status = "[EQUIP]"
+            elseif income < config.SELL_THRESHOLD then status = "→ SELL"
+            else status = "→ KEEP" end
 
             log(string.format("  [%d] %s — %s %s",
                 i, pet.name:sub(1, 25), fmtMoney(income) .. "/s", status))
@@ -418,15 +366,8 @@ end
 function M.getLogs() return logs end
 function M.clearLogs() logs = {} end
 function M.getConfig() return config end
-
-function M.clearCache()
-    log("ℹ v16.4 không dùng cache")
-end
-
-function M.getIncomeCache()
-    return {}
-end
-
+function M.clearCache() log("ℹ v16.6 không dùng cache") end
+function M.getIncomeCache() return {} end
 function M.setLoopDelay(s) config.LOOP_DELAY = tonumber(s) or 1.0 end
 function M.setSellDelay(s) config.SELL_DELAY = tonumber(s) or 0.3 end
 
