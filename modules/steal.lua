@@ -63,6 +63,9 @@ local config = {
     BAIT_TIMEOUT   = 15,
     KB_HEALTH_DROP = 0.1,
 
+    BIG_EGG_MIN_SIZE  = 0,    -- 0 = tắt, vd 10.0 = chỉ egg size >= 10
+    BIG_EGG_MIN_SCALE = 0,    -- 0 = tắt, vd 2.0 = chỉ egg scale >= 2
+    
     SPEED          = 1500,
     SPEED_CAP      = 500,
     MAP_RADIUS     = 800,
@@ -369,31 +372,80 @@ local function findBiggestEgg()
     if not EggState then return nil, nil, nil, nil, nil end
     local candidates = {}
     local ok, fd = pcall(EggState.ReadFieldEggs)
-    if ok and type(fd) == "table" and type(fd.Records) == "table" then
-        for uid, eggData in pairs(fd.Records) do
-            if not stolenEggUids[uid] then
-                local cf = eggData.BoundsCFrame
-                if cf then
-                    local pos = cf.Position
-                    if dist(pos, config.HOME_POS) > 100 then
-                        local st = tostring(eggData.State or ""):lower()
-                        if st ~= "carried" and st ~= "carry" and st ~= "carrying"
-                            and st ~= "held" and st ~= "picked" then
-                            local bs = eggData.BoundsSize
-                            local avgSize = bs and ((bs.X + bs.Y + bs.Z) / 3)
-                                or (3.5 * (eggData.AssetScale or 1))
+    if not ok or type(fd) ~= "table" or type(fd.Records) ~= "table" then
+        return nil, nil, nil, nil, nil
+    end
+
+    -- Đếm tổng
+    local totalEggs, skippedCarry, skippedHome, skippedSize, skippedScale, skippedNoMap = 0, 0, 0, 0, 0, 0
+    for _ in pairs(fd.Records) do totalEggs = totalEggs + 1 end
+    log(string.format("═══════ BIG EGG SCAN ═══════"))
+    log(string.format("🥚 Tổng egg trong Records: %d", totalEggs))
+    log(string.format("📏 Ngưỡng: minSize=%.2f | minScale=%.2f",
+        config.BIG_EGG_MIN_SIZE or 0, config.BIG_EGG_MIN_SCALE or 0))
+
+    for uid, eggData in pairs(fd.Records) do
+        if stolenEggUids[uid] then
+            -- đã đánh dấu steal rồi, bỏ qua âm thầm
+        else
+            local cf = eggData.BoundsCFrame
+            if cf then
+                local pos = cf.Position
+                local dHome = dist(pos, config.HOME_POS)
+
+                if dHome <= 100 then
+                    skippedHome = skippedHome + 1
+                else
+                    local st = tostring(eggData.State or ""):lower()
+                    local isCarry = st == "carried" or st == "carry" or st == "carrying"
+                        or st == "held" or st == "picked" or st == "pickedup"
+                        or st == "inventory" or st == "stored"
+
+                    if isCarry then
+                        skippedCarry = skippedCarry + 1
+                        log(string.format("   ⏭ SKIP [carry] %s | state=%s | uid=%s",
+                            eggData.AssetCategory or "?", st, tostring(uid):sub(1,8)))
+                    else
+                        -- Tính size
+                        local bs = eggData.BoundsSize
+                        local avgSize = bs and ((bs.X + bs.Y + bs.Z) / 3)
+                            or (3.5 * (eggData.AssetScale or 1))
+                        local scale = eggData.AssetScale or 1
+
+                        -- Check ngưỡng
+                        local minSize = config.BIG_EGG_MIN_SIZE or 0
+                        local minScale = config.BIG_EGG_MIN_SCALE or 0
+
+                        if avgSize < minSize then
+                            skippedSize = skippedSize + 1
+                            log(string.format("   ⏭ SKIP [size] %s | size=%.2f < %.2f | scale=%.2f | uid=%s",
+                                eggData.AssetCategory or "?", avgSize, minSize, scale, tostring(uid):sub(1,8)))
+                        elseif scale < minScale then
+                            skippedScale = skippedScale + 1
+                            log(string.format("   ⏭ SKIP [scale] %s | scale=%.2f < %.2f | size=%.2f | uid=%s",
+                                eggData.AssetCategory or "?", scale, minScale, avgSize, tostring(uid):sub(1,8)))
+                        else
                             local nearestMap, nearestDist = nil, 99999
                             for _, m in ipairs(ALL_MAPS) do
                                 local d = dist(pos, m.pos)
                                 if d < nearestDist then nearestMap = m; nearestDist = d end
                             end
+
                             if nearestMap then
                                 table.insert(candidates, {
-                                    uid = uid, pos = pos, scale = eggData.AssetScale or 1,
+                                    uid = uid, pos = pos, scale = scale,
                                     avgSize = avgSize, map = nearestMap,
                                     category = eggData.AssetCategory,
                                     mutation = eggData.BaseMutation,
+                                    state = st,
+                                    dFromHome = dHome,
+                                    mapDist = nearestDist,
                                 })
+                                log(string.format("   ✅ ADD %s | size=%.2f | scale=%.2f | map=%s (d=%.0f) | state=%s | uid=%s",
+                                    eggData.AssetCategory or "?", avgSize, scale,
+                                    nearestMap.name, nearestDist, st, tostring(uid):sub(1,8)))
+                            else
+                                skippedNoMap = skippedNoMap + 1
                             end
                         end
                     end
@@ -401,32 +453,54 @@ local function findBiggestEgg()
             end
         end
     end
+
+    log(string.format("📊 Kết quả scan: total=%d | add=%d | skip(carry=%d, home=%d, size=%d, scale=%d, nomap=%d)",
+        totalEggs, #candidates, skippedCarry, skippedHome, skippedSize, skippedScale, skippedNoMap))
+
     if #candidates == 0 then
-        log("⚠ Không có egg nào trong Records")
+        log("⚠ KHÔNG có egg nào đạt điều kiện")
         return nil, nil, nil, nil, nil
     end
+
+    -- Sort: size > scale > gần nhà
     table.sort(candidates, function(a, b)
-        if a.avgSize ~= b.avgSize then return a.avgSize > b.avgSize end
-        return a.scale > b.scale
+        if math.abs(a.avgSize - b.avgSize) > 0.5 then
+            return a.avgSize > b.avgSize
+        end
+        if math.abs(a.scale - b.scale) > 0.1 then
+            return a.scale > b.scale
+        end
+        return a.dFromHome < b.dFromHome
     end)
-    log(string.format("🥚 TOP %d egg (toàn map):", math.min(5, #candidates)))
-    for i = 1, math.min(5, #candidates) do
+
+    log(string.format("═══════ TOP %d ═══════", math.min(10, #candidates)))
+    for i = 1, math.min(10, #candidates) do
         local c = candidates[i]
         local mut = c.mutation and (" [" .. c.mutation .. "]") or ""
-        log(string.format("  [%d] %s%s @ %s = bounds %.2f (kg %.2f)",
-            i, c.category, mut, c.map.name, c.avgSize, c.scale))
+        log(string.format("  [%d] %s%s @ %s | size=%.2f | scale=%.2f | dHome=%.0f",
+            i, c.category, mut, c.map.name, c.avgSize, c.scale, c.dFromHome))
     end
+
+    -- Duyệt verify từng con
+    log("═══════ VERIFY ═══════")
     for i = 1, #candidates do
         local c = candidates[i]
-        if verifyEggExists(c.pos, config.EGG_VERIFY_R or 40) then
+        local t0 = os.clock()
+        local exists = verifyEggExists(c.pos, 80)
+        local dt = (os.clock() - t0) * 1000
+
+        if exists then
+            -- Tìm prompt
             local prompt = nil
-            local bestDist = 20
+            local bestDist = 30
+            local promptCount = 0
             for _, v in ipairs(W:GetDescendants()) do
                 if v:IsA("ProximityPrompt") and v.Enabled and not stolenPrompts[v] then
                     local isEgg = v.Name == "CarryAreaEgg"
                         or ((v.ObjectText or "") == "Egg"
                             and (v.ActionText or ""):lower():find("steal", 1, true))
                     if isEgg then
+                        promptCount = promptCount + 1
                         local ppos = getPromptPos(v)
                         if ppos then
                             local d = (ppos - c.pos).Magnitude
@@ -435,15 +509,27 @@ local function findBiggestEgg()
                     end
                 end
             end
-            log(string.format("✅ Chọn #%d: %s @ %s (bounds %.2f)",
-                i, c.category, c.map.name, c.avgSize))
-            return prompt, c.pos, c.scale, c.map, c.uid
+
+            log(string.format("✅ [#%d] VERIFY OK %.0fms | %s @ %s | size=%.2f | prompt=%s (d=%.1f, tổng %d prompt)",
+                i, dt, c.category, c.map.name, c.avgSize,
+                prompt and "có" or "không", bestDist, promptCount))
+
+            if not prompt then
+                log(string.format("   ⚠ Không tìm thấy prompt cho egg #%d → thử egg tiếp", i))
+            else
+                log(string.format("🎯 CHỌN #%d: %s%s @ %s | size=%.2f scale=%.2f | uid=%s",
+                    i, c.category, c.mutation and (" ["..c.mutation.."]") or "",
+                    c.map.name, c.avgSize, c.scale, tostring(c.uid):sub(1,8)))
+                return prompt, c.pos, c.scale, c.map, c.uid
+            end
         else
             if c.uid then stolenEggUids[c.uid] = true end
-            log(string.format("⏭ #%d không tồn tại → skip", i))
+            log(string.format("❌ [#%d] VERIFY FAIL %.0fms | %s @ %s → đánh dấu stolen",
+                i, dt, c.category, c.map.name))
         end
     end
-    log("❌ Không còn egg nào tồn tại")
+
+    log("❌ Hết danh sách — không còn egg nào verify được")
     return nil, nil, nil, nil, nil
 end
 
@@ -1420,8 +1506,10 @@ local function mainLoop()
                             eggMap and eggMap.name or "?", tostring(eggUid)))
                         log(string.format("   📍 Egg pos: (%.1f, %.1f, %.1f)",
                             eggPos.X, eggPos.Y, eggPos.Z))
-
-                        local targetPos = eggPos + Vector3.new(0, 3, 0)
+                        log(string.format("   📏 Cách home: %.0f studs",
+                            dist(eggPos, config.HOME_POS)))
+                        log(string.format("   📏 Cách player: %.0f studs",
+                            dist(eggPos, (getHRP() and getHRP().Position) or Vector3.zero)))
 
                         -- TELE
                         log("   🚀 Bắt đầu tele...")
@@ -1758,6 +1846,23 @@ function M.getStatus()
         stolenCount = M.getStolenCount(),
         lastStolenUid = lastStolenUid,
         forestRunSpeed = config.FOREST_RUN_SPEED,
+    }
+end
+
+function M.setBigEggMinSize(n)
+    config.BIG_EGG_MIN_SIZE = n or 0
+    log(string.format("📏 Big egg min size: %.2f", config.BIG_EGG_MIN_SIZE))
+end
+
+function M.setBigEggMinScale(n)
+    config.BIG_EGG_MIN_SCALE = n or 0
+    log(string.format("📏 Big egg min scale: %.2f", config.BIG_EGG_MIN_SCALE))
+end
+
+function M.getBigEggThresholds()
+    return {
+        minSize = config.BIG_EGG_MIN_SIZE or 0,
+        minScale = config.BIG_EGG_MIN_SCALE or 0,
     }
 end
 
