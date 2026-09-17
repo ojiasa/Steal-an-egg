@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- MAIN.lua v3.7 — Viền đen toàn bộ + Bỏ button Pet thừa
+-- MAIN.lua v3.8 — Fix multiplier + ESP toggle + Bỏ viền trắng + Viền đen đậm
 -- ═══════════════════════════════════════════════════════════════
 
 local BACKGROUND_ID = (Config and Config.BackgroundImageId) or "rbxassetid://116222439691339"
@@ -76,7 +76,7 @@ _G.StealEgg = {
     SM_ScanInfo = function() if SellManager then SellManager.scanInfo() end end,
     SM_OnLog = function(cb) if SellManager then SellManager.onLog(cb) end end,
 
-    Version = "3.7.0",
+    Version = "3.8.0",
 }
 local API = _G.StealEgg
 _G.MyScript = API
@@ -105,6 +105,7 @@ local COLORS = {
     textBold    = Color3.fromRGB(209, 213, 219),
     textDim     = Color3.fromRGB(180, 185, 195),
     textShadow  = Color3.fromRGB(0, 0, 0),
+    textBlack   = Color3.fromRGB(0, 0, 0),   -- ⭐ MỚI
     
     toggleOn    = Color3.fromRGB(70, 75, 85),
     toggleOff   = Color3.fromRGB(195, 200, 210),
@@ -116,7 +117,6 @@ local COLORS = {
 local TEXT_STROKE_COLOR = Color3.fromRGB(0, 0, 0)
 local TEXT_STROKE_THICKNESS = 2
 
--- ⭐ Hàm thêm viền cho text
 local function addTextStroke(textLabel, thickness)
     local stroke = Instance.new("UIStroke")
     stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
@@ -286,7 +286,7 @@ local function setTab(id)
     for tid, page in pairs(pages) do page.Visible = (tid == id) end
 end
 
--- ⭐ TAB có viền đen
+-- ⭐ TAB: viền đen dày 3, KHÔNG còn viền trắng
 local function mkTab(id, text)
     local b = Instance.new("TextButton", sidebar)
     b.Size = UDim2.new(1, 0, 0, 44)
@@ -299,13 +299,8 @@ local function mkTab(id, text)
     b.AutoButtonColor = false
     b.ZIndex = 3
     Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
-    local bStk = Instance.new("UIStroke", b)
-    bStk.Color = Color3.fromRGB(255, 255, 255)
-    bStk.Thickness = 1
-    bStk.Transparency = 0.4
-    
-    -- ⭐ VIỀN ĐEN DÀY
-    addTextStroke(b, 2)
+    -- ❌ BỎ viền trắng (bStk)
+    addTextStroke(b, 3)   -- ⭐ tăng lên 3
 
     b.MouseButton1Click:Connect(function() setTab(id) end)
     table.insert(tabBtns, { btn = b, id = id })
@@ -324,10 +319,7 @@ local function createToggleRow(parent, labelText, defaultState, hasTextBox, onTo
     container.BackgroundTransparency = 0.88
     container.ZIndex = 3
     Instance.new("UICorner", container).CornerRadius = UDim.new(0, 8)
-    local cStk = Instance.new("UIStroke", container)
-    cStk.Color = Color3.fromRGB(255, 255, 255)
-    cStk.Thickness = 1
-    cStk.Transparency = 0.4
+    -- ❌ BỎ viền trắng (cStk)
 
     local lbl = Instance.new("TextLabel", container)
     lbl.Size = UDim2.new(1, hasTextBox and -130 or -60, 1, 0)
@@ -347,24 +339,21 @@ local function createToggleRow(parent, labelText, defaultState, hasTextBox, onTo
         box.Position = UDim2.new(1, -122, 0.5, -13)
         box.BackgroundColor3 = COLORS.white
         box.BackgroundTransparency = 0.1
-        box.TextColor3 = COLORS.textBold
+        box.TextColor3 = COLORS.textBlack      -- ⭐ MỚI: chữ đen
         box.Font = Enum.Font.GothamBold
         box.TextSize = 12
         box.Text = boxDefault or "1"
         box.PlaceholderText = "1"
+        box.PlaceholderColor3 = Color3.fromRGB(120, 120, 120)
         box.ZIndex = 4
         Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
-        local bStk = Instance.new("UIStroke", box)
-        bStk.Color = COLORS.cardBorder
-        bStk.Thickness = 1
-        
-        -- ⭐ VIỀN ĐEN cho ô nhập số
+        -- ❌ BỎ viền trắng (bStk) quanh ô nhập số
         addTextStroke(box, 2)
 
         box.FocusLost:Connect(function()
             local num = tonumber(box.Text)
             if num and onInputChanged then
-                onInputChanged(num * 10000000)
+                onInputChanged(num * 1000000)   -- ⭐ FIX: 1.000.000 thay vì 10.000.000
             end
         end)
     end
@@ -426,7 +415,7 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     lbl.ZIndex = 3
     addTextStroke(lbl, 2)
 
-    -- ⭐ Nút All Maps có viền đen
+    -- ⭐ Nút All Maps: BỎ viền trắng, giữ viền đen chữ
     local dropBtn = Instance.new("TextButton", container)
     dropBtn.Size = UDim2.new(1, -120, 1, 0)
     dropBtn.Position = UDim2.new(0, 115, 0, 0)
@@ -439,12 +428,7 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
     dropBtn.AutoButtonColor = false
     dropBtn.ZIndex = 4
     Instance.new("UICorner", dropBtn).CornerRadius = UDim.new(0, 8)
-    local dStk = Instance.new("UIStroke", dropBtn)
-    dStk.Color = Color3.fromRGB(255, 255, 255)
-    dStk.Thickness = 1
-    dStk.Transparency = 0.4
-    
-    -- ⭐ VIỀN ĐEN DÀY cho All Maps
+    -- ❌ BỎ viền trắng (dStk)
     addTextStroke(dropBtn, 2)
 
     local dropMenu = Instance.new("Frame", panel)
@@ -491,7 +475,6 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
         if callback then callback(list) end
     end
 
-    -- ⭐ Mỗi option có viền đen
     for _, opt in ipairs(options) do
         local optBtn = Instance.new("TextButton", scroll)
         optBtn.Size = UDim2.new(1, 0, 0, 26)
@@ -504,8 +487,6 @@ local function createMultiSelectDropdown(parent, labelText, options, callback)
         optBtn.TextXAlignment = Enum.TextXAlignment.Left
         optBtn.AutoButtonColor = false
         optBtn.ZIndex = 102
-        
-        -- ⭐ VIỀN ĐEN cho từng option
         addTextStroke(optBtn, 2)
 
         optBtn.MouseButton1Click:Connect(function()
@@ -565,14 +546,13 @@ pagePet.BackgroundTransparency = 1
 pagePet.Visible = false
 pagePet.BorderSizePixel = 0
 pagePet.ScrollBarThickness = 2
-pagePet.CanvasSize = UDim2.new(0, 0, 0, 140)  -- ⭐ Nhỏ hơn vì bỏ 2 nút
+pagePet.CanvasSize = UDim2.new(0, 0, 0, 140)
 pagePet.ZIndex = 3
 pages.pet = pagePet
 
 local petLayout = Instance.new("UIListLayout", pagePet)
 petLayout.Padding = UDim.new(0, 8)
 
--- ⭐ Chỉ giữ "PET MANAGER" header
 local petHeader = Instance.new("TextLabel", pagePet)
 petHeader.Size = UDim2.new(1, -4, 0, 26)
 petHeader.BackgroundTransparency = 1
@@ -584,7 +564,6 @@ petHeader.TextXAlignment = Enum.TextXAlignment.Left
 petHeader.LayoutOrder = 1
 addTextStroke(petHeader, 2)
 
--- ⭐ Chỉ giữ 2 toggle chính
 local autoSellToggle = createToggleRow(pagePet, "Auto Sell Pet (value m)", API.SM_IsAutoSell(), true, function(state)
     API.SM_SetAutoSell(state)
     if state and not API.SM_IsRunning() then
@@ -603,8 +582,6 @@ local autoEquipToggle = createToggleRow(pagePet, "Auto Equip Best Pet", API.SM_I
 end, nil)
 autoEquipToggle.LayoutOrder = 3
 
--- ⭐ ĐÃ XÓA 2 nút RUN ONCE và SCAN INFO
-
 -- ══════════ TAB ESP ══════════
 local pageESP = Instance.new("ScrollingFrame", content)
 pageESP.Size = UDim2.new(1, 0, 1, 0)
@@ -619,32 +596,32 @@ pages.esp = pageESP
 local espLayout = Instance.new("UIListLayout", pageESP)
 espLayout.Padding = UDim.new(0, 8)
 
+-- ⭐ FIX: dùng Enable/Disable theo state
 createToggleRow(pageESP, "ESP Egg", API.ESP_IsEnabled(), false, function(state)
-    API.ESP_Toggle()
+    if state then
+        API.ESP_Enable()
+    else
+        API.ESP_Disable()
+    end
 end, nil)
 
 -- ═══════════════════════════════════════════════════════════════
 -- RESIZE BUTTON
 -- ═══════════════════════════════════════════════════════════════
-
 local resizeBtn = Instance.new("TextButton")
 resizeBtn.Name = "ResizeButton"
 resizeBtn.Parent = panel
 resizeBtn.Size = UDim2.new(0, 28, 0, 28)
 resizeBtn.Position = UDim2.new(1, -28, 1, -28)
-
 resizeBtn.BackgroundTransparency = 1
 resizeBtn.BorderSizePixel = 0
-
 resizeBtn.Text = "◢"
 resizeBtn.Font = Enum.Font.GothamBold
 resizeBtn.TextSize = 18
 resizeBtn.TextColor3 = Color3.fromRGB(0, 255, 230)
 resizeBtn.TextTransparency = 0
-
 resizeBtn.AutoButtonColor = false
 resizeBtn.ZIndex = 100
-
 resizeBtn.TextXAlignment = Enum.TextXAlignment.Center
 resizeBtn.TextYAlignment = Enum.TextYAlignment.Center
 
@@ -738,4 +715,4 @@ if API.SM_OnLog then
     API.SM_OnLog(function(msg) print("[SellManager] " .. msg) end)
 end
 
-print("[Main] ✅ Ready v3.7 — Full viền đen + Bỏ button Pet thừa")
+print("[Main] ✅ Ready v3.8 — Fix multiplier + ESP toggle + Bỏ viền trắng + Viền đen đậm")
