@@ -1,8 +1,8 @@
 -- ═══════════════════════════════════════════════════════════════
--- PET TOOL MODULE v16.7 — FIX BÁN PET THÀNH CÔNG
--- ⭐ SellPet:FireServer(uid, true) — arg thứ 2 là confirm flag
--- ⭐ Income tính bằng AssetEarnings (chính xác 100%)
--- ⭐ Auto Equip qua RF/Haul/WearBest
+-- PET TOOL MODULE v16.8 — Flow đúng: Equip trước, Sell sau
+-- ⭐ 1. Auto Equip: pet tốt vào pen
+-- ⭐ 2. Auto Sell: bán pet yếu trong balo bằng SellEveryPet
+-- ⭐ Đảm bảo equip xong mới sell (sync wait)
 -- ═══════════════════════════════════════════════════════════════
 
 local P = game:GetService("Players").LocalPlayer
@@ -14,11 +14,18 @@ local config = {
     AUTO_SELL_ENABLED   = false,
     AUTO_EQUIP_ENABLED  = false,
     SELL_THRESHOLD      = 10000000,
+
+    -- ⭐ v16.8: Delay giữa các bước
     EQUIP_INTERVAL      = 5,
     EQUIP_ON_START      = true,
+    EQUIP_TO_SELL_WAIT  = 3.0,   -- Chờ sau equip trước khi sell
+
     LOOP_DELAY          = 1.0,
     SELL_DELAY          = 0.3,
     EQUIP_SYNC_WAIT     = 1.0,
+
+    -- ⭐ v16.8: Mode bán
+    USE_SELL_EVERY      = true,   -- true = SellEveryPet | false = SellPet từng cái
 }
 
 local isRunning = false
@@ -40,7 +47,7 @@ local remotes = {
     wearBest      = Networking and Networking:FindFirstChild("RF/Haul/WearBest"),
 }
 
-print("[PetTool v16.7] Remote search:")
+print("[PetTool v16.8] Remotes:")
 for k, v in pairs(remotes) do
     print(string.format("  %s = %s", k, v and v:GetFullName() or "❌ nil"))
 end
@@ -164,7 +171,41 @@ local function runAutoEquip()
     end
 end
 
-local function runAutoSell()
+-- ⭐ v16.8: Sell method 1 - SellEveryPet (nhanh, bán hết balo)
+local function sellViaSellEveryPet()
+    if not remotes.sellEveryPet then
+        log("❌ Không có SellEveryPet")
+        return 0
+    end
+
+    local before = #scanBackpackPets()
+    if before == 0 then
+        log("ℹ Balo trống")
+        return 0
+    end
+
+    log(string.format("💸 SELL EVERY PET (%d pet trong balo)", before))
+
+    local ok = pcall(function()
+        remotes.sellEveryPet:FireServer(true)
+    end)
+
+    if not ok then
+        log("❌ SellEveryPet fail")
+        return 0
+    end
+
+    task.wait(2)
+    local after = #scanBackpackPets()
+    local sold = before - after
+    log(string.format("🏁 Đã bán %d pet (còn: %d)", sold, after))
+
+    stats.totalSold = stats.totalSold + sold
+    return sold
+end
+
+-- ⭐ v16.8: Sell method 2 - SellPet từng cái (cần filter income)
+local function sellViaSellPet()
     if not remotes.sellPet then
         log("❌ Không có SellPet")
         return 0
@@ -174,15 +215,9 @@ local function runAutoSell()
         return 0
     end
 
-    if os.clock() - lastEquipTime < config.EQUIP_SYNC_WAIT then
-        log(string.format("⏭ Skip sell — vừa equip %.1fs trước",
-            os.clock() - lastEquipTime))
-        return 0
-    end
-
     local backpackPets = scanBackpackPets()
     if #backpackPets == 0 then
-        log("ℹ Không có pet")
+        log("ℹ Balo trống")
         return 0
     end
 
@@ -212,7 +247,7 @@ local function runAutoSell()
     local soldCount = 0
     for i, item in ipairs(toSell) do
         local pet = item.pet
-        -- ⭐ v16.7: Thêm arg `true` (confirm flag)
+        -- ⭐ v16.7: FireServer(uid, true)
         local success = pcall(function()
             remotes.sellPet:FireServer(pet.uid, true)
         end)
@@ -232,15 +267,36 @@ local function runAutoSell()
     return soldCount
 end
 
+-- ⭐ v16.8: Chọn method
+local function runAutoSell()
+    -- Chờ equip xong (nếu vừa equip)
+    local timeSinceEquip = os.clock() - lastEquipTime
+    if timeSinceEquip < config.EQUIP_TO_SELL_WAIT then
+        local waitTime = config.EQUIP_TO_SELL_WAIT - timeSinceEquip
+        log(string.format("⏭ Chờ equip sync %.1fs...", waitTime))
+        task.wait(waitTime)
+    end
+
+    if config.USE_SELL_EVERY then
+        return sellViaSellEveryPet()
+    else
+        return sellViaSellPet()
+    end
+end
+
 local function mainLoop()
     log("═══════════════════════════")
-    log("🚀 PET TOOL v16.7 STARTED")
+    log("🚀 PET TOOL v16.8 STARTED")
     log(string.format("   Auto Sell: %s | Auto Equip: %s",
         config.AUTO_SELL_ENABLED and "ON" or "OFF",
         config.AUTO_EQUIP_ENABLED and "ON" or "OFF"))
     log(string.format("   Threshold: %s", fmtMoney(config.SELL_THRESHOLD)))
-    log(string.format("   SellPet: %s", remotes.sellPet and "✅" or "❌"))
-    log(string.format("   WearBest: %s", remotes.wearBest and "✅" or "❌"))
+    log(string.format("   Sell method: %s", 
+        config.USE_SELL_EVERY and "SellEveryPet (fast)" or "SellPet (filtered)"))
+    log(string.format("   SellPet: %s | SellEveryPet: %s | WearBest: %s",
+        remotes.sellPet and "✅" or "❌",
+        remotes.sellEveryPet and "✅" or "❌",
+        remotes.wearBest and "✅" or "❌"))
     log(string.format("   AssetEarnings: %s", AssetEarnings and "✅" or "❌"))
     log("═══════════════════════════")
 
@@ -248,16 +304,20 @@ local function mainLoop()
         stats.cyclesRun = stats.cyclesRun + 1
         local cycleStart = os.clock()
 
+        -- ⭐ BƯỚC 1: EQUIP TRƯỚC (pet tốt vào pen)
         if config.AUTO_EQUIP_ENABLED then
             if os.clock() - lastEquipTime >= config.EQUIP_INTERVAL
                 or config.EQUIP_ON_START then
+                log("─── BƯỚC 1: EQUIP ───")
                 runAutoEquip()
                 config.EQUIP_ON_START = false
-                task.wait(2)
+                task.wait(config.EQUIP_TO_SELL_WAIT)
             end
         end
 
+        -- ⭐ BƯỚC 2: SELL SAU (bán pet yếu còn trong balo)
         if config.AUTO_SELL_ENABLED then
+            log("─── BƯỚC 2: SELL ───")
             runAutoSell()
         end
 
@@ -271,7 +331,15 @@ end
 function M.start()
     if isRunning then return end
     if not AssetEarnings then log("❌ AssetEarnings nil"); return end
-    if not remotes.sellPet then log("❌ SellPet nil"); return end
+    if not remotes.wearBest then log("❌ WearBest nil"); return end
+    if config.USE_SELL_EVERY and not remotes.sellEveryPet then
+        log("❌ SellEveryPet nil (đổi USE_SELL_EVERY = false)")
+        return
+    end
+    if not config.USE_SELL_EVERY and not remotes.sellPet then
+        log("❌ SellPet nil")
+        return
+    end
     isRunning = true
     config.EQUIP_ON_START = true
     lastEquipTime = 0
@@ -306,18 +374,34 @@ function M.setSellThreshold(value)
 end
 
 function M.getSellThreshold() return config.SELL_THRESHOLD end
-function M.setIncludeZero(enabled) log("ℹ v16.7 không dùng") end
+function M.setIncludeZero(enabled) log("ℹ v16.8 không dùng") end
 function M.setEquipInterval(seconds) config.EQUIP_INTERVAL = tonumber(seconds) or 5 end
-function M.setEquipSyncWait(seconds) config.EQUIP_SYNC_WAIT = tonumber(seconds) or 1.0 end
+function M.setEquipSyncWait(seconds) 
+    config.EQUIP_SYNC_WAIT = tonumber(seconds) or 1.0
+    config.EQUIP_TO_SELL_WAIT = config.EQUIP_SYNC_WAIT
+end
+
+-- ⭐ v16.8: Đổi method
+function M.setSellMethod(useSellEvery)
+    config.USE_SELL_EVERY = useSellEvery and true or false
+    log(string.format("🔧 Sell method: %s", 
+        config.USE_SELL_EVERY and "SellEveryPet" or "SellPet"))
+    return config.USE_SELL_EVERY
+end
+
+function M.useSellEveryPet() return M.setSellMethod(true) end
+function M.useSellPetFiltered() return M.setSellMethod(false) end
 
 function M.runOnce()
     task.spawn(function()
         log("═══ RUN ONCE ═══")
         if config.AUTO_EQUIP_ENABLED then
+            log("─── EQUIP ───")
             runAutoEquip()
-            task.wait(2)
+            task.wait(config.EQUIP_TO_SELL_WAIT)
         end
         if config.AUTO_SELL_ENABLED then
+            log("─── SELL ───")
             runAutoSell()
         end
         log("═══ XONG ═══")
@@ -358,13 +442,14 @@ function M.getStats()
         autoSellEnabled = config.AUTO_SELL_ENABLED,
         autoEquipEnabled = config.AUTO_EQUIP_ENABLED,
         sellThreshold = config.SELL_THRESHOLD,
+        sellMethod = config.USE_SELL_EVERY and "SellEveryPet" or "SellPet",
     }
 end
 
 function M.getLogs() return logs end
 function M.clearLogs() logs = {} end
 function M.getConfig() return config end
-function M.clearCache() log("ℹ v16.7 không dùng cache") end
+function M.clearCache() log("ℹ v16.8 không dùng cache") end
 function M.getIncomeCache() return {} end
 function M.setLoopDelay(s) config.LOOP_DELAY = tonumber(s) or 1.0 end
 function M.setSellDelay(s) config.SELL_DELAY = tonumber(s) or 0.3 end
