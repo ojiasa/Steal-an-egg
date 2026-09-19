@@ -172,6 +172,12 @@ _G.StealEgg = {
         return Treadmill and Treadmill.getCount() or 0
     end,
 
+    Treadmill_OnLog = function(cb)
+        if Treadmill and Treadmill.OnLog then
+            Treadmill.OnLog(cb)
+        end
+    end,
+    
     Version = "3.8.6",
 }
 local API = _G.StealEgg
