@@ -27,6 +27,7 @@ end
 local Steal = fetch("modules/steal.lua")
 local ESP   = fetch("modules/esp.lua")
 local SellManager = fetch("modules/sell_manager.lua")
+local EggCore = fetch("modules/EggCore.lua")
 
 _G.StealEgg = {
     Steal = Steal, ESP = ESP, SellManager = SellManager,
@@ -76,21 +77,118 @@ _G.StealEgg = {
     SM_ScanInfo = function() if SellManager then SellManager.scanInfo() end end,
     SM_OnLog = function(cb) if SellManager then SellManager.onLog(cb) end end,
 
-    -- ⭐ EGG CORE API
-    Egg_SetAutoHatch = function(on) if Steal and Steal.setAutoHatch then return Steal.setAutoHatch(on) end end,
-    Egg_ToggleAutoHatch = function() if Steal and Steal.toggleAutoHatch then return Steal.toggleAutoHatch() end end,
-    Egg_IsAutoHatch = function() return Steal and Steal.isAutoHatchOn and Steal.isAutoHatchOn() or false end,
+  -- ⭐ EGG CORE API v3.3
 
-    Egg_SetAutoPlace = function(on) if Steal and Steal.setAutoPlace then return Steal.setAutoPlace(on) end end,
-    Egg_ToggleAutoPlace = function() if Steal and Steal.toggleAutoPlace then return Steal.toggleAutoPlace() end end,
-    Egg_IsAutoPlace = function() return Steal and Steal.isAutoPlaceOn and Steal.isAutoPlaceOn() or false end,
+Egg_SetAutoHatch = function(on)
+    if not EggCore then return false end
 
-    Egg_GetToggles = function() return Steal and Steal.getToggles and Steal.getToggles() or {hatch=true, place=true} end,
-    Egg_ForceMaintain = function(sec) if Steal and Steal.requestMaintain then return Steal.requestMaintain(sec or 5) end end,
-    Egg_HatchAll = function() if Steal and Steal.hatchAll then return Steal.hatchAll() end end,
-    Egg_PlaceAll = function() if Steal and Steal.placeAll then return Steal.placeAll() end end,
-    Egg_GetStatus = function() return Steal and Steal.getStatus and Steal.getStatus() or {} end,
-    Egg_GetServerResetInfo = function() return Steal and Steal.getServerResetInfo and Steal.getServerResetInfo() or {} end,
+    if on then
+        return EggCore.startAutoHatch(5)
+    else
+        return EggCore.stopAutoHatch()
+    end
+end,
+
+Egg_ToggleAutoHatch = function()
+    if not EggCore then return false end
+
+    if EggCore.isAutoHatchOn() then
+        EggCore.stopAutoHatch()
+        return false
+    else
+        EggCore.startAutoHatch(5)
+        return true
+    end
+end,
+
+Egg_IsAutoHatch = function()
+    return EggCore and EggCore.isAutoHatchOn() or false
+end,
+
+
+Egg_SetAutoPlace = function(on)
+    if not EggCore then return false end
+
+    if on then
+        return EggCore.startAutoPlace(300, 5)
+    else
+        EggCore.stopAutoPlace()
+        return true
+    end
+end,
+
+Egg_ToggleAutoPlace = function()
+    if not EggCore then return false end
+
+    if EggCore.isAutoPlaceOn() then
+        EggCore.stopAutoPlace()
+        return false
+    else
+        EggCore.startAutoPlace(300, 5)
+        return true
+    end
+end,
+
+Egg_IsAutoPlace = function()
+    return EggCore and EggCore.isAutoPlaceOn() or false
+end,
+
+
+Egg_GetToggles = function()
+    if not EggCore then
+        return {
+            hatch = false,
+            place = false
+        }
+    end
+
+    return {
+        hatch = EggCore.isAutoHatchOn(),
+        place = EggCore.isAutoPlaceOn()
+    }
+end,
+
+
+-- Hatch FULL giống v13
+Egg_HatchAll = function()
+    if EggCore then
+        return EggCore.hatchAll(30)
+    end
+    return 0
+end,
+
+
+-- Hatch 1 lần = FULL
+Egg_HatchOnce = function()
+    if EggCore then
+        return EggCore.hatchOnce()
+    end
+    return 0
+end,
+
+
+Egg_PlaceAll = function()
+    if EggCore then
+        return EggCore.placeAll(5)
+    end
+    return 0
+end,
+
+
+Egg_PlaceOnce = function(sec)
+    if EggCore then
+        return EggCore.placeOnce(sec or 5)
+    end
+    return false
+end,
+
+
+Egg_GetStatus = function()
+    if EggCore then
+        return EggCore.getStatus()
+    end
+    return {}
+end,
 
     Version = "3.8.3",
 }
