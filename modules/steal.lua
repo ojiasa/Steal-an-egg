@@ -1,6 +1,6 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v13.0
--- Steal egg + Detect server reset → gọi EggCore.maintain (5s)
+-- STEAL MODULE v14.0
+-- Steal egg + Detect server reset + Nhường lock cho Place
 -- Yêu cầu: modules/EggCore.lua load trước (set _G.EggCore)
 -- ═══════════════════════════════════════════════════════════════
 
@@ -102,14 +102,11 @@ local config = {
     FOREST_HIT_SPEED  = 60,
     FOREST_HIT_VELY   = 15,
 
-    -- ⭐ RESET DETECTION
+    -- ⭐ RESET DETECTION (chỉ dùng để clear cache)
     RESET_POLL_INTERVAL    = 15,
     RESET_GROWTH_MIN_ABS   = 30,
     RESET_GROWTH_MIN_RATIO = 1.3,
     RESET_CONFIRM_TICKS    = 2,
-    MAINTENANCE_MIN_GAP    = 60,
-    MAINTENANCE_DURATION   = 5,     -- ⭐ 5s
-    MAX_MAINTENANCE_WAIT   = 600,
 }
 
 local isRunning      = false
@@ -121,11 +118,6 @@ local cycleStartTime = 0
 local lastStolenUid  = nil
 local lastStolenPos  = nil
 local mainThread     = nil
-local maintenancePending = false
-local lastMaintenanceTime = 0
-
--- ⭐ Toggle global cho EggCore
-_G.__eggToggles = _G.__eggToggles or { hatch = true, place = true }
 
 -- ══════════ LOG ══════════
 local logs = {}
@@ -1369,7 +1361,7 @@ local function pickNextEgg()
     end
 end
 
--- ══════════ RESET DETECTOR ══════════
+-- ══════════ RESET DETECTOR (chỉ clear cache) ══════════
 local Reset = {
     lastCount      = 0,
     baselineSet    = false,
@@ -1416,8 +1408,7 @@ local function detectLoop()
                     Reset.consecutiveUp = 0
                     stolenEggUids = {}
                     stolenPrompts = {}
-                    maintenancePending = true
-                    log(string.format("🌍 SERVER RESET CONFIRMED (%d egg) → queue maintenance", c))
+                    log(string.format("🌍 SERVER RESET CONFIRMED (%d egg) → clear cache (Place auto chạy)", c))
                 end
             else
                 if Reset.consecutiveUp > 0 then
@@ -1431,71 +1422,14 @@ local function detectLoop()
     end
 end
 
--- ══════════ MAINTENANCE ══════════
-local function doMaintenance()
-    local tg = _G.__eggToggles or { hatch = true, place = true }
-    if not tg.hatch and not tg.place then
-        log("⏭ Cả Hatch và Place đều OFF → skip maintenance")
-        maintenancePending = false
-        lastMaintenanceTime = os.clock()
-        return
-    end
-    if EggCore.busy then return end
-    log("🛠️ MAINTENANCE (server reset)")
-    maintenancePending = false
-    lastMaintenanceTime = os.clock()
-
-    local hrp = getHRP()
-    if hrp and dist(hrp.Position, config.HOME_POS) > 100 then
-        forceTeleHome()
-        freezeAt(config.HOME_POS, 0.5)
-    end
-    freezeAt(config.HOME_POS, 0.3)
-
-    EggCore.maintain(config.MAINTENANCE_DURATION)
-end
-
 -- ══════════ MAIN LOOP ══════════
 local function mainLoop()
     task.spawn(detectLoop)
     Reset.baselineSet = false
     Reset.consecutiveUp = 0
     Reset.pending = false
-    lastMaintenanceTime = os.clock()
-
-    task.wait(2)
-    if isRunning then
-        local sinceLast = os.clock() - (_G.__eggLastMaintain or 0)
-        if sinceLast > 30 then
-            log("▶ Maintenance đầu phiên")
-            doMaintenance()
-        else
-            log(string.format("⏭ Skip maintenance đầu (vừa chạy %.0fs trước)", sinceLast))
-            lastMaintenanceTime = os.clock()
-        end
-    end
 
     while isRunning do
-        -- Check pending maintenance
-        if maintenancePending then
-            local gap = os.clock() - lastMaintenanceTime
-            if gap >= config.MAINTENANCE_MIN_GAP then
-                doMaintenance()
-                if not isRunning then break end
-                task.wait(0.5)
-            else
-                log(string.format("⏳ Chờ %.1fs nữa", config.MAINTENANCE_MIN_GAP - gap))
-                maintenancePending = false
-            end
-        end
-
-        -- Safety timer
-        if os.clock() - lastMaintenanceTime > config.MAX_MAINTENANCE_WAIT then
-            log("⏰ Safety timer → force maintenance")
-            doMaintenance()
-            if not isRunning then break end
-        end
-
         local cycleT0 = os.clock()
         log("═══════════════════════════════")
         log("🔄 CYCLE MỚI")
@@ -1564,14 +1498,6 @@ local function mainLoop()
                         r.AssemblyAngularVelocity = Vector3.zero
                     end
                 end)
-            end
-
-            -- Check maintenance giữa cycle
-            if maintenancePending and (os.clock() - lastMaintenanceTime >= config.MAINTENANCE_MIN_GAP) then
-                EggCore.releaseLock("steal")
-                doMaintenance()
-                if not isRunning then break end
-                EggCore.acquireLock("steal", 60)
             end
 
             log("▶ [5/6] Pick egg + tele + steal...")
@@ -1669,6 +1595,20 @@ local function mainLoop()
         -- RELEASE LOCK
         EggCore.releaseLock("steal")
 
+        -- ⭐ Nếu Place đang pending → nhường, chờ Place xong
+        if _G.__eggPlacePending then
+            log("⏸ Place pending → nhường lock, chờ Place xong")
+            local waitT0 = os.clock()
+            while _G.__eggPlacePending and isRunning and (os.clock() - waitT0 < 120) do
+                task.wait(0.3)
+            end
+            if _G.__eggPlacePending then
+                log("⚠ Chờ Place quá 120s → bỏ qua, chạy tiếp")
+            else
+                log("✅ Place xong → chạy cycle mới")
+            end
+        end
+
         log(string.format("⏱ Cycle tổng: %.2fs", os.clock() - cycleT0))
         if not isRunning then break end
         task.wait(0.3)
@@ -1727,7 +1667,6 @@ function M.start()
     cycleStartTime = os.clock()
     lastStolenUid = nil
     lastStolenPos = nil
-    maintenancePending = false
     pcall(function()
         local hrp = getHRP()
         if hrp then
@@ -1738,7 +1677,7 @@ function M.start()
     end)
     task.wait(0.2)
     isRunning = true
-    log("▶ START v13.0")
+    log("▶ START v14.0")
     log(string.format("   Home: %.2f,%.2f,%.2f", config.HOME_POS.X, config.HOME_POS.Y, config.HOME_POS.Z))
     log(string.format("   Forest speed: %d | Warmup: %.1fs/%.1fs | Tele hold: %.1fs",
         config.FOREST_RUN_SPEED, config.FOREST_WARMUP, config.BAIT_WARMUP, config.TELE_HOLD))
@@ -1746,14 +1685,13 @@ function M.start()
         config.BIG_EGG_MODE and "ON" or "OFF",
         config.PRIORITY_INCOME and "ON" or "OFF"))
     log(string.format("   Toggle: Hatch=%s | Place=%s",
-        _G.__eggToggles.hatch and "ON" or "OFF",
-        _G.__eggToggles.place and "ON" or "OFF"))
+        EggCore.isAutoHatchOn and EggCore.isAutoHatchOn() and "ON" or "OFF",
+        EggCore.isAutoPlaceOn and EggCore.isAutoPlaceOn() and "ON" or "OFF"))
     mainThread = task.spawn(mainLoop)
 end
 
 function M.stop()
     isRunning = false
-    maintenancePending = false
     if mainThread then
         pcall(function() task.cancel(mainThread) end)
         mainThread = nil
@@ -1867,8 +1805,8 @@ function M.setFlyHomeSpeed(n)
     log("🏃 Fly home speed: " .. config.FLY_HOME_SPEED)
 end
 
-function M.setRecoveryRadius(n) log("📍 Không dùng v13.0") end
-function M.setMaxRecovery(n) log("📍 Không dùng v13.0") end
+function M.setRecoveryRadius(n) log("📍 Không dùng v14.0") end
+function M.setMaxRecovery(n) log("📍 Không dùng v14.0") end
 
 function M.setHomeTimeout(n)
     config.HOME_TIMEOUT = n or 30
@@ -1885,7 +1823,7 @@ function M.setSlowSpeed(n)
     log("🐢 Forest run speed: " .. config.FOREST_RUN_SPEED)
 end
 
-function M.setWarmupTime(n) log("⏱ Không dùng v13.0") end
+function M.setWarmupTime(n) log("⏱ Không dùng v14.0") end
 
 function M.setChatWait(n)
     config.CHAT_WAIT = n or 1.0
@@ -1897,8 +1835,8 @@ function M.setCycleWait(n)
     log("⏱ Cycle wait: " .. config.WAIT_BETWEEN .. "s")
 end
 
-function M.setMaxEggsPerCycle(n) log("📊 Không dùng v13.0") end
-function M.setTeleToForest(enabled) log("ℹ Không dùng v13.0") end
+function M.setMaxEggsPerCycle(n) log("📊 Không dùng v14.0") end
+function M.setTeleToForest(enabled) log("ℹ Không dùng v14.0") end
 
 function M.setMaxRetry(n)
     config.MAX_RETRY = n or 3
@@ -1957,11 +1895,11 @@ function M.getStatus()
         stolenCount = M.getStolenCount(),
         lastStolenUid = lastStolenUid,
         forestRunSpeed = config.FOREST_RUN_SPEED,
-        maintenancePending = maintenancePending,
         serverEggs = Reset.lastCount,
         consecutiveUp = Reset.consecutiveUp,
-        autoHatch = _G.__eggToggles.hatch,
-        autoPlace = _G.__eggToggles.place,
+        autoHatch = EggCore.isAutoHatchOn and EggCore.isAutoHatchOn() or false,
+        autoPlace = EggCore.isAutoPlaceOn and EggCore.isAutoPlaceOn() or false,
+        placePending = _G.__eggPlacePending,
         lockOwner = EggCore.lockOwner and EggCore.lockOwner() or nil,
         coreStatus = EggCore.getStatus and EggCore.getStatus() or nil,
     }
@@ -1984,33 +1922,64 @@ function M.getBigEggThresholds()
     }
 end
 
--- ⭐ EGG TOGGLE API
+-- ⭐ EGG TOGGLE API (delegate sang EggCore)
 function M.setAutoHatch(enabled)
-    _G.__eggToggles.hatch = enabled and true or false
-    log("🔥 Auto Hatch: " .. (_G.__eggToggles.hatch and "ON" or "OFF"))
-    return _G.__eggToggles.hatch
+    if enabled then
+        EggCore.startAutoHatch()
+    else
+        EggCore.stopAutoHatch()
+    end
+    return EggCore.isAutoHatchOn()
 end
 
 function M.setAutoPlace(enabled)
-    _G.__eggToggles.place = enabled and true or false
-    log("📦 Auto Place: " .. (_G.__eggToggles.place and "ON" or "OFF"))
-    return _G.__eggToggles.place
+    if enabled then
+        EggCore.startAutoPlace()
+    else
+        EggCore.stopAutoPlace()
+    end
+    return EggCore.isAutoPlaceOn()
 end
 
-function M.toggleAutoHatch() return M.setAutoHatch(not _G.__eggToggles.hatch) end
-function M.toggleAutoPlace() return M.setAutoPlace(not _G.__eggToggles.place) end
-function M.isAutoHatchOn() return _G.__eggToggles.hatch end
-function M.isAutoPlaceOn()  return _G.__eggToggles.place end
+function M.toggleAutoHatch() return M.setAutoHatch(not EggCore.isAutoHatchOn()) end
+function M.toggleAutoPlace() return M.setAutoPlace(not EggCore.isAutoPlaceOn()) end
+function M.isAutoHatchOn() return EggCore.isAutoHatchOn() end
+function M.isAutoPlaceOn()  return EggCore.isAutoPlaceOn() end
 function M.getToggles()
-    return { hatch = _G.__eggToggles.hatch, place = _G.__eggToggles.place }
+    return {
+        hatch = EggCore.isAutoHatchOn and EggCore.isAutoHatchOn() or false,
+        place = EggCore.isAutoPlaceOn and EggCore.isAutoPlaceOn() or false,
+    }
 end
 
 function M.setResetPollInterval(s) config.RESET_POLL_INTERVAL = math.max(5, tonumber(s) or 15) end
 function M.setResetGrowthMinAbs(n) config.RESET_GROWTH_MIN_ABS = tonumber(n) or 30 end
 function M.setResetGrowthRatio(r) config.RESET_GROWTH_MIN_RATIO = tonumber(r) or 1.3 end
-function M.setMaintenanceDuration(s) config.MAINTENANCE_DURATION = math.max(2, tonumber(s) or 5) end
-function M.setMaintenanceMinGap(s) config.MAINTENANCE_MIN_GAP = math.max(0, tonumber(s) or 60) end
-function M.forceMaintenance() maintenancePending = true end
+
+-- Delegate place API sang EggCore
+function M.setPlaceInterval(s)
+    if EggCore.stopAutoPlace then EggCore.stopAutoPlace() end
+    if EggCore.startAutoPlace then
+        EggCore.startAutoPlace(tonumber(s) or 300, 5)
+    end
+end
+
+function M.setPlaceDuration(s)
+    if EggCore.setPlaceDuration then
+        EggCore.setPlaceDuration(s)
+    end
+end
+
+function M.forcePlaceNow(sec)
+    if EggCore.placeOnce then return EggCore.placeOnce(sec or 5) end
+    return false
+end
+
+function M.forceMaintenance()
+    if EggCore.placeOnce then return EggCore.placeOnce(5) end
+    return false
+end
+
 function M.getServerResetInfo()
     return {
         lastCount      = Reset.lastCount,
@@ -2023,7 +1992,7 @@ end
 
 function M.hatchAll() return EggCore.hatchAll(30) end
 function M.placeAll() return EggCore.placeAll(30) end
-function M.requestMaintain(sec) return EggCore.requestMaintain(sec or config.MAINTENANCE_DURATION) end
+function M.requestMaintain(sec) return EggCore.placeOnce(sec or 5) end
 
 function M.getLogs()
     local out = {}
@@ -2036,4 +2005,6 @@ end
 function M.getLogText() return table.concat(M.getLogs(), "\n") end
 function M.clearLogs() logs = {} end
 
+_G.EggSteal = M
+warn("[Steal v14.0] Loaded — _G.EggSteal.start()")
 return M
