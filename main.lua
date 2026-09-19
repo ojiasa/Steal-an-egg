@@ -29,7 +29,7 @@ local ESP   = fetch("modules/esp.lua")
 local SellManager = fetch("modules/sell_manager.lua")
 local EggCore  = fetch("modules/EggCore.lua")
 local EggPlace = fetch("modules/eggplace.lua")
-local Treadmill = fetch("modules/Treadmill.lua")
+local Treadmill = fetch("modules/Treamill.lua")
 
 _G.StealEgg = {
     Steal = Steal, ESP = ESP, SellManager = SellManager,
