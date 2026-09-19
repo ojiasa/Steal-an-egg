@@ -270,21 +270,20 @@ end
 local _hatchLoop = nil
 
 function M.startAutoHatch(intervalSec)
-    if _hatchLoop then return end
+    if _hatchLoop then
+        _G.__eggHatchEnabled = true
+        return true
+    end
 
     _G.__eggHatchEnabled = true
-    intervalSec = intervalSec or 5
+    intervalSec = tonumber(intervalSec) or 5
+    if intervalSec < 0.2 then intervalSec = 0.2 end
 
-    log("🔥 Auto Hatch ON (poll " .. intervalSec .. "s)")
+    log("🔥 Auto Hatch ON (poll " .. tostring(intervalSec) .. "s)")
 
     _hatchLoop = task.spawn(function()
+        -- Hatch ngay khi bật, không phải đợi interval đầu tiên
         while _G.__eggHatchEnabled do
-            task.wait(intervalSec)
-
-            if not _G.__eggHatchEnabled then
-                break
-            end
-
             pcall(function()
                 local eggs = M.getBaseEggsRendered()
 
@@ -293,19 +292,35 @@ function M.startAutoHatch(intervalSec)
                     M.hatchAll(30)
                 end
             end)
+
+            -- Chỉ chờ sau khi đã hatch xong
+            local waited = 0
+            while _G.__eggHatchEnabled and waited < intervalSec do
+                task.wait(math.min(0.5, intervalSec - waited))
+                waited = waited + math.min(0.5, intervalSec - waited)
+            end
         end
 
         _hatchLoop = nil
         log("🔥 Auto Hatch OFF")
     end)
+
+    return true
 end
 
 function M.stopAutoHatch()
     _G.__eggHatchEnabled = false
+
+    -- Không kill thread đột ngột; loop tự thoát sạch ở lần kiểm tra kế tiếp.
+    return true
 end
 
 function M.isAutoHatchOn()
     return _G.__eggHatchEnabled == true
+end
+
+function M.hatchOnce()
+    return M.hatchAll(30)
 end
 
 -- ══════════ AUTO PLACE LOOP (5 phút) ══════════
@@ -400,9 +415,13 @@ function M.getStatus()
 end
 
 -- ══════════ INIT ══════════
-_G.__eggHatchEnabled = _G.__eggHatchEnabled or false
+-- Reset stale loop handles/state when this module is reloaded.
+_G.__eggHatchEnabled = false
 _G.__eggPlaceEnabled = _G.__eggPlaceEnabled or false
 _G.__eggPlacePending = _G.__eggPlacePending or false
+
+_hatchLoop = nil
+_placeLoop = _placeLoop or nil
 
 _G.EggCore = M
 warn("[EggCore v2.0] Loaded")
