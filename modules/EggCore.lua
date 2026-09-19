@@ -31,19 +31,19 @@ end
 local CONFIG = {
     -- ⏳ Thời gian chờ giữa AskHatch và AskFinishHatch (giây)
     -- Game Steal An Egg thường mất 5-8s để animation hatch chạy xong
-    finishDelay = 6,
+    finishDelay = 0.5,
 
     -- Số egg hatch song song mỗi batch
-    batchSize = 3,
+    batchSize = 1,
 
     -- Delay giữa các egg trong cùng batch (tránh spam remote)
-    betweenEggDelay = 0.15,
+    betweenEggDelay = 0.5,
 
     -- Số lần retry finish nếu fail
-    finishRetries = 3,
+    finishRetries = 2,
 
     -- Delay giữa mỗi lần retry finish
-    finishRetryDelay = 1.5,
+    finishRetryDelay = 0.3,
 }
 
 -- Cho phép chỉnh từ ngoài: EggCore.SetConfig({finishDelay = 8})
