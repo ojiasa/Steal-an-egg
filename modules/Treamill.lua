@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- 🏃 TREADMILL — Module v6 (ẩn hết render + treadmill plot mình)
+-- 🏃 TREADMILL — Module v7 (có OnLog)
 -- ═══════════════════════════════════════════════════════════════
 
 local P  = game:GetService("Players").LocalPlayer
@@ -14,6 +14,7 @@ local savedState = {}
 local mySlot     = nil
 local myPlot     = nil
 local deletedRenders = {}
+local logCallbacks = {}
 
 local REFRESH_INTERVAL = 0.3
 
@@ -21,11 +22,27 @@ local IS_PC     = UIS.KeyboardEnabled and not UIS.TouchEnabled
 local IS_MOBILE = UIS.TouchEnabled
 local PLATFORM  = IS_PC and "PC" or (IS_MOBILE and "Mobile" or "Unknown")
 
-print(string.format("[Treadmill] Platform: %s", PLATFORM))
+local function log(msg)
+    print("[Treadmill] " .. tostring(msg))
+    for _, cb in ipairs(logCallbacks) do
+        pcall(cb, msg)
+    end
+end
+
+function M.OnLog(cb)
+    if type(cb) == "function" then
+        table.insert(logCallbacks, cb)
+    end
+end
+
+log(string.format("Platform: %s", PLATFORM))
 
 local function getMySlot()
-    local NET = RS:FindFirstChild("Packages") and RS.Packages:FindFirstChild("Networking")
-    local askState = NET and NET:FindFirstChild("RF/Homestead/AskState")
+    local Packages = RS:FindFirstChild("Packages")
+    if not Packages then return nil end
+    local NET = Packages:FindFirstChild("Networking")
+    if not NET then return nil end
+    local askState = NET:FindFirstChild("RF/Homestead/AskState")
     if not askState then return nil end
     local ok, state = pcall(function() return askState:InvokeServer() end)
     if not ok or type(state) ~= "table" then return nil end
@@ -89,29 +106,22 @@ local function hideObject(obj)
     return false
 end
 
--- ⭐ Ẩn tất cả treadmill trong plot của mình (dùng :GetDescendants() để tìm bất kỳ tên nào)
 local function hideMyTreadmill()
     local plot = getMyPlot()
     if not plot then return 0 end
-    
     local count = 0
-    
-    -- Duyệt tất cả descendants, tìm theo keyword
     for _, obj in ipairs(plot:GetDescendants()) do
         local n = obj.Name:lower()
         if n:find("tread") or n:find("belt") or n:find("runner") then
             if hideObject(obj) then count = count + 1 end
         end
     end
-    
     return count
 end
 
--- ⭐ Ẩn TẤT CẢ render (vì random, ẩn hết cho chắc)
 local function hideAllRenders()
     local render = W:FindFirstChild("__ClientTreadmillRenders")
     if not render then return 0 end
-    
     local count = 0
     for _, child in ipairs(render:GetChildren()) do
         if not deletedRenders[child] then
@@ -120,24 +130,19 @@ local function hideAllRenders()
         child:Destroy()
         count = count + 1
     end
-    
-    -- Xoá luôn folder nếu rỗng
     if #render:GetChildren() == 0 then
         render:Destroy()
     end
-    
     return count
 end
 
 local function showAllRenders()
-    -- Tạo lại folder nếu chưa có
     local render = W:FindFirstChild("__ClientTreadmillRenders")
     if not render then
         render = Instance.new("Folder")
         render.Name = "__ClientTreadmillRenders"
         render.Parent = W
     end
-    
     for _, clone in pairs(deletedRenders) do
         local exists = false
         for _, c in ipairs(render:GetChildren()) do
@@ -153,18 +158,15 @@ end
 function M.hide()
     mySlot = getMySlot()
     myPlot = getMyPlot()
-    
     if not myPlot then
-        print("[Treadmill] ❌ Không tìm thấy plot (slot=" .. tostring(mySlot) .. ")")
+        log("❌ Không tìm thấy plot (slot=" .. tostring(mySlot) .. ")")
         return 0
     end
-    print("[Treadmill] 🏠 Plot:", myPlot.Name, "| Slot:", mySlot)
-    
+    log("🏠 Plot: " .. myPlot.Name .. " | Slot: " .. tostring(mySlot))
     local countPart = hideMyTreadmill()
     local countRender = hideAllRenders()
-    
     enabled = true
-    print(string.format("[Treadmill] 🚫 Ẩn %d parts + %d renders", countPart, countRender))
+    log(string.format("🚫 Ẩn %d parts + %d renders", countPart, countRender))
     return countPart + countRender
 end
 
@@ -181,7 +183,7 @@ function M.show()
     savedState = {}
     showAllRenders()
     enabled = false
-    print(string.format("[Treadmill] ✅ Hiện %d parts", count))
+    log(string.format("✅ Hiện %d parts", count))
     return count
 end
 
@@ -206,7 +208,6 @@ function M.refreshPlot()
     return myPlot ~= nil
 end
 
--- ⭐ AUTO re-hide
 task.spawn(function()
     while true do
         task.wait(REFRESH_INTERVAL)
