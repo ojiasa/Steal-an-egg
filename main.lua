@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- MAIN.lua v3.8.6 — Thêm Anti Treadmill vào tab Main
+-- MAIN.lua v3.8.7 — Fix Treadmill OnLog
 -- ═══════════════════════════════════════════════════════════════
 
 local BACKGROUND_ID = (Config and Config.BackgroundImageId) or "rbxassetid://116222439691339"
@@ -142,7 +142,7 @@ _G.StealEgg = {
     end,
 
     EggPlace_OnLog = function(cb)
-        if EggPlace then EggPlace.OnLog(cb) end
+        if EggPlace and EggPlace.OnLog then EggPlace.OnLog(cb) end
     end,
 
     EggCore_SetConfig = function(tbl)
@@ -160,25 +160,28 @@ _G.StealEgg = {
 
     -- ⭐ TREADMILL API
     Treadmill_SetEnabled = function(on)
-        if Treadmill then return Treadmill.setEnabled(on) end
+        if Treadmill and Treadmill.setEnabled then
+            return Treadmill.setEnabled(on)
+        end
     end,
     Treadmill_Toggle = function()
-        if Treadmill then return Treadmill.toggle() end
+        if Treadmill and Treadmill.toggle then
+            return Treadmill.toggle()
+        end
     end,
     Treadmill_IsEnabled = function()
-        return Treadmill and Treadmill.isEnabled() or false
+        return Treadmill and Treadmill.isEnabled and Treadmill.isEnabled() or false
     end,
     Treadmill_GetCount = function()
-        return Treadmill and Treadmill.getCount() or 0
+        return Treadmill and Treadmill.getCount and Treadmill.getCount() or 0
     end,
-
     Treadmill_OnLog = function(cb)
         if Treadmill and Treadmill.OnLog then
             Treadmill.OnLog(cb)
         end
     end,
-    
-    Version = "3.8.6",
+
+    Version = "3.8.7",
 }
 local API = _G.StealEgg
 _G.MyScript = API
@@ -659,7 +662,6 @@ local antiTreadmillToggle = createToggleRow(pageMain, "Anti Treadmill", API.Trea
 end, nil)
 antiTreadmillToggle.LayoutOrder = 5
 
-
 -- ══════════ TAB PET ══════════
 local pagePet = Instance.new("ScrollingFrame", content)
 pagePet.Size = UDim2.new(1, 0, 1, 0)
@@ -910,11 +912,7 @@ end
 if API.EggPlace_OnLog then
     API.EggPlace_OnLog(function(msg) print("[EggPlace] " .. msg) end)
 end
-
--- ⭐ THÊM đoạn này (xoá nó đi)
-if API.Treadmill_OnLog then
-    API.Treadmill_OnLog(function(msg) print("[Treadmill] " .. msg) end)
-end
+-- ⭐ ĐÃ XOÁ đoạn Treadmill_OnLog gây lỗi
 
 -- ══════════ CONFIG MẶC ĐỊNH EGGCORE ══════════
 if API.EggCore_SetConfig then
@@ -927,4 +925,4 @@ if API.EggCore_SetConfig then
     })
 end
 
-print("[Main] ✅ Ready v3.8.6 — Anti Treadmill trong tab Main")
+print("[Main] ✅ Ready v3.8.7 — Fixed Treadmill OnLog")
