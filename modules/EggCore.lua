@@ -1,7 +1,6 @@
 -- ═══════════════════════════════════════════════════════════════
--- EGG CORE MODULE v1.2
--- Hatch + Place — Place TRƯỚC → Hatch SAU, max 5s
--- Mutex: đồng bộ với steal.lua qua _G.__eggMutex
+-- EGG CORE MODULE v2.0
+-- Hatch (độc lập, no lock) + Place (cần lock, 5 phút/lần)
 -- ═══════════════════════════════════════════════════════════════
 
 local P  = game:GetService("Players").LocalPlayer
@@ -75,7 +74,7 @@ end
 function M.isLocked() return _G.__eggMutex.owner ~= nil end
 function M.lockOwner() return _G.__eggMutex.owner end
 
--- ══════════ HATCH ══════════
+-- ══════════ HATCH (ĐỘC LẬP — KHÔNG LOCK) ══════════
 function M.getBaseEggsRendered()
     local res = {}
     local per = W:FindFirstChild("PlacedEggRenders")
@@ -115,7 +114,7 @@ function M.hatchAll(maxTime)
     return hatched
 end
 
--- ══════════ PLACE ══════════
+-- ══════════ PLACE (CẦN LOCK) ══════════
 function M.fetchUnplaced()
     if not askSnapshot then return {} end
     local ok, r = pcall(function() return askSnapshot:InvokeServer() end)
@@ -195,7 +194,7 @@ function M.firePlace(egg)
 end
 
 function M.placeAll(maxTime)
-    maxTime = maxTime or 30
+    maxTime = maxTime or 5
     local t0 = os.clock()
     if not M.basePos then M.basePos = M.findBase() end
     if not M.basePos then log("❌ Không tìm base"); return 0 end
@@ -205,7 +204,7 @@ function M.placeAll(maxTime)
         local hum = getHum()
         if hum then
             local t0w = os.clock()
-            while os.clock() - t0w < 20 do
+            while os.clock() - t0w < 10 do
                 local h, h2 = getHum(), getHRP()
                 if not h or not h2 then break end
                 if dist(h2.Position, M.basePos) < 12 then h:MoveTo(h2.Position); break end
@@ -245,61 +244,115 @@ function M.placeAll(maxTime)
     return placed
 end
 
--- ══════════ MAINTAIN (Place TRƯỚC → Hatch SAU, max 5s) ══════════
-function M.maintain(durationSec)
-    if M.busy then log("⚠ Đang maintain"); return false end
-    if not M.acquireLock("maintain", 120) then
-        log("❌ Không lấy được lock"); return false
-    end
+-- ══════════ AUTO HATCH LOOP ══════════
+local _hatchLoop = nil
 
-    M.busy = true
-    durationSec = durationSec or 5
-    local t0 = os.clock()
-    log("══════ 🛠️ MAINTENANCE (max " .. durationSec .. "s) ══════")
-
-    -- Check toggle từ _G.__eggToggles (steal.lua set qua API)
-    local tg = _G.__eggToggles or { hatch = true, place = true }
-    log(string.format("   Place: %s | Hatch: %s",
-        tg.place and "ON" or "OFF",
-        tg.hatch and "ON" or "OFF"))
-
-    local ok, err = pcall(function()
-        -- ⭐ 1. PLACE TRƯỚC (nếu bật)
-        if tg.place then
-            local placeTime = tg.hatch and (durationSec * 0.6) or durationSec
-            log(string.format("   📦 Place (max %.1fs)...", placeTime))
-            local p = M.placeAll(placeTime)
-            log(string.format("   ✅ Place: %d", p))
+function M.startAutoHatch(intervalSec)
+    if _hatchLoop then return end
+    _G.__eggHatchEnabled = true
+    intervalSec = intervalSec or 20
+    log("🔥 Auto Hatch ON (poll " .. intervalSec .. "s)")
+    _hatchLoop = task.spawn(function()
+        while _G.__eggHatchEnabled do
+            task.wait(intervalSec)
+            if not _G.__eggHatchEnabled then break end
+            pcall(function()
+                local n = #M.getBaseEggsRendered()
+                if n > 0 then
+                    log("🥚 Có " .. n .. " egg trên base → hatch")
+                    M.hatchAll(5)
+                end
+            end)
         end
-
-        -- ⭐ 2. HATCH SAU (nếu bật) — độc lập, không cần place
-        if tg.hatch then
-            local remain = durationSec - (os.clock() - t0)
-            if remain > 0.5 then
-                log(string.format("   🔥 Hatch (max %.1fs)...", remain))
-                local h = M.hatchAll(remain)
-                log(string.format("   ✅ Hatch: %d", h))
-            else
-                log("   ⏰ Hết thời gian — bỏ qua hatch")
-            end
-        end
+        _hatchLoop = nil
+        log("🔥 Auto Hatch OFF")
     end)
-
-    if not ok then log("❌ maintain error: " .. tostring(err)) end
-
-    log(string.format("══════ ✅ DONE (%.1fs) ══════", os.clock() - t0))
-    M.busy = false
-    M.releaseLock("maintain")
-    _G.__eggLastMaintain = os.clock()
-    return true
 end
 
-function M.requestMaintain(durationSec)
+function M.stopAutoHatch()
+    _G.__eggHatchEnabled = false
+end
+
+function M.isAutoHatchOn()
+    return _G.__eggHatchEnabled == true
+end
+
+-- ══════════ AUTO PLACE LOOP (5 phút) ══════════
+local _placeLoop = nil
+
+function M.startAutoPlace(intervalSec, durationSec)
+    if _placeLoop then return end
+    _G.__eggPlaceEnabled = true
+    intervalSec = intervalSec or 300
+    durationSec = durationSec or 5
+    log(string.format("📦 Auto Place ON (mỗi %ds, chạy %ds)", intervalSec, durationSec))
+    _placeLoop = task.spawn(function()
+        local first = true
+        while _G.__eggPlaceEnabled do
+            if first then
+                first = false
+            else
+                -- Đếm ngược từng giây để user biết còn bao lâu
+                local elapsed = 0
+                while _G.__eggPlaceEnabled and elapsed < intervalSec do
+                    task.wait(1)
+                    elapsed = elapsed + 1
+                end
+                if not _G.__eggPlaceEnabled then break end
+            end
+            if not _G.__eggPlaceEnabled then break end
+
+            -- Báo hiệu cho steal nhường
+            _G.__eggPlacePending = true
+            log("📦 Đến lúc place → xin lock")
+
+            if M.acquireLock("place", 120) then
+                M.busy = true
+                pcall(function() M.placeAll(durationSec) end)
+                M.busy = false
+                M.releaseLock("place")
+            else
+                log("❌ Không lấy được lock place")
+            end
+            _G.__eggPlacePending = false
+        end
+        _placeLoop = nil
+        log("📦 Auto Place OFF")
+    end)
+end
+
+function M.stopAutoPlace()
+    _G.__eggPlaceEnabled = false
+end
+
+function M.isAutoPlaceOn()
+    return _G.__eggPlaceEnabled == true
+end
+
+function M.getNextPlaceIn()
+    if not _placeLoop or not _G.__eggPlaceEnabled then return nil end
+    return 0  -- placeholder
+end
+
+-- ══════════ FORCE ONCE ══════════
+function M.placeOnce(durationSec)
     if M.busy then return false end
-    task.spawn(function() M.maintain(durationSec or 5) end)
+    task.spawn(function()
+        _G.__eggPlacePending = true
+        if M.acquireLock("place", 120) then
+            M.busy = true
+            pcall(function() M.placeAll(durationSec or 5) end)
+            M.busy = false
+            M.releaseLock("place")
+        end
+        _G.__eggPlacePending = false
+    end)
     return true
 end
 
+function M.hatchOnce() return M.hatchAll(30) end
+
+-- ══════════ STATUS ══════════
 function M.getStatus()
     return {
         totalHatched = M.totalHatched,
@@ -308,9 +361,16 @@ function M.getStatus()
         onBase       = #M.getBaseEggsRendered(),
         busy         = M.busy,
         lockOwner    = M.lockOwner(),
+        autoHatch    = M.isAutoHatchOn(),
+        autoPlace    = M.isAutoPlaceOn(),
     }
 end
 
+-- ══════════ INIT ══════════
+_G.__eggHatchEnabled = _G.__eggHatchEnabled or false
+_G.__eggPlaceEnabled = _G.__eggPlaceEnabled or false
+_G.__eggPlacePending = _G.__eggPlacePending or false
+
 _G.EggCore = M
-warn("[EggCore v1.2] Loaded")
+warn("[EggCore v2.0] Loaded")
 return M
