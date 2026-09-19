@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- modules/eggplace.lua — Auto Place Egg (module export)
+-- modules/eggplace.lua — v2 (rải egg khắp base, không quanh người)
 -- ═══════════════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
@@ -18,12 +18,9 @@ do
 end
 
 local function findRemote(pathName)
-    -- pathName dạng: "RF/EggWorld/AskPlaceEgg"
     if not NET then return nil end
-    -- Cách 1: trực tiếp tên đầy đủ
     local direct = NET:FindFirstChild(pathName)
     if direct then return direct end
-    -- Cách 2: tách theo "/" và duyệt
     local parts = {}
     for p in pathName:gmatch("[^/]+") do table.insert(parts, p) end
     local cur = NET
@@ -50,6 +47,11 @@ local State = {
     onLogCallback = nil,
     walkTimeout  = 90,
     retryLimit   = 3,
+
+    -- ⭐ cấu hình vùng rải egg
+    baseRadius   = 60,     -- bán kính mặc định nếu không đọc được size base
+    edgePadding  = 5,      -- lề tránh sát biên
+    scanAttempts = 10,     -- số lần thử toạ độ khác nhau cho 1 egg
 }
 
 local function log(msg)
@@ -57,9 +59,7 @@ local function log(msg)
     if State.onLogCallback then pcall(State.onLogCallback, tostring(msg)) end
 end
 
-local function onLog(cb)
-    State.onLogCallback = cb
-end
+local function onLog(cb) State.onLogCallback = cb end
 
 -- ─────────────── HELPERS ───────────────
 local function HRP()
@@ -74,6 +74,40 @@ end
 
 local function D(a, b)
     return (Vector3.new(a.X, a.Y, a.Z) - Vector3.new(b.X, b.Y, b.Z)).Magnitude
+end
+
+-- ⭐ Đo bán kính base (dò nhiều nguồn)
+local function getBaseRadius(baseModel)
+    if not baseModel then return State.baseRadius end
+
+    -- Cách 1: tìm BasePlate / Floor / Ground
+    local names = { "BasePlate", "Floor", "Ground", "Tile", "Platform", "Plot" }
+    for _, n in ipairs(names) do
+        local part = baseModel:FindFirstChild(n, true)
+        if part and part:IsA("BasePart") then
+            local size = part.Size
+            -- dùng min của X, Z để đảm bảo an toàn
+            local r = math.min(size.X, size.Z) / 2 - State.edgePadding
+            if r > 5 then return r end
+        end
+    end
+
+    -- Cách 2: tìm bất kỳ BasePart nào to nhất
+    local biggest = nil
+    for _, d in ipairs(baseModel:GetDescendants()) do
+        if d:IsA("BasePart") then
+            local area = d.Size.X * d.Size.Z
+            if not biggest or area > (biggest.Size.X * biggest.Size.Z) then
+                biggest = d
+            end
+        end
+    end
+    if biggest then
+        local r = math.min(biggest.Size.X, biggest.Size.Z) / 2 - State.edgePadding
+        if r > 5 then return r end
+    end
+
+    return State.baseRadius
 end
 
 -- ─────────────── FETCH EGGS CẦN PLACE ───────────────
@@ -172,36 +206,38 @@ local function walkToBase()
     return false
 end
 
+-- ⭐⭐⭐ RẢI EGG KHẮP BASE ⭐⭐⭐
+-- Trả về LocalCFrame (local space của base) với toạ độ random trong bán kính
+local function randomLocalCFrame(radius)
+    -- Random trong hình tròn (dùng sqrt để phân bố đều)
+    local ang = math.random() * math.pi * 2
+    local r = math.sqrt(math.random()) * radius
+    local x = math.cos(ang) * r
+    local z = math.sin(ang) * r
+    -- Y = 0 (ngang mặt base), có thể chỉnh nếu base có độ cao
+    return CFrame.new(x, 0, z)
+end
+
 -- ─────────────── GỬI REMOTE PLACE ───────────────
-local function fire(egg)
-    local hrp = HRP()
-    if not hrp or not State.myBaseModel then return false end
+local function fire(egg, radius)
     if not askPlaceEgg then return false end
+    if not State.myBaseModel then return false end
 
-    local playerCF = State.myBaseModel:GetPivot():Inverse() * hrp.CFrame
-    local radii = {0, 3, 8, 15, 25, 35}
-    local startIdx = math.random(1, #radii)
+    -- ⭐ Random toạ độ KHẮP base, không quanh người
+    for attempt = 1, State.scanAttempts do
+        local cf = randomLocalCFrame(radius)
 
-    for step = 0, #radii - 1 do
-        local r = radii[((startIdx + step - 1) % #radii) + 1]
-        local ang = math.random() * math.pi * 2
-        local x, z = 0, 0
-        if r > 0 then
-            x = math.cos(ang) * r
-            z = math.sin(ang) * r
-        end
-
-        local cf = playerCF * CFrame.new(x, 0, z)
         pcall(function()
             return askPlaceEgg:InvokeServer({
                 LocalCFrame = cf,
                 Uid = egg.uid,
             })
         end)
-        task.wait(0.01)
+        task.wait(0.02)
 
+        -- Kiểm tra tool có còn không (đã place thành công)
         if not findTool(egg.uid) then
-            return true  -- Đã place xong
+            return true
         end
     end
     return false
@@ -219,6 +255,10 @@ local function runLoop()
         return
     end
     log("✅ Base: " .. tostring(State.myBasePos))
+
+    -- ⭐ Đo bán kính base
+    local radius = getBaseRadius(State.myBaseModel)
+    log(("📏 Bán kính base: %.1f"):format(radius))
 
     local hrp = HRP()
     if hrp and D(hrp.Position, State.myBasePos) > 12 then
@@ -257,7 +297,7 @@ local function runLoop()
                         task.wait(0.05)
                     end
                 end
-                if fire(egg) then
+                if fire(egg, radius) then
                     State.ok = State.ok + 1
                 else
                     State.fail = State.fail + 1
@@ -293,9 +333,7 @@ local function stop()
     return true
 end
 
-local function isRunning()
-    return State.isRunning
-end
+local function isRunning() return State.isRunning end
 
 local function getStats()
     return {
@@ -304,6 +342,7 @@ local function getStats()
         fail      = State.fail,
         basePos   = State.myBasePos,
         baseModel = State.myBaseModel,
+        baseRadius = State.myBaseModel and getBaseRadius(State.myBaseModel) or nil,
         hasAskPlaceEgg  = askPlaceEgg ~= nil,
         hasAskWearTool  = askWearTool ~= nil,
         hasAskSnapshot  = askSnapshot ~= nil,
@@ -311,7 +350,23 @@ local function getStats()
     }
 end
 
--- Tự log trạng thái remote khi load
+-- ⭐ Cho phép chỉnh config từ ngoài
+local function setConfig(tbl)
+    if type(tbl) ~= "table" then return end
+    for k, v in pairs(tbl) do
+        if State[k] ~= nil then State[k] = v end
+    end
+end
+
+local function getConfig()
+    return {
+        baseRadius   = State.baseRadius,
+        edgePadding  = State.edgePadding,
+        scanAttempts = State.scanAttempts,
+    }
+end
+
+-- Log trạng thái remote khi load
 task.spawn(function()
     task.wait(1)
     if not askPlaceEgg then      log("⚠️ Không tìm thấy RF/EggWorld/AskPlaceEgg") end
@@ -331,4 +386,6 @@ return {
     getStats  = getStats,
     fetchEggs = fetchEggs,
     OnLog     = onLog,
+    SetConfig = setConfig,
+    GetConfig = getConfig,
 }
