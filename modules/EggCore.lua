@@ -1,719 +1,298 @@
 -- ═══════════════════════════════════════════════════════════════
--- EGG CORE MODULE v3.3
--- Hatch (theo co che EGG HATCH v13.0 - Hatch Once = FULL)
--- Place (can lock, 5 phut/lần)
+-- modules/EggCore.lua — v3.3 (Hatch + Place cho Steal An Egg)
 -- ═══════════════════════════════════════════════════════════════
 
-local P  = game:GetService("Players").LocalPlayer
-local RS = game:GetService("ReplicatedStorage")
-local W  = workspace
+local Players           = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace         = game:GetService("Workspace")
 
-local NET = RS:FindFirstChild("Packages") and RS.Packages:FindFirstChild("Networking")
+local LocalPlayer = Players.LocalPlayer
 
-local function getRemote(n)
-    local net = RS:FindFirstChild("Packages")
-        and RS.Packages:FindFirstChild("Networking")
-
-    if not net then
-        return nil
+-- ─────────────── NETWORKING ───────────────
+local NET = nil
+do
+    local pk = ReplicatedStorage:FindFirstChild("Packages")
+    if pk then
+        NET = pk:FindFirstChild("Networking")
     end
+end
 
-    for _, c in ipairs(net:GetDescendants()) do
-        if c.Name == n then
-            return c
-        end
+-- Tìm RemoteFunction/RemoteEvent theo tên (khớp chính xác hoặc theo đuôi "/Name")
+local function getRemote(name)
+    if not NET then return nil end
+    for _, c in ipairs(NET:GetDescendants()) do
+        if c.Name == name then return c end
     end
-
-    local s = "/" .. n
-    for _, c in ipairs(net:GetDescendants()) do
-        if c.Name:sub(-#s) == s then
-            return c
-        end
+    local suffix = "/" .. name
+    for _, c in ipairs(NET:GetDescendants()) do
+        if c.Name:sub(-#suffix) == suffix then return c end
     end
-
     return nil
 end
 
--- Không giữ remote Hatch cố định.
--- v13 tìm lại AskHatch/AskFinishHatch mỗi lần chạy,
--- nên Core 3.3 cũng làm như vậy.
-local askPlaceEgg       = getRemote("AskPlaceEgg")
-local askWearTool       = getRemote("AskWearTool")
-local askSnapshot       = getRemote("AskLiveSnapshot")
-local homesteadAskState = getRemote("AskState")
+-- ─────────────── STATE ───────────────
+local State = {
+    autoHatch     = false,
+    autoHatchInterval = 5,
 
-local M = {}
-M.totalPlaced  = 0
-M.totalHatched = 0
-M.basePos      = nil
-M.baseModel    = nil
-M.busy         = false
-M.onLog        = nil
+    autoPlace     = false,
+    autoPlaceInterval = 5,   -- giây giữa mỗi lần đặt
+    autoPlaceAmount   = 300, -- số egg tối đa đặt mỗi đợt
 
-local function log(t)
-    local s = tostring(t)
-    print("[Core] " .. s)
-    if M.onLog then
-        pcall(M.onLog, s)
-    end
-end
+    totalHatched  = 0,
+    totalPlaced   = 0,
 
-local function getHRP()
-    local c = P.Character
-    return c and c:FindFirstChild("HumanoidRootPart")
-end
-
-local function getHum()
-    local c = P.Character
-    return c and c:FindFirstChildOfClass("Humanoid")
-end
-
-local function dist(a, b)
-    return (Vector3.new(a.X, a.Y, a.Z) - Vector3.new(b.X, b.Y, b.Z)).Magnitude
-end
-
--- ══════════ MUTEX ══════════
-
-_G.__eggMutex = _G.__eggMutex or {
-    owner = nil,
-    since = 0
+    hatchThread   = nil,
+    placeThread   = nil,
 }
 
-function M.acquireLock(owner, timeout)
-    owner = owner or "core"
-    timeout = timeout or 60
-
-    local t0 = os.clock()
-
-    while _G.__eggMutex.owner and _G.__eggMutex.owner ~= owner do
-        if os.clock() - t0 > timeout then
-            log("⏰ acquireLock timeout (owner=" .. tostring(_G.__eggMutex.owner) .. ")")
-            return false
-        end
-
-        task.wait(0.2)
-    end
-
-    _G.__eggMutex.owner = owner
-    _G.__eggMutex.since = os.clock()
-
-    log("🔒 Lock acquired by " .. owner)
-    return true
+local function log(msg)
+    warn("[EggCore] " .. tostring(msg))
 end
 
-function M.releaseLock(owner)
-    if _G.__eggMutex.owner == owner then
-        _G.__eggMutex.owner = nil
-        _G.__eggMutex.since = 0
-        log("🔓 Lock released by " .. owner)
-    end
-end
-
-function M.isLocked()
-    return _G.__eggMutex.owner ~= nil
-end
-
-function M.lockOwner()
-    return _G.__eggMutex.owner
-end
-
--- ══════════ HATCH — GIỐNG V13.0 ══════════
-
-function M.getBaseEggsRendered()
+-- ─────────────── LẤY EGG ĐÃ ĐẶT Ở BASE ───────────────
+local function getBaseEggs()
     local res = {}
+    local per = Workspace:FindFirstChild("PlacedEggRenders")
+    if not per then return res end
 
-    local per = W:FindFirstChild("PlacedEggRenders")
-
-    if per then
-        local key = tostring(P.UserId) .. "_"
-
-        for _, obj in ipairs(per:GetChildren()) do
-            if obj.Name:sub(1, #key) == key then
-                local uid = obj.Name:sub(#key + 1)
-
-                if uid ~= "" then
-                    table.insert(res, {
-                        uid = uid
-                    })
-                end
-            end
+    local key = tostring(LocalPlayer.UserId) .. "_"
+    for _, obj in ipairs(per:GetChildren()) do
+        if obj.Name:sub(1, #key) == key then
+            local uid = obj.Name:sub(#key + 1)
+            table.insert(res, { uid = uid, obj = obj })
         end
     end
-
     return res
 end
 
--- Lấy remote Hatch LẠI mỗi lần.
--- Đây là điểm quan trọng lấy theo v13.
-local function getHatchRemotes()
-    local hatchR = getRemote("AskHatch")
-    local finishR = getRemote("AskFinishHatch")
-    return hatchR, finishR
-end
+-- ─────────────── HATCH 1 EGG ───────────────
+local function hatchOne(uid, hatchR, finishR)
+    if not hatchR then return false end
 
--- Hatch FULL tất cả egg.
--- Không dùng lock, giống v13.
-function M.hatchAll(maxTime)
-    maxTime = tonumber(maxTime) or 30
-
-    local t0 = os.clock()
-
-    local eggs = M.getBaseEggsRendered()
-
-    if #eggs == 0 then
-        log("🥚 Không có egg trên base")
-        return 0
-    end
-
-    -- Tìm remote ngay lúc chạy.
-    local hatchR, finishR = getHatchRemotes()
-
-    if not hatchR then
-        log("❌ Không có AskHatch")
-        return 0
-    end
-
-    log("🥚 Base: " .. #eggs .. " egg → Hatch FULL")
-
-    local hatched = 0
-
-    for _, e in ipairs(eggs) do
-        if os.clock() - t0 > maxTime then
-            log("⏰ Hatch timeout")
-            break
-        end
-
-        local uid = tostring(e.uid)
-
-        local ok, res = pcall(function()
-            return hatchR:InvokeServer(uid)
-        end)
-
-        if ok and res == true then
-            hatched = hatched + 1
-            M.totalHatched = M.totalHatched + 1
-
-            log(
-                "🔥 Hatched #" ..
-                M.totalHatched ..
-                " | " ..
-                uid:sub(1, 12)
-            )
-
-            if finishR then
-                task.wait(0.2)
-
-                pcall(function()
-                    finishR:InvokeServer(uid)
-                end)
-            end
-
-            task.wait(0.5)
-        else
-            if not ok then
-                log("❌ AskHatch error | " .. uid:sub(1, 12))
-            else
-                log("⚠️ AskHatch rejected | " .. uid:sub(1, 12))
-            end
-        end
-    end
-
-    log("=== HATCH FULL: " .. hatched .. "/" .. #eggs .. " ===")
-
-    return hatched
-end
-
--- HATCH 1 LẦN = FULL, đúng theo v13.
-function M.hatchOnce()
-    return M.hatchAll(30)
-end
-
--- ══════════ PLACE ══════════
-
-function M.fetchUnplaced()
-    -- Refresh remote nếu module/game reload remote.
-    askSnapshot = askSnapshot or getRemote("AskLiveSnapshot")
-
-    if not askSnapshot then
-        return {}
-    end
-
-    local ok, r = pcall(function()
-        return askSnapshot:InvokeServer()
+    local ok, res = pcall(function()
+        return hatchR:InvokeServer(uid)
     end)
 
-    if not ok or type(r) ~= "table" then
-        return {}
-    end
-
-    for _, e in ipairs(r) do
-        if type(e) == "table" and e.OwnerUserId == P.UserId then
-            local list = {}
-
-            for uid, rec in pairs(e.Records or {}) do
-                if type(rec) == "table" and not rec.Placement then
-                    table.insert(list, {
-                        uid = uid
-                    })
-                end
-            end
-
-            return list
+    if ok and res == true then
+        if finishR then
+            task.wait(0.2)
+            pcall(function() finishR:InvokeServer(uid) end)
         end
+        return true
     end
-
-    return {}
-end
-
-function M.findTool(uid)
-    local char = P.Character
-    local bp = P:FindFirstChild("Backpack")
-
-    for _, cont in ipairs({char, bp}) do
-        if cont then
-            for _, t in ipairs(cont:GetChildren()) do
-                if t:IsA("Tool") then
-                    for _, v in pairs(t:GetAttributes()) do
-                        if tostring(v) == tostring(uid) then
-                            return t, cont.Name
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    return nil, nil
-end
-
-function M.findBase()
-    homesteadAskState = homesteadAskState or getRemote("AskState")
-
-    if not homesteadAskState then
-        return nil
-    end
-
-    local ok, state = pcall(function()
-        return homesteadAskState:InvokeServer()
-    end)
-
-    if not ok or type(state) ~= "table" then
-        return nil
-    end
-
-    local owners = state.OwnersBySlot
-
-    if not owners then
-        return nil
-    end
-
-    local mySlot
-
-    for slot, id in pairs(owners) do
-        if tostring(id) == tostring(P.UserId) then
-            mySlot = slot
-            break
-        end
-    end
-
-    if not mySlot then
-        return nil
-    end
-
-    local plots = W:FindFirstChild("Plots")
-
-    if not plots then
-        return nil
-    end
-
-    local n = tostring(mySlot)
-
-    for _, obj in ipairs(plots:GetChildren()) do
-        if obj.Name == n or obj.Name:find(n, 1, true) then
-            local cp = obj:FindFirstChild("CenterPoint", true)
-
-            if cp then
-                M.baseModel = obj
-                return cp.Position
-            end
-        end
-    end
-
-    return nil
-end
-
-function M.firePlace(egg)
-    askPlaceEgg = askPlaceEgg or getRemote("AskPlaceEgg")
-
-    local hrp = getHRP()
-
-    if not hrp or not M.baseModel or not askPlaceEgg then
-        return false
-    end
-
-    local playerCF = M.baseModel:GetPivot():Inverse() * hrp.CFrame
-
-    local radii = {
-        0,
-        3,
-        8,
-        15,
-        25,
-        35
-    }
-
-    local startIdx = math.random(1, #radii)
-
-    for step = 0, #radii - 1 do
-        local r = radii[((startIdx + step - 1) % #radii) + 1]
-
-        local ang = math.random() * math.pi * 2
-
-        local x, z = 0, 0
-
-        if r > 0 then
-            x = math.cos(ang) * r
-            z = math.sin(ang) * r
-        end
-
-        pcall(function()
-            askPlaceEgg:InvokeServer({
-                LocalCFrame = playerCF * CFrame.new(x, 0, z),
-                Uid = egg.uid
-            })
-        end)
-
-        task.wait(0.01)
-
-        if not M.findTool(egg.uid) then
-            return true
-        end
-    end
-
     return false
 end
 
-function M.placeAll(maxTime)
-    maxTime = tonumber(maxTime) or 5
+-- ─────────────── HATCH ALL ───────────────
+local function hatchAll(maxSeconds)
+    maxSeconds = maxSeconds or 30
 
-    local t0 = os.clock()
-
-    if not M.basePos then
-        M.basePos = M.findBase()
-    end
-
-    if not M.basePos then
-        log("❌ Không tìm base")
+    local hatchR  = getRemote("AskHatch")
+    local finishR = getRemote("AskFinishHatch")
+    if not hatchR then
+        log("Không tìm thấy AskHatch remote")
         return 0
     end
 
-    local hrp = getHRP()
+    local eggs = getBaseEggs()
+    if #eggs == 0 then return 0 end
 
-    if hrp and dist(hrp.Position, M.basePos) > 12 then
-        local hum = getHum()
+    local startTime = os.clock()
+    local count = 0
 
-        if hum then
-            local t0w = os.clock()
+    for _, e in ipairs(eggs) do
+        if os.clock() - startTime > maxSeconds then break end
 
-            while os.clock() - t0w < 10 do
-                local h, h2 = getHum(), getHRP()
-
-                if not h or not h2 then
-                    break
-                end
-
-                if dist(h2.Position, M.basePos) < 12 then
-                    h:MoveTo(h2.Position)
-                    break
-                end
-
-                h:MoveTo(M.basePos)
-
-                task.wait(0.1)
-            end
+        local ok = hatchOne(e.uid, hatchR, finishR)
+        if ok then
+            count = count + 1
+            State.totalHatched = State.totalHatched + 1
         end
+        task.wait(0.35)
     end
 
-    local placed = 0
-
-    while os.clock() - t0 < maxTime do
-        askWearTool = askWearTool or getRemote("AskWearTool")
-
-        if not askWearTool then
-            log("❌ Không có AskWearTool")
-            break
-        end
-
-        local eggs = M.fetchUnplaced()
-
-        if #eggs == 0 then
-            break
-        end
-
-        local egg = eggs[1]
-
-        local sok, sres = pcall(function()
-            return askWearTool:InvokeServer(egg.uid)
-        end)
-
-        if sok and sres == true then
-            local tool, loc
-
-            for _ = 1, 3 do
-                task.wait(0.05)
-
-                tool, loc = M.findTool(egg.uid)
-
-                if tool then
-                    break
-                end
-            end
-
-            if tool then
-                if loc ~= "Character" then
-                    local h = getHum()
-
-                    if h then
-                        pcall(function()
-                            h:EquipTool(tool)
-                        end)
-
-                        task.wait(0.05)
-                    end
-                end
-
-                if M.firePlace(egg) then
-                    placed = placed + 1
-                    M.totalPlaced = M.totalPlaced + 1
-
-                    log(
-                        "📦 Placed #" ..
-                        M.totalPlaced ..
-                        " | " ..
-                        tostring(egg.uid):sub(1, 12)
-                    )
-                end
-            end
-        end
-
-        task.wait(0.03)
-    end
-
-    return placed
+    return count
 end
 
--- ══════════ AUTO HATCH LOOP ══════════
+-- ─────────────── HATCH ONCE (1 lần toàn bộ) ───────────────
+local function hatchOnce()
+    return hatchAll(60)
+end
 
-local _hatchLoop = nil
-
-function M.startAutoHatch(intervalSec)
-    if _hatchLoop then
-        _G.__eggHatchEnabled = true
-        return true
-    end
-
-    _G.__eggHatchEnabled = true
-
-    intervalSec = tonumber(intervalSec) or 5
-
-    if intervalSec < 0.2 then
-        intervalSec = 0.2
-    end
-
-    log(
-        "🔥 Auto Hatch ON (poll " ..
-        tostring(intervalSec) ..
-        "s)"
-    )
-
-    _hatchLoop = task.spawn(function()
-        while _G.__eggHatchEnabled do
-            pcall(function()
-                local eggs = M.getBaseEggsRendered()
-
-                if #eggs > 0 then
-                    log(
-                        "🥚 Có " ..
-                        #eggs ..
-                        " egg trên base → hatch"
-                    )
-
-                    M.hatchAll(30)
-                end
-            end)
-
-            local waited = 0
-
-            while _G.__eggHatchEnabled and waited < intervalSec do
-                local step = math.min(
-                    0.5,
-                    intervalSec - waited
-                )
-
-                task.wait(step)
-                waited = waited + step
-            end
+-- ─────────────── PLACE 1 EGG ───────────────
+-- Hỗ trợ 2 kiểu remote phổ biến: AskPlaceEgg(eggId) hoặc AskPlaceEgg()
+local function placeOne(eggId, placeR)
+    if not placeR then return false end
+    local ok, res = pcall(function()
+        if eggId then
+            return placeR:InvokeServer(eggId)
+        else
+            return placeR:InvokeServer()
         end
-
-        _hatchLoop = nil
-        log("🔥 Auto Hatch OFF")
     end)
-
-    return true
+    return ok and res == true
 end
 
-function M.stopAutoHatch()
-    _G.__eggHatchEnabled = false
-    return true
-end
-
-function M.isAutoHatchOn()
-    return _G.__eggHatchEnabled == true
-end
-
--- ══════════ AUTO PLACE LOOP — 5 PHÚT ══════════
-
-local _placeLoop = nil
-
-function M.startAutoPlace(intervalSec, durationSec)
-    if _placeLoop then
-        return true
-    end
-
-    _G.__eggPlaceEnabled = true
-
-    intervalSec = tonumber(intervalSec) or 300
-    durationSec = tonumber(durationSec) or 5
-
-    log(
-        string.format(
-            "📦 Auto Place ON (mỗi %ds, chạy %ds)",
-            intervalSec,
-            durationSec
-        )
-    )
-
-    _placeLoop = task.spawn(function()
-        local first = true
-
-        while _G.__eggPlaceEnabled do
-            if first then
-                first = false
-            else
-                local elapsed = 0
-
-                while _G.__eggPlaceEnabled and elapsed < intervalSec do
-                    task.wait(1)
-                    elapsed = elapsed + 1
-                end
-
-                if not _G.__eggPlaceEnabled then
-                    break
-                end
+-- Tìm egg template trong Inventory / Backpack (tuỳ game)
+local function getOwnedEggIds()
+    local list = {}
+    -- Thử nhiều folder phổ biến
+    local candidates = {
+        LocalPlayer:FindFirstChild("Eggs"),
+        LocalPlayer:FindFirstChild("Inventory") and LocalPlayer.Inventory:FindFirstChild("Eggs"),
+        ReplicatedStorage:FindFirstChild("EggTemplates"),
+    }
+    for _, folder in ipairs(candidates) do
+        if folder then
+            for _, e in ipairs(folder:GetChildren()) do
+                table.insert(list, e.Name)
             end
-
-            if not _G.__eggPlaceEnabled then
-                break
-            end
-
-            _G.__eggPlacePending = true
-
-            log("📦 Đến lúc place → xin lock")
-
-            if M.acquireLock("place", 120) then
-                M.busy = true
-
-                pcall(function()
-                    M.placeAll(durationSec)
-                end)
-
-                M.busy = false
-
-                M.releaseLock("place")
-            else
-                log("❌ Không lấy được lock place")
-            end
-
-            _G.__eggPlacePending = false
+            if #list > 0 then break end
         end
-
-        _placeLoop = nil
-        log("📦 Auto Place OFF")
-    end)
-
-    return true
+    end
+    return list
 end
 
-function M.stopAutoPlace()
-    _G.__eggPlaceEnabled = false
-end
+-- ─────────────── PLACE ALL ───────────────
+local function placeAll(maxSeconds)
+    maxSeconds = maxSeconds or 5
 
-function M.isAutoPlaceOn()
-    return _G.__eggPlaceEnabled == true
-end
-
-function M.getNextPlaceIn()
-    if not _placeLoop or not _G.__eggPlaceEnabled then
-        return nil
+    local placeR = getRemote("AskPlaceEgg") or getRemote("AskPlace")
+    if not placeR then
+        log("Không tìm thấy AskPlaceEgg remote")
+        return 0
     end
 
-    return 0
+    local eggs = getOwnedEggIds()
+    if #eggs == 0 then return 0 end
+
+    local startTime = os.clock()
+    local count = 0
+    local limit = math.min(#eggs, State.autoPlaceAmount)
+
+    for i = 1, limit do
+        if os.clock() - startTime > maxSeconds then break end
+
+        if placeOne(eggs[i], placeR) then
+            count = count + 1
+            State.totalPlaced = State.totalPlaced + 1
+        end
+        task.wait(0.1)
+    end
+    return count
 end
 
--- ══════════ FORCE PLACE ONCE ══════════
+-- ─────────────── PLACE ONCE ───────────────
+local function placeOnce(sec)
+    return placeAll(sec or 5) > 0
+end
 
-function M.placeOnce(durationSec)
-    if M.busy then
-        return false
-    end
+-- ─────────────── AUTO HATCH LOOP ───────────────
+local function startAutoHatch(interval)
+    if State.autoHatch then return true end
 
-    task.spawn(function()
-        _G.__eggPlacePending = true
+    State.autoHatch = true
+    State.autoHatchInterval = interval or 5
 
-        if M.acquireLock("place", 120) then
-            M.busy = true
+    State.hatchThread = task.spawn(function()
+        while State.autoHatch do
+            task.wait(State.autoHatchInterval)
+            if not State.autoHatch then break end
 
             pcall(function()
-                M.placeAll(durationSec or 5)
+                local n = hatchAll(State.autoHatchInterval)
+                if n > 0 then
+                    log(("Auto-hatch: +%d (tổng %d)"):format(n, State.totalHatched))
+                end
             end)
-
-            M.busy = false
-
-            M.releaseLock("place")
         end
-
-        _G.__eggPlacePending = false
     end)
 
+    log("Auto Hatch BẬT (interval=" .. State.autoHatchInterval .. "s)")
     return true
 end
 
--- ══════════ STATUS ══════════
+local function stopAutoHatch()
+    State.autoHatch = false
+    State.hatchThread = nil
+    log("Auto Hatch TẮT")
+    return true
+end
 
-function M.getStatus()
+local function isAutoHatchOn()
+    return State.autoHatch
+end
+
+-- ─────────────── AUTO PLACE LOOP ───────────────
+local function startAutoPlace(amount, interval)
+    if State.autoPlace then return true end
+
+    State.autoPlace = true
+    State.autoPlaceAmount   = amount or 300
+    State.autoPlaceInterval = interval or 5
+
+    State.placeThread = task.spawn(function()
+        while State.autoPlace do
+            task.wait(State.autoPlaceInterval)
+            if not State.autoPlace then break end
+
+            pcall(function()
+                local n = placeAll(State.autoPlaceInterval)
+                if n > 0 then
+                    log(("Auto-place: +%d (tổng %d)"):format(n, State.totalPlaced))
+                end
+            end)
+        end
+    end)
+
+    log("Auto Place BẬT (amount=" .. State.autoPlaceAmount .. ", interval=" .. State.autoPlaceInterval .. "s)")
+    return true
+end
+
+local function stopAutoPlace()
+    State.autoPlace = false
+    State.placeThread = nil
+    log("Auto Place TẮT")
+    return true
+end
+
+local function isAutoPlaceOn()
+    return State.autoPlace
+end
+
+-- ─────────────── STATUS ───────────────
+local function getStatus()
+    local eggs = getBaseEggs()
     return {
-        totalHatched = M.totalHatched,
-        totalPlaced = M.totalPlaced,
-        unplaced = #M.fetchUnplaced(),
-        onBase = #M.getBaseEggsRendered(),
-        busy = M.busy,
-        lockOwner = M.lockOwner(),
-        autoHatch = M.isAutoHatchOn(),
-        autoPlace = M.isAutoPlaceOn()
+        autoHatch    = State.autoHatch,
+        autoPlace    = State.autoPlace,
+        baseEggs     = #eggs,
+        totalHatched = State.totalHatched,
+        totalPlaced  = State.totalPlaced,
+        hasHatchRemote  = getRemote("AskHatch") ~= nil,
+        hasFinishRemote = getRemote("AskFinishHatch") ~= nil,
+        hasPlaceRemote  = (getRemote("AskPlaceEgg") or getRemote("AskPlace")) ~= nil,
     }
 end
 
--- ══════════ INIT ══════════
+-- ─────────────── EXPORT ───────────────
+return {
+    -- Hatch
+    startAutoHatch  = startAutoHatch,
+    stopAutoHatch   = stopAutoHatch,
+    isAutoHatchOn   = isAutoHatchOn,
+    hatchAll        = hatchAll,
+    hatchOnce       = hatchOnce,
 
-_G.__eggHatchEnabled = false
-_G.__eggPlaceEnabled = _G.__eggPlaceEnabled or false
-_G.__eggPlacePending = _G.__eggPlacePending or false
+    -- Place
+    startAutoPlace  = startAutoPlace,
+    stopAutoPlace   = stopAutoPlace,
+    isAutoPlaceOn   = isAutoPlaceOn,
+    placeAll        = placeAll,
+    placeOnce       = placeOnce,
 
-_hatchLoop = nil
-_placeLoop = nil
-
-_G.EggCore = M
-
-warn("[EggCore v3.3] Loaded")
-
-return M
+    -- Status
+    getStatus       = getStatus,
+    getBaseEggs     = getBaseEggs,
+}
