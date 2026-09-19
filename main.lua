@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- MAIN.lua v3.8.2 — Resize 2 cạnh (phải + dưới) + Auto Sell Pet All
+-- MAIN.lua v3.8.3 — Resize 2 cạnh + Auto Sell Pet All + Tab Egg
 -- ═══════════════════════════════════════════════════════════════
 
 local BACKGROUND_ID = (Config and Config.BackgroundImageId) or "rbxassetid://116222439691339"
@@ -30,7 +30,7 @@ local SellManager = fetch("modules/sell_manager.lua")
 
 _G.StealEgg = {
     Steal = Steal, ESP = ESP, SellManager = SellManager,
-    
+
     Start = function() if Steal then Steal.start() end end,
     Stop = function() if Steal then Steal.stop() end end,
     IsRunning = function() return Steal and Steal.isRunning() or false end,
@@ -76,7 +76,23 @@ _G.StealEgg = {
     SM_ScanInfo = function() if SellManager then SellManager.scanInfo() end end,
     SM_OnLog = function(cb) if SellManager then SellManager.onLog(cb) end end,
 
-    Version = "3.8.2",
+    -- ⭐ EGG CORE API
+    Egg_SetAutoHatch = function(on) if Steal and Steal.setAutoHatch then return Steal.setAutoHatch(on) end end,
+    Egg_ToggleAutoHatch = function() if Steal and Steal.toggleAutoHatch then return Steal.toggleAutoHatch() end end,
+    Egg_IsAutoHatch = function() return Steal and Steal.isAutoHatchOn and Steal.isAutoHatchOn() or false end,
+
+    Egg_SetAutoPlace = function(on) if Steal and Steal.setAutoPlace then return Steal.setAutoPlace(on) end end,
+    Egg_ToggleAutoPlace = function() if Steal and Steal.toggleAutoPlace then return Steal.toggleAutoPlace() end end,
+    Egg_IsAutoPlace = function() return Steal and Steal.isAutoPlaceOn and Steal.isAutoPlaceOn() or false end,
+
+    Egg_GetToggles = function() return Steal and Steal.getToggles and Steal.getToggles() or {hatch=true, place=true} end,
+    Egg_ForceMaintain = function(sec) if Steal and Steal.requestMaintain then return Steal.requestMaintain(sec or 5) end end,
+    Egg_HatchAll = function() if Steal and Steal.hatchAll then return Steal.hatchAll() end end,
+    Egg_PlaceAll = function() if Steal and Steal.placeAll then return Steal.placeAll() end end,
+    Egg_GetStatus = function() return Steal and Steal.getStatus and Steal.getStatus() or {} end,
+    Egg_GetServerResetInfo = function() return Steal and Steal.getServerResetInfo and Steal.getServerResetInfo() or {} end,
+
+    Version = "3.8.3",
 }
 local API = _G.StealEgg
 _G.MyScript = API
@@ -101,12 +117,12 @@ local COLORS = {
     sidebar     = Color3.fromRGB(195, 200, 210),
     activeBtn   = Color3.fromRGB(120, 125, 135),
     activeText  = Color3.fromRGB(255, 255, 255),
-    
+
     textBold    = Color3.fromRGB(209, 213, 219),
     textDim     = Color3.fromRGB(180, 185, 195),
     textShadow  = Color3.fromRGB(0, 0, 0),
     textBlack   = Color3.fromRGB(0, 0, 0),
-    
+
     toggleOn    = Color3.fromRGB(70, 75, 85),
     toggleOff   = Color3.fromRGB(195, 200, 210),
     white       = Color3.fromRGB(255, 255, 255),
@@ -271,14 +287,14 @@ local function setTab(id)
     for _, item in pairs(tabBtns) do
         if item.id == id then
             TweenService:Create(item.btn, TweenInfo.new(0.2), {
-                BackgroundColor3 = COLORS.activeBtn, 
-                BackgroundTransparency = 0.1, 
+                BackgroundColor3 = COLORS.activeBtn,
+                BackgroundTransparency = 0.1,
                 TextColor3 = COLORS.activeText
             }):Play()
         else
             TweenService:Create(item.btn, TweenInfo.new(0.2), {
-                BackgroundColor3 = COLORS.card, 
-                BackgroundTransparency = 0.75, 
+                BackgroundColor3 = COLORS.card,
+                BackgroundTransparency = 0.75,
                 TextColor3 = COLORS.textBold
             }):Play()
         end
@@ -308,6 +324,7 @@ end
 mkTab("main", "Main")
 mkTab("pet", "Pet")
 mkTab("esp", "ESP")
+mkTab("egg", "Egg")
 
 -- ══════════ TOGGLE ROW ══════════
 local function createToggleRow(parent, labelText, defaultState, hasTextBox, onToggle, onInputChanged, boxDefault)
@@ -558,7 +575,6 @@ petHeader.TextXAlignment = Enum.TextXAlignment.Left
 petHeader.LayoutOrder = 1
 addTextStroke(petHeader, 2)
 
--- ⭐ ĐÃ ĐỔI TEXT: "Auto Sell All" → "Auto Sell Pet All"
 local autoSellToggle = createToggleRow(pagePet, "Auto Sell Pet All", API.SM_IsAutoSell(), false, function(state)
     API.SM_SetAutoSell(state)
     if state and not API.SM_IsRunning() then
@@ -597,6 +613,43 @@ createToggleRow(pageESP, "ESP Egg", API.ESP_IsEnabled(), false, function(state)
     end
 end, nil)
 
+-- ══════════ TAB EGG ══════════
+local pageEgg = Instance.new("ScrollingFrame", content)
+pageEgg.Size = UDim2.new(1, 0, 1, 0)
+pageEgg.BackgroundTransparency = 1
+pageEgg.Visible = false
+pageEgg.BorderSizePixel = 0
+pageEgg.ScrollBarThickness = 2
+pageEgg.CanvasSize = UDim2.new(0, 0, 0, 200)
+pageEgg.ZIndex = 3
+pages.egg = pageEgg
+
+local eggLayout = Instance.new("UIListLayout", pageEgg)
+eggLayout.Padding = UDim.new(0, 8)
+
+local eggHeader = Instance.new("TextLabel", pageEgg)
+eggHeader.Size = UDim2.new(1, -4, 0, 26)
+eggHeader.BackgroundTransparency = 1
+eggHeader.Text = "🥚 EGG MANAGER"
+eggHeader.TextColor3 = COLORS.pink
+eggHeader.Font = Enum.Font.GothamBlack
+eggHeader.TextSize = 14
+eggHeader.TextXAlignment = Enum.TextXAlignment.Left
+eggHeader.LayoutOrder = 1
+addTextStroke(eggHeader, 2)
+
+-- ⭐ AUTO PLACE (trên)
+local autoPlaceToggle = createToggleRow(pageEgg, "Auto Place Egg", API.Egg_IsAutoPlace(), false, function(state)
+    API.Egg_SetAutoPlace(state)
+end, nil)
+autoPlaceToggle.LayoutOrder = 2
+
+-- ⭐ AUTO HATCH (dưới)
+local autoHatchToggle = createToggleRow(pageEgg, "Auto Hatch Egg", API.Egg_IsAutoHatch(), false, function(state)
+    API.Egg_SetAutoHatch(state)
+end, nil)
+autoHatchToggle.LayoutOrder = 3
+
 -- ═══════════════════════════════════════════════════════════════
 -- DRAG PANEL (kéo bằng title)
 -- ═══════════════════════════════════════════════════════════════
@@ -614,10 +667,9 @@ end)
 
 UserInputService.InputChanged:Connect(function(input)
     if not isDragging then return end
-    
+
     if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
         local delta = input.Position - dragStartPos
-        -- ⭐ Neo góc trên-trái để drag chính xác
         panel.AnchorPoint = Vector2.new(0, 0)
         panel.Position = UDim2.fromOffset(dragStartAbsPos.X + delta.X, dragStartAbsPos.Y + delta.Y)
     end
@@ -630,7 +682,7 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 -- ═══════════════════════════════════════════════════════════════
--- ⭐ RESIZE — CHỈ KÉO CẠNH PHẢI + CẠNH DƯỚI
+-- RESIZE — CHỈ KÉO CẠNH PHẢI + CẠNH DƯỚI
 -- ═══════════════════════════════════════════════════════════════
 local resizeBtn = Instance.new("TextButton")
 resizeBtn.Name = "ResizeButton"
@@ -665,21 +717,18 @@ resizeBtn.InputBegan:Connect(function(input)
         isResizing = true
         resizeStartPos = input.Position
         resizeStartSize = panel.AbsoluteSize
-        resizeStartAbsPos = panel.AbsolutePosition   -- ⭐ chốt góc trên-trái
+        resizeStartAbsPos = panel.AbsolutePosition
     end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
     if not isResizing then return end
-    
+
     if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
         local delta = input.Position - resizeStartPos
-        
-        -- ⭐ Chỉ tính delta.X (rộng) và delta.Y (cao)
         local newWidth  = math.clamp(resizeStartSize.X + delta.X, MIN_WIDTH,  MAX_WIDTH)
         local newHeight = math.clamp(resizeStartSize.Y + delta.Y, MIN_HEIGHT, MAX_HEIGHT)
-        
-        -- ⭐ Giữ nguyên góc trên-trái → CHỈ cạnh phải và cạnh dưới di chuyển
+
         panel.AnchorPoint = Vector2.new(0, 0)
         panel.Position = UDim2.fromOffset(resizeStartAbsPos.X, resizeStartAbsPos.Y)
         panel.Size = UDim2.fromOffset(newWidth, newHeight)
@@ -717,15 +766,13 @@ API.SetTargets(initList)
 icon.MouseButton1Click:Connect(function()
     panel.Visible = not panel.Visible
     if panel.Visible then
-        -- ⭐ Khi mở lần đầu: căn giữa màn hình
         if panel.AnchorPoint == Vector2.new(0, 0) then
-            -- Nếu đã từng resize → mở tại vị trí cũ
             panel.AnchorPoint = Vector2.new(0, 0)
         else
             panel.AnchorPoint = Vector2.new(0.5, 0.5)
             panel.Position = UDim2.new(0.5, 0, 0.5, 0)
         end
-        
+
         local targetSize = panel.Size
         panel.Size = UDim2.new(0, 100, 0, 60)
         panel.BackgroundTransparency = 1
@@ -741,4 +788,4 @@ if API.SM_OnLog then
     API.SM_OnLog(function(msg) print("[SellManager] " .. msg) end)
 end
 
-print("[Main] ✅ Ready v3.8.2 — Resize 2 cạnh + Auto Sell Pet All")
+print("[Main] ✅ Ready v3.8.3 — Resize 2 cạnh + Auto Sell Pet All + Tab Egg")
