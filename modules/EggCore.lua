@@ -74,7 +74,7 @@ end
 function M.isLocked() return _G.__eggMutex.owner ~= nil end
 function M.lockOwner() return _G.__eggMutex.owner end
 
--- ══════════ HATCH (ĐỘC LẬP — KHÔNG LOCK) ══════════
+-- ══════════ HATCH v13 (ĐỘC LẬP — KHÔNG LOCK) ══════════
 function M.getBaseEggsRendered()
     local res = {}
     local per = W:FindFirstChild("PlacedEggRenders")
@@ -82,7 +82,8 @@ function M.getBaseEggsRendered()
         local key = tostring(P.UserId) .. "_"
         for _, obj in ipairs(per:GetChildren()) do
             if obj.Name:sub(1, #key) == key then
-                table.insert(res, {uid = obj.Name:sub(#key + 1)})
+                local uid = obj.Name:sub(#key + 1)
+                table.insert(res, {uid = uid})
             end
         end
     end
@@ -92,25 +93,46 @@ end
 function M.hatchAll(maxTime)
     maxTime = maxTime or 30
     local t0 = os.clock()
+
     local eggs = M.getBaseEggsRendered()
-    if #eggs == 0 then return 0 end
-    if not askHatch then log("❌ Không có AskHatch"); return 0 end
+    if #eggs == 0 then
+        log("🥚 Không có egg trên base")
+        return 0
+    end
+
+    if not askHatch then
+        log("❌ Không có AskHatch")
+        return 0
+    end
 
     local hatched = 0
+
     for _, e in ipairs(eggs) do
-        if os.clock() - t0 > maxTime then break end
-        local ok, res = pcall(function() return askHatch:InvokeServer(e.uid) end)
+        if os.clock() - t0 > maxTime then
+            break
+        end
+
+        local ok, res = pcall(function()
+            return askHatch:InvokeServer(e.uid)
+        end)
+
         if ok and res == true then
             hatched = hatched + 1
             M.totalHatched = M.totalHatched + 1
+
             log("🔥 Hatched #" .. M.totalHatched .. " | " .. tostring(e.uid):sub(1, 12))
+
             if askFinishHatch then
                 task.wait(0.15)
-                pcall(function() askFinishHatch:InvokeServer(e.uid) end)
+                pcall(function()
+                    askFinishHatch:InvokeServer(e.uid)
+                end)
             end
         end
+
         task.wait(0.2)
     end
+
     return hatched
 end
 
@@ -249,21 +271,30 @@ local _hatchLoop = nil
 
 function M.startAutoHatch(intervalSec)
     if _hatchLoop then return end
+
     _G.__eggHatchEnabled = true
-    intervalSec = intervalSec or 20
+    intervalSec = intervalSec or 5
+
     log("🔥 Auto Hatch ON (poll " .. intervalSec .. "s)")
+
     _hatchLoop = task.spawn(function()
         while _G.__eggHatchEnabled do
             task.wait(intervalSec)
-            if not _G.__eggHatchEnabled then break end
+
+            if not _G.__eggHatchEnabled then
+                break
+            end
+
             pcall(function()
-                local n = #M.getBaseEggsRendered()
-                if n > 0 then
-                    log("🥚 Có " .. n .. " egg trên base → hatch")
-                    M.hatchAll(5)
+                local eggs = M.getBaseEggsRendered()
+
+                if #eggs > 0 then
+                    log("🥚 Có " .. #eggs .. " egg trên base → hatch")
+                    M.hatchAll(30)
                 end
             end)
         end
+
         _hatchLoop = nil
         log("🔥 Auto Hatch OFF")
     end)
@@ -350,7 +381,9 @@ function M.placeOnce(durationSec)
     return true
 end
 
-function M.hatchOnce() return M.hatchAll(30) end
+function M.hatchOnce()
+    return M.hatchAll(30)
+end
 
 -- ══════════ STATUS ══════════
 function M.getStatus()
