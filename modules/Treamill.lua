@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- 🏃 TREADMILL — Module v5 (ẩn tận gốc cả Upgrade + Render)
+-- 🏃 TREADMILL — Module v6 (ẩn hết render + treadmill plot mình)
 -- ═══════════════════════════════════════════════════════════════
 
 local P  = game:GetService("Players").LocalPlayer
@@ -13,7 +13,7 @@ local enabled    = false
 local savedState = {}
 local mySlot     = nil
 local myPlot     = nil
-local deletedRenders = {}   -- [renderObj] = clone
+local deletedRenders = {}
 
 local REFRESH_INTERVAL = 0.3
 
@@ -23,45 +23,32 @@ local PLATFORM  = IS_PC and "PC" or (IS_MOBILE and "Mobile" or "Unknown")
 
 print(string.format("[Treadmill] Platform: %s", PLATFORM))
 
--- ⭐ Lấy slot của mình
 local function getMySlot()
     local NET = RS:FindFirstChild("Packages") and RS.Packages:FindFirstChild("Networking")
     local askState = NET and NET:FindFirstChild("RF/Homestead/AskState")
     if not askState then return nil end
-    
     local ok, state = pcall(function() return askState:InvokeServer() end)
     if not ok or type(state) ~= "table" then return nil end
-    
     local owners = state.OwnersBySlot
     if not owners then return nil end
-    
     for slot, id in pairs(owners) do
-        if tostring(id) == tostring(P.UserId) then
-            return slot
-        end
+        if tostring(id) == tostring(P.UserId) then return slot end
     end
     return nil
 end
 
 local function getMyPlot()
-    if not mySlot then
-        mySlot = getMySlot()
-    end
+    if not mySlot then mySlot = getMySlot() end
     if not mySlot then return nil end
-    
     local plots = W:FindFirstChild("Plots")
     if not plots then return nil end
-    
     local n = tostring(mySlot)
     for _, obj in ipairs(plots:GetChildren()) do
-        if obj.Name == n or obj.Name:find(n, 1, true) then
-            return obj
-        end
+        if obj.Name == n or obj.Name:find(n, 1, true) then return obj end
     end
     return nil
 end
 
--- ⭐ Ẩn 1 object (part/decal/light/gui...)
 local function hideObject(obj)
     if not obj then return false end
     if savedState[obj] then return false end
@@ -102,63 +89,54 @@ local function hideObject(obj)
     return false
 end
 
--- ⭐ Ẩn cả TreadmillBottom + TreadmillUpgrade (tất cả descendants)
+-- ⭐ Ẩn tất cả treadmill trong plot của mình (dùng :GetDescendants() để tìm bất kỳ tên nào)
 local function hideMyTreadmill()
     local plot = getMyPlot()
     if not plot then return 0 end
     
     local count = 0
     
-    -- TreadmillBottom
-    local bottom = plot:FindFirstChild("TreadmillBottom", true)
-    if bottom then
-        -- Chính nó
-        if hideObject(bottom) then count = count + 1 end
-        -- Descendants
-        for _, d in ipairs(bottom:GetDescendants()) do
-            if hideObject(d) then count = count + 1 end
-        end
-    end
-    
-    -- TreadmillUpgrade (Model) + descendants
-    local upgrade = plot:FindFirstChild("TreadmillUpgrade", true)
-    if upgrade then
-        for _, d in ipairs(upgrade:GetDescendants()) do
-            if hideObject(d) then count = count + 1 end
+    -- Duyệt tất cả descendants, tìm theo keyword
+    for _, obj in ipairs(plot:GetDescendants()) do
+        local n = obj.Name:lower()
+        if n:find("tread") or n:find("belt") or n:find("runner") then
+            if hideObject(obj) then count = count + 1 end
         end
     end
     
     return count
 end
 
--- ⭐ Xoá render của base mình (TreadmillRender_<slot>)
-local function hideMyRender()
+-- ⭐ Ẩn TẤT CẢ render (vì random, ẩn hết cho chắc)
+local function hideAllRenders()
     local render = W:FindFirstChild("__ClientTreadmillRenders")
     if not render then return 0 end
     
     local count = 0
-    local targetName = "TreadmillRender_" .. tostring(mySlot)
-    
-    -- Xoá con khớp tên
     for _, child in ipairs(render:GetChildren()) do
-        if child.Name == targetName 
-           or child.Name:lower():find(tostring(mySlot), 1, true) then
-            if not deletedRenders[child] then
-                deletedRenders[child] = child:Clone()
-            end
-            child:Destroy()
-            count = count + 1
-            print("[Treadmill] 🗑 Xoá render:", child.Name)
+        if not deletedRenders[child] then
+            deletedRenders[child] = child:Clone()
         end
+        child:Destroy()
+        count = count + 1
+    end
+    
+    -- Xoá luôn folder nếu rỗng
+    if #render:GetChildren() == 0 then
+        render:Destroy()
     end
     
     return count
 end
 
--- ⭐ Restore render
-local function showMyRender()
+local function showAllRenders()
+    -- Tạo lại folder nếu chưa có
     local render = W:FindFirstChild("__ClientTreadmillRenders")
-    if not render then return end
+    if not render then
+        render = Instance.new("Folder")
+        render.Name = "__ClientTreadmillRenders"
+        render.Parent = W
+    end
     
     for _, clone in pairs(deletedRenders) do
         local exists = false
@@ -172,7 +150,6 @@ local function showMyRender()
     deletedRenders = {}
 end
 
--- ⭐ HIDE
 function M.hide()
     mySlot = getMySlot()
     myPlot = getMyPlot()
@@ -184,14 +161,13 @@ function M.hide()
     print("[Treadmill] 🏠 Plot:", myPlot.Name, "| Slot:", mySlot)
     
     local countPart = hideMyTreadmill()
-    local countRender = hideMyRender()
+    local countRender = hideAllRenders()
     
     enabled = true
     print(string.format("[Treadmill] 🚫 Ẩn %d parts + %d renders", countPart, countRender))
     return countPart + countRender
 end
 
--- ⭐ SHOW
 function M.show()
     local count = 0
     for obj, data in pairs(savedState) do
@@ -203,7 +179,7 @@ function M.show()
         end
     end
     savedState = {}
-    showMyRender()
+    showAllRenders()
     enabled = false
     print(string.format("[Treadmill] ✅ Hiện %d parts", count))
     return count
@@ -241,7 +217,7 @@ task.spawn(function()
                     myPlot = getMyPlot()
                 end
                 hideMyTreadmill()
-                hideMyRender()
+                hideAllRenders()
             end)
         end
     end
