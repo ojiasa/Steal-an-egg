@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- MAIN.lua v3.8.4 — Resize 2 cạnh + Auto Sell Pet All + Tab Egg
+-- MAIN.lua v3.8.5 — Rút gọn Egg tab + Warning Pet
 -- ═══════════════════════════════════════════════════════════════
 
 local BACKGROUND_ID = (Config and Config.BackgroundImageId) or "rbxassetid://116222439691339"
@@ -79,14 +79,11 @@ _G.StealEgg = {
     SM_ScanInfo = function() if SellManager then SellManager.scanInfo() end end,
     SM_OnLog = function(cb) if SellManager then SellManager.onLog(cb) end end,
 
-    -- ⭐ EGG CORE API v3.5
+    -- ⭐ EGG CORE API
     Egg_SetAutoHatch = function(on)
         if not EggCore then return false end
-        if on then
-            return EggCore.startAutoHatch(5)
-        else
-            return EggCore.stopAutoHatch()
-        end
+        if on then return EggCore.startAutoHatch(5)
+        else return EggCore.stopAutoHatch() end
     end,
 
     Egg_ToggleAutoHatch = function()
@@ -106,23 +103,8 @@ _G.StealEgg = {
 
     Egg_SetAutoPlace = function(on)
         if not EggCore then return false end
-        if on then
-            return EggCore.startAutoPlace(300, 5)
-        else
-            EggCore.stopAutoPlace()
-            return true
-        end
-    end,
-
-    Egg_ToggleAutoPlace = function()
-        if not EggCore then return false end
-        if EggCore.isAutoPlaceOn() then
-            EggCore.stopAutoPlace()
-            return false
-        else
-            EggCore.startAutoPlace(300, 5)
-            return true
-        end
+        if on then return EggCore.startAutoPlace(300, 5)
+        else EggCore.stopAutoPlace(); return true end
     end,
 
     Egg_IsAutoPlace = function()
@@ -147,22 +129,12 @@ _G.StealEgg = {
         return 0
     end,
 
-    Egg_PlaceAll = function()
-        if EggCore then return EggCore.placeAll(5) end
-        return 0
-    end,
-
-    Egg_PlaceOnce = function(sec)
-        if EggCore then return EggCore.placeOnce(sec or 5) end
-        return false
-    end,
-
     Egg_GetStatus = function()
         if EggCore then return EggCore.getStatus() end
         return {}
     end,
 
-    -- ⭐ EGGPLACE API (module mới)
+    -- ⭐ EGGPLACE API (dùng cho toggle Place v2)
     EggPlace_Start = function()
         if EggPlace then return EggPlace.start() end
         return false
@@ -185,7 +157,6 @@ _G.StealEgg = {
         if EggPlace then EggPlace.OnLog(cb) end
     end,
 
-    -- ⭐ EGG CORE CONFIG (đổi delay)
     EggCore_SetConfig = function(tbl)
         if EggCore and EggCore.SetConfig then return EggCore.SetConfig(tbl) end
     end,
@@ -199,7 +170,7 @@ _G.StealEgg = {
         if EggCore and EggCore.OnLog then EggCore.OnLog(cb) end
     end,
 
-    Version = "3.8.4",
+    Version = "3.8.5",
 }
 local API = _G.StealEgg
 _G.MyScript = API
@@ -235,6 +206,7 @@ local COLORS = {
     white       = Color3.fromRGB(255, 255, 255),
     pink        = Color3.fromRGB(255, 120, 180),
     gray        = Color3.fromRGB(140, 145, 155),
+    warnRed     = Color3.fromRGB(255, 80, 80),
 }
 
 local TEXT_STROKE_COLOR = Color3.fromRGB(0, 0, 0)
@@ -516,6 +488,23 @@ local function createToggleRow(parent, labelText, defaultState, hasTextBox, onTo
     return container
 end
 
+-- ⭐ HÀM TẠO DÒNG WARNING / NOTE (chữ nhỏ dưới toggle)
+local function createNoteLabel(parent, text, color)
+    local lbl = Instance.new("TextLabel", parent)
+    lbl.Size = UDim2.new(1, -14, 0, 18)
+    lbl.Position = UDim2.new(0, 10, 0, 0)  -- layout sẽ tự xếp
+    lbl.BackgroundTransparency = 1
+    lbl.Text = "⚠ " .. text
+    lbl.TextColor3 = color or COLORS.warnRed
+    lbl.Font = Enum.Font.GothamMedium
+    lbl.TextSize = 11
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.TextWrapped = true
+    lbl.ZIndex = 4
+    addTextStroke(lbl, 1.5, 0.2)
+    return lbl
+end
+
 -- ══════════ DROPDOWN ══════════
 local function createMultiSelectDropdown(parent, labelText, options, callback)
     local container = Instance.new("Frame", parent)
@@ -664,7 +653,7 @@ pagePet.BackgroundTransparency = 1
 pagePet.Visible = false
 pagePet.BorderSizePixel = 0
 pagePet.ScrollBarThickness = 2
-pagePet.CanvasSize = UDim2.new(0, 0, 0, 140)
+pagePet.CanvasSize = UDim2.new(0, 0, 0, 200)
 pagePet.ZIndex = 3
 pages.pet = pagePet
 
@@ -690,13 +679,17 @@ local autoSellToggle = createToggleRow(pagePet, "Auto Sell Pet All", API.SM_IsAu
 end, nil)
 autoSellToggle.LayoutOrder = 2
 
+-- ⭐ WARNING dưới Auto Sell
+local sellWarning = createNoteLabel(pagePet, "BẬT SẼ SELL TOÀN BỘ PET TRONG TÚI!", COLORS.warnRed)
+sellWarning.LayoutOrder = 3
+
 local autoEquipToggle = createToggleRow(pagePet, "Auto Equip Best Pet", API.SM_IsAutoEquip(), false, function(state)
     API.SM_SetAutoEquip(state)
     if state and not API.SM_IsRunning() then
         API.SM_Start()
     end
 end, nil)
-autoEquipToggle.LayoutOrder = 3
+autoEquipToggle.LayoutOrder = 4
 
 -- ══════════ TAB ESP ══════════
 local pageESP = Instance.new("ScrollingFrame", content)
@@ -727,7 +720,7 @@ pageEgg.BackgroundTransparency = 1
 pageEgg.Visible = false
 pageEgg.BorderSizePixel = 0
 pageEgg.ScrollBarThickness = 2
-pageEgg.CanvasSize = UDim2.new(0, 0, 0, 400)  -- ⭐ tăng lên 400
+pageEgg.CanvasSize = UDim2.new(0, 0, 0, 180)
 pageEgg.ZIndex = 3
 pages.egg = pageEgg
 
@@ -745,133 +738,25 @@ eggHeader.TextXAlignment = Enum.TextXAlignment.Left
 eggHeader.LayoutOrder = 1
 addTextStroke(eggHeader, 2)
 
--- ⭐ AUTO PLACE v1 (dùng EggCore.placeAll — cũ)
-local autoPlaceToggle = createToggleRow(pageEgg, "Auto Place Egg", API.Egg_IsAutoPlace(), false, function(state)
-    API.Egg_SetAutoPlace(state)
-end, nil)
-autoPlaceToggle.LayoutOrder = 2
-
--- ⭐ AUTO HATCH (EggCore — delay 0.5s fix trong module)
+-- ⭐ HATCH (trên)
 local autoHatchToggle = createToggleRow(pageEgg, "Auto Hatch Egg", API.Egg_IsAutoHatch(), false, function(state)
     API.Egg_SetAutoHatch(state)
 end, nil)
-autoHatchToggle.LayoutOrder = 3
+autoHatchToggle.LayoutOrder = 2
 
--- ⭐ AUTO PLACE v2 (dùng EggPlace module — chuẩn hơn)
-local autoPlaceV2Toggle = createToggleRow(pageEgg, "Auto Place Egg (v2)", API.EggPlace_IsRunning(), false, function(state)
+-- ⭐ PLACE v2 (dưới)
+local autoPlaceV2Toggle = createToggleRow(pageEgg, "Auto Place Egg", API.EggPlace_IsRunning(), false, function(state)
     if state then
         API.EggPlace_Start()
     else
         API.EggPlace_Stop()
     end
 end, nil)
-autoPlaceV2Toggle.LayoutOrder = 4
+autoPlaceV2Toggle.LayoutOrder = 3
 
--- ⭐ NÚT HATCH NGAY 1 LẦN
-local hatchOnceBtn = Instance.new("TextButton", pageEgg)
-hatchOnceBtn.Size = UDim2.new(1, -4, 0, 40)
-hatchOnceBtn.BackgroundColor3 = Color3.fromRGB(80, 180, 255)
-hatchOnceBtn.BackgroundTransparency = 0.15
-hatchOnceBtn.Text = "  🥚 HATCH NGAY 1 LẦN"
-hatchOnceBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-hatchOnceBtn.Font = Enum.Font.GothamBlack
-hatchOnceBtn.TextSize = 14
-hatchOnceBtn.TextXAlignment = Enum.TextXAlignment.Left
-hatchOnceBtn.AutoButtonColor = false
-hatchOnceBtn.LayoutOrder = 5
-Instance.new("UICorner", hatchOnceBtn).CornerRadius = UDim.new(0, 8)
-addTextStroke(hatchOnceBtn, 2)
-
-hatchOnceBtn.MouseButton1Click:Connect(function()
-    hatchOnceBtn.Text = "  ⏳ Đang hatch..."
-    task.spawn(function()
-        local n = API.Egg_HatchOnce()
-        hatchOnceBtn.Text = "  ✅ Đã hatch " .. n .. " egg"
-        task.wait(1.5)
-        hatchOnceBtn.Text = "  🥚 HATCH NGAY 1 LẦN"
-    end)
-end)
-
--- ⭐ NÚT PLACE NGAY 1 LẦN (dùng EggPlace v2)
-local placeOnceBtn = Instance.new("TextButton", pageEgg)
-placeOnceBtn.Size = UDim2.new(1, -4, 0, 40)
-placeOnceBtn.BackgroundColor3 = Color3.fromRGB(255, 150, 50)
-placeOnceBtn.BackgroundTransparency = 0.15
-placeOnceBtn.Text = "  🥚 PLACE NGAY 1 LẦN (v2)"
-placeOnceBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-placeOnceBtn.Font = Enum.Font.GothamBlack
-placeOnceBtn.TextSize = 14
-placeOnceBtn.TextXAlignment = Enum.TextXAlignment.Left
-placeOnceBtn.AutoButtonColor = false
-placeOnceBtn.LayoutOrder = 6
-Instance.new("UICorner", placeOnceBtn).CornerRadius = UDim.new(0, 8)
-addTextStroke(placeOnceBtn, 2)
-
-placeOnceBtn.MouseButton1Click:Connect(function()
-    if API.EggPlace_IsRunning() then
-        placeOnceBtn.Text = "  ⚠️ Đang chạy rồi"
-        task.wait(1.2)
-        placeOnceBtn.Text = "  🥚 PLACE NGAY 1 LẦN (v2)"
-        return
-    end
-    placeOnceBtn.Text = "  ⏳ Đang place..."
-    task.spawn(function()
-        API.EggPlace_Start()
-        -- Đợi tối đa 60s hoặc đến khi xong
-        local t0 = os.clock()
-        while API.EggPlace_IsRunning() and os.clock() - t0 < 60 do
-            task.wait(0.5)
-        end
-        if API.EggPlace_IsRunning() then API.EggPlace_Stop() end
-        local st = API.EggPlace_GetStats()
-        placeOnceBtn.Text = ("  ✅ OK=%d Fail=%d"):format(st.ok or 0, st.fail or 0)
-        task.wait(2)
-        placeOnceBtn.Text = "  🥚 PLACE NGAY 1 LẦN (v2)"
-    end)
-end)
-
--- ⭐ NÚT DUMP REMOTE (debug)
-local dumpBtn = Instance.new("TextButton", pageEgg)
-dumpBtn.Size = UDim2.new(1, -4, 0, 32)
-dumpBtn.BackgroundColor3 = Color3.fromRGB(120, 90, 200)
-dumpBtn.BackgroundTransparency = 0.15
-dumpBtn.Text = "  🔍 DUMP REMOTE (xem F9)"
-dumpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-dumpBtn.Font = Enum.Font.GothamBlack
-dumpBtn.TextSize = 12
-dumpBtn.TextXAlignment = Enum.TextXAlignment.Left
-dumpBtn.AutoButtonColor = false
-dumpBtn.LayoutOrder = 7
-Instance.new("UICorner", dumpBtn).CornerRadius = UDim.new(0, 8)
-addTextStroke(dumpBtn, 2)
-
-dumpBtn.MouseButton1Click:Connect(function()
-    print("═══════════════════════════════════")
-    print("[DUMP] Remote liên quan egg/hatch/place:")
-    print("═══════════════════════════════════")
-    local RS = game:GetService("ReplicatedStorage")
-    local NET = RS:FindFirstChild("Packages") and RS.Packages:FindFirstChild("Networking")
-    if not NET then
-        warn("[DUMP] Không tìm thấy Packages.Networking")
-        return
-    end
-    local kw = { "egg", "hatch", "place", "wear", "snapshot", "homestead" }
-    local count = 0
-    for _, c in ipairs(NET:GetDescendants()) do
-        if c:IsA("RemoteFunction") or c:IsA("RemoteEvent") then
-            local lower = c.Name:lower()
-            for _, k in ipairs(kw) do
-                if lower:find(k, 1, true) then
-                    print(("[DUMP] %s → %s"):format(c.ClassName, c:GetFullName()))
-                    count = count + 1
-                    break
-                end
-            end
-        end
-    end
-    print(("[DUMP] Tổng: %d remote"):format(count))
-    print("═══════════════════════════════════")
-end)
+-- ⭐ NOTE dưới Place: Không tích hợp với Steal
+local placeNote = createNoteLabel(pageEgg, "Không tích hợp với Steal", Color3.fromRGB(255, 200, 80))
+placeNote.LayoutOrder = 4
 
 -- ═══════════════════════════════════════════════════════════════
 -- DRAG PANEL
@@ -1016,16 +901,15 @@ if API.EggPlace_OnLog then
     API.EggPlace_OnLog(function(msg) print("[EggPlace] " .. msg) end)
 end
 
--- ══════════ CONFIG MẶC ĐỊNH CHO EGGCORE ══════════
--- Hatch delay 0.5s/egg theo test thực tế
+-- ══════════ CONFIG MẶC ĐỊNH EGGCORE ══════════
 if API.EggCore_SetConfig then
     API.EggCore_SetConfig({
-        finishDelay     = 0.5,
-        batchSize       = 3,
-        betweenEggDelay = 0.1,
-        finishRetries   = 2,
+        finishDelay      = 0.5,
+        batchSize        = 3,
+        betweenEggDelay  = 0.1,
+        finishRetries    = 2,
         finishRetryDelay = 0.3,
     })
 end
 
-print("[Main] ✅ Ready v3.8.4 — EggPlace + Hatch delay 0.5s + Dump Remote")
+print("[Main] ✅ Ready v3.8.5 — Egg tab rút gọn + Warning Pet")
