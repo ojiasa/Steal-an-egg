@@ -911,6 +911,11 @@ if API.EggPlace_OnLog then
     API.EggPlace_OnLog(function(msg) print("[EggPlace] " .. msg) end)
 end
 
+-- ⭐ THÊM đoạn này (xoá nó đi)
+if API.Treadmill_OnLog then
+    API.Treadmill_OnLog(function(msg) print("[Treadmill] " .. msg) end)
+end
+
 -- ══════════ CONFIG MẶC ĐỊNH EGGCORE ══════════
 if API.EggCore_SetConfig then
     API.EggCore_SetConfig({
