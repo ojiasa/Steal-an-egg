@@ -648,13 +648,11 @@ end, nil)
 autoFarmToggle.LayoutOrder = 4
 
 -- ⭐ ANTI TREADMILL (trong tab Main)
-local antiTreadmillToggle = createToggleRow(pageMain, "Xuyên Treadmill", API.Treadmill_IsEnabled(), false, function(state)
+local antiTreadmillToggle = createToggleRow(pageMain, "Anti Treadmill", API.Treadmill_IsEnabled(), false, function(state)
     API.Treadmill_SetEnabled(state)
 end, nil)
 antiTreadmillToggle.LayoutOrder = 5
 
-local antiTreadmillNote = createNoteLabel(pageMain, "Chỉ ảnh hưởng phía client của bạn", Color3.fromRGB(255, 200, 80))
-antiTreadmillNote.LayoutOrder = 6
 
 -- ══════════ TAB PET ══════════
 local pagePet = Instance.new("ScrollingFrame", content)
