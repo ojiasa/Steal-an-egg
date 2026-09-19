@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- MAIN.lua v3.8.3 — Resize 2 cạnh + Auto Sell Pet All + Tab Egg
+-- MAIN.lua v3.8.4 — Resize 2 cạnh + Auto Sell Pet All + Tab Egg
 -- ═══════════════════════════════════════════════════════════════
 
 local BACKGROUND_ID = (Config and Config.BackgroundImageId) or "rbxassetid://116222439691339"
@@ -27,11 +27,12 @@ end
 local Steal = fetch("modules/steal.lua")
 local ESP   = fetch("modules/esp.lua")
 local SellManager = fetch("modules/sell_manager.lua")
-local EggCore = fetch("modules/EggCore.lua")
+local EggCore  = fetch("modules/EggCore.lua")
 local EggPlace = fetch("modules/eggplace.lua")
 
 _G.StealEgg = {
     Steal = Steal, ESP = ESP, SellManager = SellManager,
+    EggCore = EggCore, EggPlace = EggPlace,
 
     Start = function() if Steal then Steal.start() end end,
     Stop = function() if Steal then Steal.stop() end end,
@@ -78,120 +79,127 @@ _G.StealEgg = {
     SM_ScanInfo = function() if SellManager then SellManager.scanInfo() end end,
     SM_OnLog = function(cb) if SellManager then SellManager.onLog(cb) end end,
 
-  -- ⭐ EGG CORE API v3.3
+    -- ⭐ EGG CORE API v3.5
+    Egg_SetAutoHatch = function(on)
+        if not EggCore then return false end
+        if on then
+            return EggCore.startAutoHatch(5)
+        else
+            return EggCore.stopAutoHatch()
+        end
+    end,
 
-Egg_SetAutoHatch = function(on)
-    if not EggCore then return false end
+    Egg_ToggleAutoHatch = function()
+        if not EggCore then return false end
+        if EggCore.isAutoHatchOn() then
+            EggCore.stopAutoHatch()
+            return false
+        else
+            EggCore.startAutoHatch(5)
+            return true
+        end
+    end,
 
-    if on then
-        return EggCore.startAutoHatch(5)
-    else
-        return EggCore.stopAutoHatch()
-    end
-end,
+    Egg_IsAutoHatch = function()
+        return EggCore and EggCore.isAutoHatchOn() or false
+    end,
 
-Egg_ToggleAutoHatch = function()
-    if not EggCore then return false end
+    Egg_SetAutoPlace = function(on)
+        if not EggCore then return false end
+        if on then
+            return EggCore.startAutoPlace(300, 5)
+        else
+            EggCore.stopAutoPlace()
+            return true
+        end
+    end,
 
-    if EggCore.isAutoHatchOn() then
-        EggCore.stopAutoHatch()
-        return false
-    else
-        EggCore.startAutoHatch(5)
-        return true
-    end
-end,
+    Egg_ToggleAutoPlace = function()
+        if not EggCore then return false end
+        if EggCore.isAutoPlaceOn() then
+            EggCore.stopAutoPlace()
+            return false
+        else
+            EggCore.startAutoPlace(300, 5)
+            return true
+        end
+    end,
 
-Egg_IsAutoHatch = function()
-    return EggCore and EggCore.isAutoHatchOn() or false
-end,
+    Egg_IsAutoPlace = function()
+        return EggCore and EggCore.isAutoPlaceOn() or false
+    end,
 
-
-Egg_SetAutoPlace = function(on)
-    if not EggCore then return false end
-
-    if on then
-        return EggCore.startAutoPlace(300, 5)
-    else
-        EggCore.stopAutoPlace()
-        return true
-    end
-end,
-
-Egg_ToggleAutoPlace = function()
-    if not EggCore then return false end
-
-    if EggCore.isAutoPlaceOn() then
-        EggCore.stopAutoPlace()
-        return false
-    else
-        EggCore.startAutoPlace(300, 5)
-        return true
-    end
-end,
-
-Egg_IsAutoPlace = function()
-    return EggCore and EggCore.isAutoPlaceOn() or false
-end,
-
-
-Egg_GetToggles = function()
-    if not EggCore then
+    Egg_GetToggles = function()
+        if not EggCore then return { hatch = false, place = false } end
         return {
-            hatch = false,
-            place = false
+            hatch = EggCore.isAutoHatchOn(),
+            place = EggCore.isAutoPlaceOn(),
         }
-    end
+    end,
 
-    return {
-        hatch = EggCore.isAutoHatchOn(),
-        place = EggCore.isAutoPlaceOn()
-    }
-end,
+    Egg_HatchAll = function()
+        if EggCore then return EggCore.hatchAll(30) end
+        return 0
+    end,
 
+    Egg_HatchOnce = function()
+        if EggCore then return EggCore.hatchOnce() end
+        return 0
+    end,
 
--- Hatch FULL giống v13
-Egg_HatchAll = function()
-    if EggCore then
-        return EggCore.hatchAll(30)
-    end
-    return 0
-end,
+    Egg_PlaceAll = function()
+        if EggCore then return EggCore.placeAll(5) end
+        return 0
+    end,
 
+    Egg_PlaceOnce = function(sec)
+        if EggCore then return EggCore.placeOnce(sec or 5) end
+        return false
+    end,
 
--- Hatch 1 lần = FULL
-Egg_HatchOnce = function()
-    if EggCore then
-        return EggCore.hatchOnce()
-    end
-    return 0
-end,
+    Egg_GetStatus = function()
+        if EggCore then return EggCore.getStatus() end
+        return {}
+    end,
 
+    -- ⭐ EGGPLACE API (module mới)
+    EggPlace_Start = function()
+        if EggPlace then return EggPlace.start() end
+        return false
+    end,
 
-Egg_PlaceAll = function()
-    if EggCore then
-        return EggCore.placeAll(5)
-    end
-    return 0
-end,
+    EggPlace_Stop = function()
+        if EggPlace then return EggPlace.stop() end
+        return false
+    end,
 
+    EggPlace_IsRunning = function()
+        return EggPlace and EggPlace.isRunning() or false
+    end,
 
-Egg_PlaceOnce = function(sec)
-    if EggCore then
-        return EggCore.placeOnce(sec or 5)
-    end
-    return false
-end,
+    EggPlace_GetStats = function()
+        return EggPlace and EggPlace.getStats() or {}
+    end,
 
+    EggPlace_OnLog = function(cb)
+        if EggPlace then EggPlace.OnLog(cb) end
+    end,
 
-Egg_GetStatus = function()
-    if EggCore then
-        return EggCore.getStatus()
-    end
-    return {}
-end,
+    -- ⭐ EGG CORE CONFIG (đổi delay)
+    EggCore_SetConfig = function(tbl)
+        if EggCore and EggCore.SetConfig then return EggCore.SetConfig(tbl) end
+    end,
 
-    Version = "3.8.3",
+    EggCore_GetConfig = function()
+        if EggCore and EggCore.GetConfig then return EggCore.GetConfig() end
+        return {}
+    end,
+
+    EggCore_OnLog = function(cb)
+        if EggCore and EggCore.OnLog then EggCore.OnLog(cb) end
+    end,
+
+    Version = "3.8.4",
 }
 local API = _G.StealEgg
 _G.MyScript = API
@@ -719,7 +727,7 @@ pageEgg.BackgroundTransparency = 1
 pageEgg.Visible = false
 pageEgg.BorderSizePixel = 0
 pageEgg.ScrollBarThickness = 2
-pageEgg.CanvasSize = UDim2.new(0, 0, 0, 200)
+pageEgg.CanvasSize = UDim2.new(0, 0, 0, 400)  -- ⭐ tăng lên 400
 pageEgg.ZIndex = 3
 pages.egg = pageEgg
 
@@ -737,20 +745,136 @@ eggHeader.TextXAlignment = Enum.TextXAlignment.Left
 eggHeader.LayoutOrder = 1
 addTextStroke(eggHeader, 2)
 
--- ⭐ AUTO PLACE (trên)
+-- ⭐ AUTO PLACE v1 (dùng EggCore.placeAll — cũ)
 local autoPlaceToggle = createToggleRow(pageEgg, "Auto Place Egg", API.Egg_IsAutoPlace(), false, function(state)
     API.Egg_SetAutoPlace(state)
 end, nil)
 autoPlaceToggle.LayoutOrder = 2
 
--- ⭐ AUTO HATCH (dưới)
+-- ⭐ AUTO HATCH (EggCore — delay 0.5s fix trong module)
 local autoHatchToggle = createToggleRow(pageEgg, "Auto Hatch Egg", API.Egg_IsAutoHatch(), false, function(state)
     API.Egg_SetAutoHatch(state)
 end, nil)
 autoHatchToggle.LayoutOrder = 3
 
+-- ⭐ AUTO PLACE v2 (dùng EggPlace module — chuẩn hơn)
+local autoPlaceV2Toggle = createToggleRow(pageEgg, "Auto Place Egg (v2)", API.EggPlace_IsRunning(), false, function(state)
+    if state then
+        API.EggPlace_Start()
+    else
+        API.EggPlace_Stop()
+    end
+end, nil)
+autoPlaceV2Toggle.LayoutOrder = 4
+
+-- ⭐ NÚT HATCH NGAY 1 LẦN
+local hatchOnceBtn = Instance.new("TextButton", pageEgg)
+hatchOnceBtn.Size = UDim2.new(1, -4, 0, 40)
+hatchOnceBtn.BackgroundColor3 = Color3.fromRGB(80, 180, 255)
+hatchOnceBtn.BackgroundTransparency = 0.15
+hatchOnceBtn.Text = "  🥚 HATCH NGAY 1 LẦN"
+hatchOnceBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+hatchOnceBtn.Font = Enum.Font.GothamBlack
+hatchOnceBtn.TextSize = 14
+hatchOnceBtn.TextXAlignment = Enum.TextXAlignment.Left
+hatchOnceBtn.AutoButtonColor = false
+hatchOnceBtn.LayoutOrder = 5
+Instance.new("UICorner", hatchOnceBtn).CornerRadius = UDim.new(0, 8)
+addTextStroke(hatchOnceBtn, 2)
+
+hatchOnceBtn.MouseButton1Click:Connect(function()
+    hatchOnceBtn.Text = "  ⏳ Đang hatch..."
+    task.spawn(function()
+        local n = API.Egg_HatchOnce()
+        hatchOnceBtn.Text = "  ✅ Đã hatch " .. n .. " egg"
+        task.wait(1.5)
+        hatchOnceBtn.Text = "  🥚 HATCH NGAY 1 LẦN"
+    end)
+end)
+
+-- ⭐ NÚT PLACE NGAY 1 LẦN (dùng EggPlace v2)
+local placeOnceBtn = Instance.new("TextButton", pageEgg)
+placeOnceBtn.Size = UDim2.new(1, -4, 0, 40)
+placeOnceBtn.BackgroundColor3 = Color3.fromRGB(255, 150, 50)
+placeOnceBtn.BackgroundTransparency = 0.15
+placeOnceBtn.Text = "  🥚 PLACE NGAY 1 LẦN (v2)"
+placeOnceBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+placeOnceBtn.Font = Enum.Font.GothamBlack
+placeOnceBtn.TextSize = 14
+placeOnceBtn.TextXAlignment = Enum.TextXAlignment.Left
+placeOnceBtn.AutoButtonColor = false
+placeOnceBtn.LayoutOrder = 6
+Instance.new("UICorner", placeOnceBtn).CornerRadius = UDim.new(0, 8)
+addTextStroke(placeOnceBtn, 2)
+
+placeOnceBtn.MouseButton1Click:Connect(function()
+    if API.EggPlace_IsRunning() then
+        placeOnceBtn.Text = "  ⚠️ Đang chạy rồi"
+        task.wait(1.2)
+        placeOnceBtn.Text = "  🥚 PLACE NGAY 1 LẦN (v2)"
+        return
+    end
+    placeOnceBtn.Text = "  ⏳ Đang place..."
+    task.spawn(function()
+        API.EggPlace_Start()
+        -- Đợi tối đa 60s hoặc đến khi xong
+        local t0 = os.clock()
+        while API.EggPlace_IsRunning() and os.clock() - t0 < 60 do
+            task.wait(0.5)
+        end
+        if API.EggPlace_IsRunning() then API.EggPlace_Stop() end
+        local st = API.EggPlace_GetStats()
+        placeOnceBtn.Text = ("  ✅ OK=%d Fail=%d"):format(st.ok or 0, st.fail or 0)
+        task.wait(2)
+        placeOnceBtn.Text = "  🥚 PLACE NGAY 1 LẦN (v2)"
+    end)
+end)
+
+-- ⭐ NÚT DUMP REMOTE (debug)
+local dumpBtn = Instance.new("TextButton", pageEgg)
+dumpBtn.Size = UDim2.new(1, -4, 0, 32)
+dumpBtn.BackgroundColor3 = Color3.fromRGB(120, 90, 200)
+dumpBtn.BackgroundTransparency = 0.15
+dumpBtn.Text = "  🔍 DUMP REMOTE (xem F9)"
+dumpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+dumpBtn.Font = Enum.Font.GothamBlack
+dumpBtn.TextSize = 12
+dumpBtn.TextXAlignment = Enum.TextXAlignment.Left
+dumpBtn.AutoButtonColor = false
+dumpBtn.LayoutOrder = 7
+Instance.new("UICorner", dumpBtn).CornerRadius = UDim.new(0, 8)
+addTextStroke(dumpBtn, 2)
+
+dumpBtn.MouseButton1Click:Connect(function()
+    print("═══════════════════════════════════")
+    print("[DUMP] Remote liên quan egg/hatch/place:")
+    print("═══════════════════════════════════")
+    local RS = game:GetService("ReplicatedStorage")
+    local NET = RS:FindFirstChild("Packages") and RS.Packages:FindFirstChild("Networking")
+    if not NET then
+        warn("[DUMP] Không tìm thấy Packages.Networking")
+        return
+    end
+    local kw = { "egg", "hatch", "place", "wear", "snapshot", "homestead" }
+    local count = 0
+    for _, c in ipairs(NET:GetDescendants()) do
+        if c:IsA("RemoteFunction") or c:IsA("RemoteEvent") then
+            local lower = c.Name:lower()
+            for _, k in ipairs(kw) do
+                if lower:find(k, 1, true) then
+                    print(("[DUMP] %s → %s"):format(c.ClassName, c:GetFullName()))
+                    count = count + 1
+                    break
+                end
+            end
+        end
+    end
+    print(("[DUMP] Tổng: %d remote"):format(count))
+    print("═══════════════════════════════════")
+end)
+
 -- ═══════════════════════════════════════════════════════════════
--- DRAG PANEL (kéo bằng title)
+-- DRAG PANEL
 -- ═══════════════════════════════════════════════════════════════
 local isDragging = false
 local dragStartPos
@@ -766,7 +890,6 @@ end)
 
 UserInputService.InputChanged:Connect(function(input)
     if not isDragging then return end
-
     if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
         local delta = input.Position - dragStartPos
         panel.AnchorPoint = Vector2.new(0, 0)
@@ -781,7 +904,7 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 -- ═══════════════════════════════════════════════════════════════
--- RESIZE — CHỈ KÉO CẠNH PHẢI + CẠNH DƯỚI
+-- RESIZE — KÉO CẠNH PHẢI + CẠNH DƯỚI
 -- ═══════════════════════════════════════════════════════════════
 local resizeBtn = Instance.new("TextButton")
 resizeBtn.Name = "ResizeButton"
@@ -822,7 +945,6 @@ end)
 
 UserInputService.InputChanged:Connect(function(input)
     if not isResizing then return end
-
     if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
         local delta = input.Position - resizeStartPos
         local newWidth  = math.clamp(resizeStartSize.X + delta.X, MIN_WIDTH,  MAX_WIDTH)
@@ -882,9 +1004,28 @@ icon.MouseButton1Click:Connect(function()
     end
 end)
 
+-- ══════════ HOOK LOG ══════════
 API.OnLog(function(msg) print("[StealEgg] " .. msg) end)
 if API.SM_OnLog then
     API.SM_OnLog(function(msg) print("[SellManager] " .. msg) end)
 end
+if API.EggCore_OnLog then
+    API.EggCore_OnLog(function(msg) print("[EggCore] " .. msg) end)
+end
+if API.EggPlace_OnLog then
+    API.EggPlace_OnLog(function(msg) print("[EggPlace] " .. msg) end)
+end
 
-print("[Main] ✅ Ready v3.8.3 — Resize 2 cạnh + Auto Sell Pet All + Tab Egg")
+-- ══════════ CONFIG MẶC ĐỊNH CHO EGGCORE ══════════
+-- Hatch delay 0.5s/egg theo test thực tế
+if API.EggCore_SetConfig then
+    API.EggCore_SetConfig({
+        finishDelay     = 0.5,
+        batchSize       = 3,
+        betweenEggDelay = 0.1,
+        finishRetries   = 2,
+        finishRetryDelay = 0.3,
+    })
+end
+
+print("[Main] ✅ Ready v3.8.4 — EggPlace + Hatch delay 0.5s + Dump Remote")
