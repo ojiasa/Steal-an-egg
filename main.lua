@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- MAIN.lua v3.8.5 — Rút gọn Egg tab + Warning Pet
+-- MAIN.lua v3.8.6 — Thêm Anti Treadmill vào tab Main
 -- ═══════════════════════════════════════════════════════════════
 
 local BACKGROUND_ID = (Config and Config.BackgroundImageId) or "rbxassetid://116222439691339"
@@ -34,7 +34,7 @@ local Treadmill = fetch("modules/Treadmill.lua")
 _G.StealEgg = {
     Steal = Steal, ESP = ESP, SellManager = SellManager,
     EggCore = EggCore, EggPlace = EggPlace, Treadmill = Treadmill,
-    
+
     Start = function() if Steal then Steal.start() end end,
     Stop = function() if Steal then Steal.stop() end end,
     IsRunning = function() return Steal and Steal.isRunning() or false end,
@@ -80,20 +80,6 @@ _G.StealEgg = {
     SM_ScanInfo = function() if SellManager then SellManager.scanInfo() end end,
     SM_OnLog = function(cb) if SellManager then SellManager.onLog(cb) end end,
 
-    -- ⭐ TREADMILL API
-Treadmill_SetEnabled = function(on)
-    if Treadmill then return Treadmill.setEnabled(on) end
-end,
-Treadmill_Toggle = function()
-    if Treadmill then return Treadmill.toggle() end
-end,
-Treadmill_IsEnabled = function()
-    return Treadmill and Treadmill.isEnabled() or false
-end,
-Treadmill_GetCount = function()
-    return Treadmill and Treadmill.getCount() or 0
-end,
-    
     -- ⭐ EGG CORE API
     Egg_SetAutoHatch = function(on)
         if not EggCore then return false end
@@ -116,13 +102,9 @@ end,
         return EggCore and EggCore.isAutoHatchOn() or false
     end,
 
-    
-
     Egg_GetToggles = function()
         if not EggCore then return { hatch = false } end
-        return {
-            hatch = EggCore.isAutoHatchOn(),
-        }
+        return { hatch = EggCore.isAutoHatchOn() }
     end,
 
     Egg_HatchAll = function()
@@ -140,7 +122,7 @@ end,
         return {}
     end,
 
-    -- ⭐ EGGPLACE API (dùng cho toggle Place v2)
+    -- ⭐ EGGPLACE API
     EggPlace_Start = function()
         if EggPlace then return EggPlace.start() end
         return false
@@ -176,7 +158,21 @@ end,
         if EggCore and EggCore.OnLog then EggCore.OnLog(cb) end
     end,
 
-    Version = "3.8.5",
+    -- ⭐ TREADMILL API
+    Treadmill_SetEnabled = function(on)
+        if Treadmill then return Treadmill.setEnabled(on) end
+    end,
+    Treadmill_Toggle = function()
+        if Treadmill then return Treadmill.toggle() end
+    end,
+    Treadmill_IsEnabled = function()
+        return Treadmill and Treadmill.isEnabled() or false
+    end,
+    Treadmill_GetCount = function()
+        return Treadmill and Treadmill.getCount() or 0
+    end,
+
+    Version = "3.8.6",
 }
 local API = _G.StealEgg
 _G.MyScript = API
@@ -494,11 +490,10 @@ local function createToggleRow(parent, labelText, defaultState, hasTextBox, onTo
     return container
 end
 
--- ⭐ HÀM TẠO DÒNG WARNING / NOTE (chữ nhỏ dưới toggle)
 local function createNoteLabel(parent, text, color)
     local lbl = Instance.new("TextLabel", parent)
     lbl.Size = UDim2.new(1, -14, 0, 18)
-    lbl.Position = UDim2.new(0, 10, 0, 0)  -- layout sẽ tự xếp
+    lbl.Position = UDim2.new(0, 10, 0, 0)
     lbl.BackgroundTransparency = 1
     lbl.Text = "⚠ " .. text
     lbl.TextColor3 = color or COLORS.warnRed
@@ -623,7 +618,7 @@ pageMain.Size = UDim2.new(1, 0, 1, 0)
 pageMain.BackgroundTransparency = 1
 pageMain.BorderSizePixel = 0
 pageMain.ScrollBarThickness = 2
-pageMain.CanvasSize = UDim2.new(0, 0, 0, 240)
+pageMain.CanvasSize = UDim2.new(0, 0, 0, 320)
 pageMain.ZIndex = 3
 pages.main = pageMain
 
@@ -651,6 +646,15 @@ local autoFarmToggle = createToggleRow(pageMain, "Auto Steal Egg", false, false,
     if state then API.Start() else API.Stop() end
 end, nil)
 autoFarmToggle.LayoutOrder = 4
+
+-- ⭐ ANTI TREADMILL (trong tab Main)
+local antiTreadmillToggle = createToggleRow(pageMain, "Xuyên Treadmill", API.Treadmill_IsEnabled(), false, function(state)
+    API.Treadmill_SetEnabled(state)
+end, nil)
+antiTreadmillToggle.LayoutOrder = 5
+
+local antiTreadmillNote = createNoteLabel(pageMain, "Chỉ ảnh hưởng phía client của bạn", Color3.fromRGB(255, 200, 80))
+antiTreadmillNote.LayoutOrder = 6
 
 -- ══════════ TAB PET ══════════
 local pagePet = Instance.new("ScrollingFrame", content)
@@ -685,7 +689,6 @@ local autoSellToggle = createToggleRow(pagePet, "Auto Sell Pet All", API.SM_IsAu
 end, nil)
 autoSellToggle.LayoutOrder = 2
 
--- ⭐ WARNING dưới Auto Sell
 local sellWarning = createNoteLabel(pagePet, "BẬT SẼ SELL TOÀN BỘ PET TRONG TÚI!", COLORS.warnRed)
 sellWarning.LayoutOrder = 3
 
@@ -744,13 +747,11 @@ eggHeader.TextXAlignment = Enum.TextXAlignment.Left
 eggHeader.LayoutOrder = 1
 addTextStroke(eggHeader, 2)
 
--- ⭐ HATCH (trên)
 local autoHatchToggle = createToggleRow(pageEgg, "Auto Hatch Egg", API.Egg_IsAutoHatch(), false, function(state)
     API.Egg_SetAutoHatch(state)
 end, nil)
 autoHatchToggle.LayoutOrder = 2
 
--- ⭐ PLACE v2 (dưới)
 local autoPlaceV2Toggle = createToggleRow(pageEgg, "Auto Place Egg", API.EggPlace_IsRunning(), false, function(state)
     if state then
         API.EggPlace_Start()
@@ -760,7 +761,6 @@ local autoPlaceV2Toggle = createToggleRow(pageEgg, "Auto Place Egg", API.EggPlac
 end, nil)
 autoPlaceV2Toggle.LayoutOrder = 3
 
--- ⭐ NOTE dưới Place: Không tích hợp với Steal
 local placeNote = createNoteLabel(pageEgg, "Không tích hợp với Steal", Color3.fromRGB(255, 200, 80))
 placeNote.LayoutOrder = 4
 
@@ -795,7 +795,7 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 -- ═══════════════════════════════════════════════════════════════
--- RESIZE — KÉO CẠNH PHẢI + CẠNH DƯỚI
+-- RESIZE
 -- ═══════════════════════════════════════════════════════════════
 local resizeBtn = Instance.new("TextButton")
 resizeBtn.Name = "ResizeButton"
@@ -918,4 +918,4 @@ if API.EggCore_SetConfig then
     })
 end
 
-print("[Main] ✅ Ready v3.8.5 — Egg tab rút gọn + Warning Pet")
+print("[Main] ✅ Ready v3.8.6 — Anti Treadmill trong tab Main")
