@@ -1,5 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════
--- EGG CORE MODULE v1.1 — Place trước, Hatch sau, max 5s
+-- EGG CORE MODULE v1.2
+-- Hatch + Place — Place TRƯỚC → Hatch SAU, max 5s
+-- Mutex: đồng bộ với steal.lua qua _G.__eggMutex
 -- ═══════════════════════════════════════════════════════════════
 
 local P  = game:GetService("Players").LocalPlayer
@@ -255,7 +257,7 @@ function M.maintain(durationSec)
     local t0 = os.clock()
     log("══════ 🛠️ MAINTENANCE (max " .. durationSec .. "s) ══════")
 
-    -- Check toggle
+    -- Check toggle từ _G.__eggToggles (steal.lua set qua API)
     local tg = _G.__eggToggles or { hatch = true, place = true }
     log(string.format("   Place: %s | Hatch: %s",
         tg.place and "ON" or "OFF",
@@ -310,5 +312,5 @@ function M.getStatus()
 end
 
 _G.EggCore = M
-warn("[EggCore v1.1] Loaded")
+warn("[EggCore v1.2] Loaded")
 return M
