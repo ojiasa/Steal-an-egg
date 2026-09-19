@@ -101,21 +101,12 @@ _G.StealEgg = {
         return EggCore and EggCore.isAutoHatchOn() or false
     end,
 
-    Egg_SetAutoPlace = function(on)
-        if not EggCore then return false end
-        if on then return EggCore.startAutoPlace(300, 5)
-        else EggCore.stopAutoPlace(); return true end
-    end,
-
-    Egg_IsAutoPlace = function()
-        return EggCore and EggCore.isAutoPlaceOn() or false
-    end,
+    
 
     Egg_GetToggles = function()
-        if not EggCore then return { hatch = false, place = false } end
+        if not EggCore then return { hatch = false } end
         return {
             hatch = EggCore.isAutoHatchOn(),
-            place = EggCore.isAutoPlaceOn(),
         }
     end,
 
