@@ -29,11 +29,12 @@ local ESP   = fetch("modules/esp.lua")
 local SellManager = fetch("modules/sell_manager.lua")
 local EggCore  = fetch("modules/EggCore.lua")
 local EggPlace = fetch("modules/eggplace.lua")
+local Treadmill = fetch("modules/Treadmill.lua")
 
 _G.StealEgg = {
     Steal = Steal, ESP = ESP, SellManager = SellManager,
-    EggCore = EggCore, EggPlace = EggPlace,
-
+    EggCore = EggCore, EggPlace = EggPlace, Treadmill = Treadmill,
+    
     Start = function() if Steal then Steal.start() end end,
     Stop = function() if Steal then Steal.stop() end end,
     IsRunning = function() return Steal and Steal.isRunning() or false end,
@@ -79,6 +80,20 @@ _G.StealEgg = {
     SM_ScanInfo = function() if SellManager then SellManager.scanInfo() end end,
     SM_OnLog = function(cb) if SellManager then SellManager.onLog(cb) end end,
 
+    -- ⭐ TREADMILL API
+Treadmill_SetEnabled = function(on)
+    if Treadmill then return Treadmill.setEnabled(on) end
+end,
+Treadmill_Toggle = function()
+    if Treadmill then return Treadmill.toggle() end
+end,
+Treadmill_IsEnabled = function()
+    return Treadmill and Treadmill.isEnabled() or false
+end,
+Treadmill_GetCount = function()
+    return Treadmill and Treadmill.getCount() or 0
+end,
+    
     -- ⭐ EGG CORE API
     Egg_SetAutoHatch = function(on)
         if not EggCore then return false end
