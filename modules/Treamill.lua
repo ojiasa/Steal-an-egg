@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- 🏃 TREADMILL — Module v7 (có OnLog)
+-- 🏃 TREADMILL — Module v8 (đẩy xuống đất, không xoá)
 -- ═══════════════════════════════════════════════════════════════
 
 local P  = game:GetService("Players").LocalPlayer
@@ -10,13 +10,14 @@ local UIS = game:GetService("UserInputService")
 local M = {}
 
 local enabled    = false
-local savedState = {}
+local savedState = {}          -- [part] = {originalCFrame, ...}
 local mySlot     = nil
 local myPlot     = nil
-local deletedRenders = {}
+local pushedRenders = {}       -- [render] = {originalPosition}
 local logCallbacks = {}
 
 local REFRESH_INTERVAL = 0.3
+local PUSH_DISTANCE = 500      -- đẩy xuống 500 studs
 
 local IS_PC     = UIS.KeyboardEnabled and not UIS.TouchEnabled
 local IS_MOBILE = UIS.TouchEnabled
@@ -66,93 +67,101 @@ local function getMyPlot()
     return nil
 end
 
-local function hideObject(obj)
+-- ⭐ Đẩy 1 part xuống đất
+local function pushObjectDown(obj)
     if not obj then return false end
     if savedState[obj] then return false end
     
     if obj:IsA("BasePart") then
         savedState[obj] = {
-            CanCollide = obj.CanCollide,
-            CanQuery = obj.CanQuery,
-            CanTouch = obj.CanTouch,
-            Transparency = obj.Transparency,
-            LocalTransparencyModifier = obj.LocalTransparencyModifier,
+            CFrame = obj.CFrame,
+            Anchored = obj.Anchored,
         }
         pcall(function()
-            obj.CanCollide = false
-            obj.CanQuery = false
-            obj.CanTouch = false
-            obj.Transparency = 1
-            obj.LocalTransparencyModifier = 1
+            obj.Anchored = true
+            obj.CFrame = obj.CFrame - Vector3.new(0, PUSH_DISTANCE, 0)
         end)
-        return true
-    elseif obj:IsA("Decal") or obj:IsA("Texture") then
-        savedState[obj] = {Transparency = obj.Transparency}
-        pcall(function() obj.Transparency = 1 end)
-        return true
-    elseif obj:IsA("BillboardGui") or obj:IsA("SurfaceGui") then
-        savedState[obj] = {Enabled = obj.Enabled}
-        pcall(function() obj.Enabled = false end)
-        return true
-    elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then
-        savedState[obj] = {Enabled = obj.Enabled}
-        pcall(function() obj.Enabled = false end)
-        return true
-    elseif obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
-        savedState[obj] = {Enabled = obj.Enabled}
-        pcall(function() obj.Enabled = false end)
         return true
     end
     return false
 end
 
-local function hideMyTreadmill()
+-- ⭐ Đẩy treadmill trong plot mình xuống
+local function pushMyTreadmill()
     local plot = getMyPlot()
     if not plot then return 0 end
+    
     local count = 0
     for _, obj in ipairs(plot:GetDescendants()) do
         local n = obj.Name:lower()
         if n:find("tread") or n:find("belt") or n:find("runner") then
-            if hideObject(obj) then count = count + 1 end
+            if pushObjectDown(obj) then count = count + 1 end
         end
     end
     return count
 end
 
-local function hideAllRenders()
+-- ⭐ Đẩy render gần base mình xuống
+local function pushMyRenders()
+    local plot = getMyPlot()
+    if not plot then return 0 end
+    local cp = plot:FindFirstChild("CenterPoint", true)
+    if not cp then return 0 end
+    
+    local myBasePos = cp.Position
     local render = W:FindFirstChild("__ClientTreadmillRenders")
     if not render then return 0 end
+    
     local count = 0
     for _, child in ipairs(render:GetChildren()) do
-        if not deletedRenders[child] then
-            deletedRenders[child] = child:Clone()
+        local part = child:FindFirstChildWhichIsA("BasePart", true)
+        if part and (part.Position - myBasePos).Magnitude < 100 then
+            -- Đẩy con này xuống
+            for _, d in ipairs(child:GetDescendants()) do
+                if d:IsA("BasePart") then
+                    if not pushedRenders[d] then
+                        pushedRenders[d] = {
+                            CFrame = d.CFrame,
+                            Anchored = d.Anchored,
+                        }
+                    end
+                    pcall(function()
+                        d.Anchored = true
+                        d.CFrame = d.CFrame - Vector3.new(0, PUSH_DISTANCE, 0)
+                    end)
+                end
+            end
+            count = count + 1
         end
-        child:Destroy()
-        count = count + 1
-    end
-    if #render:GetChildren() == 0 then
-        render:Destroy()
     end
     return count
 end
 
-local function showAllRenders()
-    local render = W:FindFirstChild("__ClientTreadmillRenders")
-    if not render then
-        render = Instance.new("Folder")
-        render.Name = "__ClientTreadmillRenders"
-        render.Parent = W
-    end
-    for _, clone in pairs(deletedRenders) do
-        local exists = false
-        for _, c in ipairs(render:GetChildren()) do
-            if c.Name == clone.Name then exists = true; break end
-        end
-        if not exists then
-            clone:Clone().Parent = render
+-- ⭐ Restore parts
+local function restoreAll()
+    local count = 0
+    for obj, data in pairs(savedState) do
+        if obj and obj.Parent then
+            pcall(function()
+                obj.CFrame = data.CFrame
+                obj.Anchored = data.Anchored
+            end)
+            count = count + 1
         end
     end
-    deletedRenders = {}
+    savedState = {}
+    
+    for obj, data in pairs(pushedRenders) do
+        if obj and obj.Parent then
+            pcall(function()
+                obj.CFrame = data.CFrame
+                obj.Anchored = data.Anchored
+            end)
+        end
+    end
+    pushedRenders = {}
+    
+    return count
 end
 
 function M.hide()
@@ -163,27 +172,19 @@ function M.hide()
         return 0
     end
     log("🏠 Plot: " .. myPlot.Name .. " | Slot: " .. tostring(mySlot))
-    local countPart = hideMyTreadmill()
-    local countRender = hideAllRenders()
+    
+    local c1 = pushMyTreadmill()
+    local c2 = pushMyRenders()
+    
     enabled = true
-    log(string.format("🚫 Ẩn %d parts + %d renders", countPart, countRender))
-    return countPart + countRender
+    log(string.format("🚫 Đẩy xuống %d parts + %d renders", c1, c2))
+    return c1 + c2
 end
 
 function M.show()
-    local count = 0
-    for obj, data in pairs(savedState) do
-        if obj and obj.Parent then
-            pcall(function()
-                for k, v in pairs(data) do obj[k] = v end
-            end)
-            count = count + 1
-        end
-    end
-    savedState = {}
-    showAllRenders()
+    local count = restoreAll()
     enabled = false
-    log(string.format("✅ Hiện %d parts", count))
+    log(string.format("✅ Restore %d parts", count))
     return count
 end
 
@@ -208,6 +209,7 @@ function M.refreshPlot()
     return myPlot ~= nil
 end
 
+-- ⭐ AUTO re-push
 task.spawn(function()
     while true do
         task.wait(REFRESH_INTERVAL)
@@ -217,8 +219,8 @@ task.spawn(function()
                     mySlot = getMySlot()
                     myPlot = getMyPlot()
                 end
-                hideMyTreadmill()
-                hideAllRenders()
+                pushMyTreadmill()
+                pushMyRenders()
             end)
         end
     end
@@ -228,6 +230,7 @@ P.CharacterAdded:Connect(function()
     if enabled then
         task.wait(1)
         savedState = {}
+        pushedRenders = {}
         mySlot = getMySlot()
         myPlot = getMyPlot()
         M.hide()
