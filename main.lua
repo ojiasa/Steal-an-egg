@@ -901,19 +901,6 @@ icon.MouseButton1Click:Connect(function()
     end
 end)
 
--- ══════════ HOOK LOG ══════════
-API.OnLog(function(msg) print("[StealEgg] " .. msg) end)
-if API.SM_OnLog then
-    API.SM_OnLog(function(msg) print("[SellManager] " .. msg) end)
-end
-if API.EggCore_OnLog then
-    API.EggCore_OnLog(function(msg) print("[EggCore] " .. msg) end)
-end
-if API.EggPlace_OnLog then
-    API.EggPlace_OnLog(function(msg) print("[EggPlace] " .. msg) end)
-end
--- ⭐ ĐÃ XOÁ đoạn Treadmill_OnLog gây lỗi
-
 -- ══════════ CONFIG MẶC ĐỊNH EGGCORE ══════════
 if API.EggCore_SetConfig then
     API.EggCore_SetConfig({
