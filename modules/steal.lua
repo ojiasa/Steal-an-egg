@@ -1,13 +1,13 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v10.6.6
+-- STEAL MODULE v10.6.8
 -- Flow: Home → Forest → Steal forest → (Boss đánh?) → REBUILD
 --       → TELE egg → Steal (5 nhấn nhanh) → Về home → Check
--- v10.6.6 FIX:
---   - Tele dùng FLY giữ trên cao (không freeze CFrame, không rớt)
---   - Forest check boss INLINE (không task.spawn, tele NGAY khi vừa chạm)
---   - Về home bay velocity thẳng, không giật
---   - Steal fire 5 lần cực nhanh (0.01s/lần)
---   - Steal xong ở trên cao, bay về luôn
+-- v10.6.8 FIX:
+--   - Thêm lại stealAtForest (bị mất ở v10.6.6 → không steal forest)
+--   - Steal Forest check boss INLINE (tele NGAY khi vừa chạm)
+--   - Bay về home bằng velocity + giữ Y cao (không chạy bộ)
+--   - Tele + Steal giữ FLY trên cao liên tục (không rớt)
+--   - Fire prompt burst x5 cực nhanh
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -79,9 +79,8 @@ local config = {
     CHAT_WAIT      = 1.0,
     EGG_VERIFY_R   = 40,
 
-    -- ⭐ v10.6.6: Steal spam
-    STEAL_BURST_COUNT = 5,     -- 5 lần fire
-    STEAL_BURST_DELAY = 0.01,  -- 0.01s giữa các lần
+    STEAL_BURST_COUNT = 5,
+    STEAL_BURST_DELAY = 0.01,
 
     CYCLE_TIMEOUT  = 120,
     WAIT_BETWEEN   = 0.7,
@@ -668,7 +667,7 @@ local function rebuildCharacterFull()
     return true
 end
 
--- ⭐ v10.6.6: TELE dùng FLY giữ trên cao (không rớt)
+-- ⭐ v10.6.8: TELE dùng FLY giữ trên cao (không rớt)
 local function teleToMapStable(targetPos)
     log("📍 TELE + FLY giữ trên cao")
 
@@ -682,7 +681,6 @@ local function teleToMapStable(targetPos)
         end) end
         task.wait(0.05)
 
-        -- Set CFrame 8 lần
         for i = 1, 8 do
             if not isRunning then return false end
             local r = getHRP()
@@ -694,7 +692,7 @@ local function teleToMapStable(targetPos)
             task.wait(0.02)
         end
 
-        -- ⭐ FLY giữ trên cao 0.6s (CFrame + velocity zero liên tục)
+        -- FLY giữ trên cao 0.6s
         local t0 = os.clock()
         while os.clock() - t0 < 0.6 do
             if not isRunning then return false end
@@ -736,7 +734,7 @@ local function teleToMapStable(targetPos)
     return false
 end
 
--- ⭐ v10.6.6: Fire prompt 5 lần cực nhanh
+-- ⭐ Fire prompt burst x5 cực nhanh
 local function firePromptBurst(prompt, count, delay)
     count = count or 5
     delay = delay or 0.01
@@ -769,6 +767,28 @@ local function firePromptBurst(prompt, count, delay)
         end)
         task.wait(delay)
     end
+    return true
+end
+
+-- ⭐ Fire prompt 1 lần (dùng cho drop)
+local function firePromptOnce(prompt)
+    if not prompt or not prompt.Parent then return false end
+    pcall(function()
+        prompt.Enabled = true
+        prompt.HoldDuration = 0
+        prompt.MaxActivationDistance = 999
+        prompt.RequiresLineOfSight = false
+    end)
+    if type(fireproximityprompt) == "function" then pcall(fireproximityprompt, prompt) end
+    pcall(function()
+        prompt:InputHoldBegin(); task.wait(0.02); prompt:InputHoldEnd()
+    end)
+    pcall(function()
+        prompt.PromptButtonHoldBegan:Fire()
+        task.wait(0.02)
+        prompt.PromptButtonHoldEnded:Fire()
+        prompt.Triggered:Fire(P)
+    end)
     return true
 end
 
@@ -914,11 +934,10 @@ local function goHome()
     log("🏃 BAY VỀ HOME (giữ Y cao)")
     local startTime = os.clock()
 
-    -- ⭐ Y tối thiểu để bay (không tụt xuống đất)
     local MIN_FLY_Y = 80
     local FLY_Y = config.HOME_FLY_ABSOLUTE_Y or 100
 
-    -- ⭐ Nếu Y hiện tại thấp → kéo lên cao trước
+    -- Nếu Y hiện tại thấp → kéo lên cao trước
     local hrp0 = getHRP()
     if hrp0 and hrp0.Position.Y < MIN_FLY_Y then
         log(string.format("   ⬆ Y thấp (%.1f) → kéo lên %.1f", hrp0.Position.Y, FLY_Y))
@@ -936,7 +955,7 @@ local function goHome()
         end
     end
 
-    -- ⭐ Bay velocity thẳng về home, GIỮ Y >= MIN_FLY_Y
+    -- Bay velocity thẳng về home, GIỮ Y >= MIN_FLY_Y
     local t1 = os.clock()
     while os.clock() - t1 < 25 do
         if not isRunning then return false end
@@ -954,19 +973,15 @@ local function goHome()
             local dir = config.HOME_POS - r.Position
             if dir.Magnitude > 0 then
                 local nrm = dir.Unit
-
-                -- ⭐ Y velocity: giữ trên cao, không tụt
                 local vy
                 if r.Position.Y < MIN_FLY_Y then
-                    vy = 200  -- kéo lên mạnh
+                    vy = 200
                 elseif r.Position.Y > FLY_Y + 50 then
-                    vy = -100 -- hạ xuống nhẹ
+                    vy = -100
                 else
-                    -- Giữ Y ổn định quanh FLY_Y
                     vy = math.clamp((FLY_Y - r.Position.Y) * 3, -100, 200)
                 end
 
-                -- Bay ngang với speed cao
                 local horizSpeed = config.FLY_HOME_SPEED or 500
                 local horiz = Vector3.new(nrm.X, 0, nrm.Z)
                 if horiz.Magnitude > 0 then
@@ -1001,7 +1016,6 @@ local function goHome()
         task.wait(0.02)
     end
 
-    -- Snap + dừng
     local rStop = getHRP()
     if rStop then pcall(function()
         rStop.CFrame = CFrame.new(config.HOME_POS)
@@ -1072,6 +1086,123 @@ local function baitBoss(timeout)
     return false
 end
 
+-- ⭐ v10.6.8: Steal Forest — check boss INLINE, tele NGAY
+local function stealAtForest()
+    local prompt, ppos = findForestEggOnly()
+    if not prompt or not ppos then
+        log("⚠ Không có Forest egg")
+        return false, "no-egg"
+    end
+
+    log(string.format("🎯 Forest egg @ %.1f,%.1f,%.1f", ppos.X, ppos.Y, ppos.Z))
+
+    local hrp = getHRP()
+    if hrp and dist(hrp.Position, ppos) > config.ARRIVE_DIST then
+        velocityMoveTo(ppos, 15)
+    end
+
+    -- Reset velocity
+    local hReset = getHRP()
+    if hReset then pcall(function()
+        hReset.AssemblyLinearVelocity = Vector3.zero
+        hReset.AssemblyAngularVelocity = Vector3.zero
+    end) end
+    task.wait(0.2)
+
+    local forestBefore = getSlotSet()
+    log("⚡ Steal Forest (check INLINE)")
+
+    local loopStart = os.clock()
+
+    for i = 1, 8 do
+        if not isRunning then break end
+
+        -- CHECK BOSS ĐÁNH (trước khi fire)
+        local hum = getHum()
+        local hCheck = getHRP()
+        if hum and hCheck then
+            local vel = hCheck.AssemblyLinearVelocity
+            local speed = vel.Magnitude
+            local velY = vel.Y
+            local state = hum:GetState()
+
+            if os.clock() - loopStart > 0.15 then
+                if speed > (config.FOREST_HIT_SPEED or 20)
+                    or velY > (config.FOREST_HIT_VELY or 5)
+                    or state == Enum.HumanoidStateType.Physics
+                    or state == Enum.HumanoidStateType.Ragdoll
+                    or state == Enum.HumanoidStateType.PlatformStanding
+                    or state == Enum.HumanoidStateType.FallingDown then
+                    log(string.format("💥 Boss đánh NGAY (speed=%.1f Y=%.1f state=%s) → TELE",
+                        speed, velY, tostring(state):gsub("Enum.HumanoidStateType%.", "")))
+                    return false, "hit-by-boss"
+                end
+            end
+        end
+
+        -- Fire prompt
+        forceRunningState()
+        local h2 = getHRP()
+        if h2 then
+            local p2 = findPromptSteal(h2.Position, config.FOREST_RADIUS)
+            if p2 then
+                local p2pos = getPromptPos(p2)
+                if p2pos and dist(h2.Position, p2pos) > config.PROMPT_NEAR then
+                    pcall(function()
+                        h2.CFrame = CFrame.new(p2pos + Vector3.new(0, 3, 0))
+                        h2.AssemblyLinearVelocity = Vector3.zero
+                        h2.AssemblyAngularVelocity = Vector3.zero
+                    end)
+                    task.wait(0.05)
+                end
+                firePromptBurst(p2, config.STEAL_BURST_COUNT or 5, config.STEAL_BURST_DELAY or 0.01)
+            end
+        end
+
+        task.wait()
+
+        -- CHECK LẠI SAU FIRE
+        local hum2 = getHum()
+        local hCheck2 = getHRP()
+        if hum2 and hCheck2 then
+            local speed2 = hCheck2.AssemblyLinearVelocity.Magnitude
+            local velY2 = hCheck2.AssemblyLinearVelocity.Y
+            local state2 = hum2:GetState()
+            if os.clock() - loopStart > 0.15 then
+                if speed2 > (config.FOREST_HIT_SPEED or 20)
+                    or velY2 > (config.FOREST_HIT_VELY or 5)
+                    or state2 == Enum.HumanoidStateType.Physics
+                    or state2 == Enum.HumanoidStateType.Ragdoll
+                    or state2 == Enum.HumanoidStateType.PlatformStanding
+                    or state2 == Enum.HumanoidStateType.FallingDown then
+                    log(string.format("💥 Boss đánh SAU FIRE (speed=%.1f Y=%.1f) → TELE NGAY",
+                        speed2, velY2))
+                    return false, "hit-by-boss"
+                end
+            end
+        end
+
+        local stolen, slotName = hasStolenSlot(forestBefore)
+        if stolen then
+            log("🎒 Forest OK (slot): " .. slotName)
+            stolenPrompts[prompt] = true
+            return true, "stolen"
+        end
+
+        task.wait(0.1)
+    end
+
+    task.wait(0.5)
+    if isCarryingEggStrict() then
+        log("🎒 Forest OK (carry verify)")
+        stolenPrompts[prompt] = true
+        return true, "stolen"
+    end
+
+    log("❌ Forest FAIL")
+    return false, "no-steal"
+end
+
 -- ⭐ v10.6.8: Steal giữ FLY trên cao liên tục
 local function stealAtPos(targetPos, label, eggUid)
     log("═══════")
@@ -1088,7 +1219,7 @@ local function stealAtPos(targetPos, label, eggUid)
         if not hrp then return false end
     end
 
-    -- ⭐ Lấy Y hiện tại (trên cao), bay ngang tới egg
+    -- Lấy Y hiện tại (trên cao), bay ngang tới egg
     local holdY = hrp.Position.Y
     local airTarget = Vector3.new(targetPos.X, holdY, targetPos.Z)
     if dist(hrp.Position, airTarget) > config.PROMPT_NEAR then
@@ -1105,7 +1236,7 @@ local function stealAtPos(targetPos, label, eggUid)
         local h2 = getHRP()
         if not h2 then break end
 
-        -- ⭐ FLY giữ trên cao (Y = holdY)
+        -- FLY giữ trên cao (Y = holdY)
         pcall(function()
             h2.CFrame = CFrame.new(Vector3.new(h2.Position.X, holdY, h2.Position.Z))
             h2.AssemblyLinearVelocity = Vector3.zero
@@ -1122,7 +1253,7 @@ local function stealAtPos(targetPos, label, eggUid)
         if not p2pos then break end
         local dToPrompt = dist(h2.Position, p2pos)
         if dToPrompt > config.PROMPT_NEAR then
-            -- ⭐ Bay ngang giữ Y
+            -- Bay ngang giữ Y
             local airP = Vector3.new(p2pos.X, holdY, p2pos.Z)
             velocityFlyTo(airP, 2, 600)
             local h3 = getHRP()
@@ -1135,15 +1266,13 @@ local function stealAtPos(targetPos, label, eggUid)
             if not p2 then break end
         end
 
-        -- Fire burst 5 lần
         firePromptBurst(p2, config.STEAL_BURST_COUNT or 5, config.STEAL_BURST_DELAY or 0.01)
 
-        -- ⭐ Verify + FLY giữ trên cao mỗi frame
+        -- Verify + FLY giữ trên cao mỗi frame
         local verifyStart = os.clock()
         local stolen = false
         local stolenName = nil
         while os.clock() - verifyStart < config.STEAL_TIMEOUT do
-            -- FLY giữ Y
             local h4 = getHRP()
             if h4 then pcall(function()
                 h4.CFrame = CFrame.new(Vector3.new(h4.Position.X, holdY, h4.Position.Z))
@@ -1273,7 +1402,7 @@ local function pickNextEgg()
     end
 end
 
--- ⭐⭐⭐ MAIN LOOP v10.6.6
+-- ⭐⭐⭐ MAIN LOOP v10.6.8
 local function mainLoop()
     while isRunning do
         local cycleT0 = os.clock()
@@ -1466,7 +1595,7 @@ function M.start()
     task.wait(0.2)
 
     isRunning = true
-    log("▶ START v10.6.6")
+    log("▶ START v10.6.8")
     log(string.format("   Steal burst: x%d @ %.3fs",
         config.STEAL_BURST_COUNT, config.STEAL_BURST_DELAY))
     log(string.format("   Forest hit threshold: speed>%d velY>%d",
@@ -1601,7 +1730,6 @@ function M.setForestHitSpeed(n) config.FOREST_HIT_SPEED = n or 20 end
 function M.setForestHitVely(n) config.FOREST_HIT_VELY = n or 5 end
 function M.setForestHpDrop(n) config.FOREST_HP_DROP = n or 0.01 end
 
--- ⭐ v10.6.6: API steal burst
 function M.setStealBurst(count, delay)
     config.STEAL_BURST_COUNT = count or 5
     config.STEAL_BURST_DELAY = delay or 0.01
