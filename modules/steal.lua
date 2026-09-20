@@ -1,16 +1,12 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v10.6
+-- STEAL MODULE v10.6.1
 -- Flow: Home → Forest → Steal forest → (Boss đánh?) → REBUILD
 --       → TELE egg → Steal → Về home → Check
--- v10.6: FIX toàn bộ bug:
---   - targetPos nil
---   - Bật/tắt module chạy chậm (kill thread cũ)
---   - Bật/tắt Big Egg không steal tiếp
---   - Forest bị boss đánh → lag + chạy loạn xạ
---   - Tele map xa (Light Dark) bị văng về home
---   - Chưa bị đánh đã tele
---   - Về home → 2s sau steal tiếp
---   - Bay tới egg thay vì chạy bộ
+-- v10.6.1: FIX
+--   - Forest boss đánh → TELE NGAY (không đợi văng ra xa)
+--     + Detect HP drop + state + speed threshold thấp (30/8)
+--     + Check loop 0.15s thay vì 0.5s
+--   - Giữ nguyên rebuild (tránh game back về home)
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -55,11 +51,11 @@ local config = {
     DROP_SPEED          = 250,
     HOME_TIMEOUT        = 30,
 
-    FOREST_RUN_SPEED    = 250,      -- ⭐ tăng tốc chạy ra forest
+    FOREST_RUN_SPEED    = 250,
     FOREST_RUN_TIMEOUT  = 60,
     FOREST_RADIUS       = 300,
 
-    FOREST_WARMUP       = 0.3,      -- ⭐ giảm warmup
+    FOREST_WARMUP       = 0.3,
     BAIT_WARMUP         = 0.3,
     TELE_HOLD           = 0.3,
     TELE_STABILIZE      = 0.2,
@@ -71,7 +67,7 @@ local config = {
     BIG_EGG_MIN_SCALE = 0,
 
     SPEED          = 1500,
-    SPEED_CAP      = 800,           -- ⭐ tăng speed cap
+    SPEED_CAP      = 800,
     MAP_RADIUS     = 800,
     ARRIVE_DIST    = 10,
     PROMPT_NEAR    = 12,
@@ -79,22 +75,23 @@ local config = {
     MAX_RETRY      = 3,
     STEAL_VERIFY_WAIT = 0.35,
     STEAL_TIMEOUT  = 1.5,
-    CHAT_WAIT      = 1.0,           -- ⭐ về home → 2s steal tiếp
+    CHAT_WAIT      = 1.0,
     EGG_VERIFY_R   = 40,
 
     CYCLE_TIMEOUT  = 120,
-    WAIT_BETWEEN   = 0.7,           -- ⭐ 1.0 → 0.7
+    WAIT_BETWEEN   = 0.7,
 
-    -- ⭐ Threshold bait boss (tránh false positive)
+    -- ⭐ Threshold bait boss
     KB_SPEED_PHYSICS  = 50,
     KB_SPEED_VELOCITY = 80,
     KB_VELY_MIN       = 20,
     KB_SHIFT_MIN      = 30,
     KB_ROTATE_MIN     = 90,
 
-    -- ⭐ Threshold steal forest (thoát khi boss đánh)
-    FOREST_HIT_SPEED  = 60,
-    FOREST_HIT_VELY   = 15,
+    -- ⭐ v10.6.1: Threshold steal forest — detect boss đánh NGAY
+    FOREST_HIT_SPEED  = 30,     -- 60 → 30
+    FOREST_HIT_VELY   = 8,      -- 15 → 8
+    FOREST_HP_DROP    = 0.01,   -- mới: HP drop = boss vừa đánh
 }
 
 local isRunning      = false
@@ -105,9 +102,10 @@ local lastEggCount   = -1
 local cycleStartTime = 0
 local lastStolenUid  = nil
 local lastStolenPos  = nil
-local mainThread     = nil   -- ⭐ để kill thread cũ
+local mainThread     = nil
 
 local function log(s) end
+
 -- ══════════ HELPERS ══════════
 local function getHRP() local c = P.Character; return c and c:FindFirstChild("HumanoidRootPart") end
 local function getHum() local c = P.Character; return c and c:FindFirstChildOfClass("Humanoid") end
@@ -126,7 +124,6 @@ local function keepHealth()
     end) end
 end
 
--- ⭐ v10.6: KHÔNG force khi ragdoll (tránh lag)
 local function forceRunningState()
     local hum = getHum()
     if hum then pcall(function()
@@ -227,7 +224,7 @@ pcall(function()
     end
 end)
 
--- ⭐ v10.6: Cache prompt scan (giảm lag)
+-- ⭐ Cache prompt scan
 local promptCache = { time = 0, data = {} }
 local function findPromptSteal(pos, radius)
     radius = radius or config.MAP_RADIUS
@@ -367,7 +364,6 @@ local function isEggStillOnMap(uid, originalPos)
     return false, "not-found"
 end
 
--- ⭐ v10.6: findBiggestEgg — KHÔNG đánh dấu oan
 local function findBiggestEgg()
     if not EggState then return nil, nil, nil, nil, nil end
     local candidates = {}
@@ -498,7 +494,6 @@ local function findBiggestEgg()
                 log(string.format("⚠ [#%d] Có egg nhưng không có prompt → thử tiếp", i))
             end
         else
-            -- ⭐ v10.6: Chỉ đánh dấu nếu egg thực sự biến mất
             local stillInRecords = fd.Records[c.uid] ~= nil
             if not stillInRecords and c.uid then
                 stolenEggUids[c.uid] = true
@@ -583,7 +578,6 @@ local function findHighestIncomeEgg()
     return nil, nil, nil, nil, nil
 end
 
--- ⭐ v10.6: findEggInTargets — fallback nếu TARGETS rỗng
 local function findEggInTargets()
     if not config.TARGETS or #config.TARGETS == 0 then
         log("   ⚠ TARGETS rỗng → fallback BIG EGG")
@@ -774,7 +768,9 @@ local function rebuildCharacterFull()
     end)
 
     return true
-end-- ⭐ v10.6: TELE với retry 3 lần cho map xa
+end
+
+-- ══════════ TELE ══════════
 local function teleToMapStable(targetPos)
     log("📍 TELE")
 
@@ -812,7 +808,6 @@ local function teleToMapStable(targetPos)
                 log("   🚨 Văng → thử lại")
                 task.wait(0.2)
             else
-                -- Rớt xuống
                 local t0 = os.clock()
                 while os.clock() - t0 < 2.5 do
                     if not isRunning then return false end
@@ -1080,7 +1075,6 @@ local function goHome()
     return true
 end
 
--- ⭐ v10.6: baitBoss với threshold cao hơn (tránh false positive)
 local function baitBoss(timeout)
     timeout = timeout or config.BAIT_TIMEOUT
     log("🎯 Bait boss...")
@@ -1088,7 +1082,6 @@ local function baitBoss(timeout)
     log(string.format("   ⏸ Warmup %.1fs...", config.BAIT_WARMUP or 0.3))
     freezeAt(nil, config.BAIT_WARMUP or 0.3)
 
-    -- ⭐ Reset state trước khi đo
     forceRunningState()
     task.wait(0.3)
 
@@ -1125,7 +1118,6 @@ local function baitBoss(timeout)
                 speed, vel.Y))
         end
 
-        -- ⭐ Threshold cao hơn (tránh false positive)
         if state == Enum.HumanoidStateType.Physics and speed > (config.KB_SPEED_PHYSICS or 50) then
             log(string.format("💥 PHYSICS speed=%.1f", speed)); return true
         end
@@ -1159,7 +1151,101 @@ local function baitBoss(timeout)
     return false
 end
 
--- ⭐ v10.6: stealAtPos — bay tới egg thay vì chạy bộ
+-- ⭐ v10.6.1: Detect boss đánh ở forest NGAY LẬP TỨC
+local function stealAtForest()
+    local prompt, ppos = findForestEggOnly()
+    if not prompt or not ppos then
+        log("⚠ Không có Forest egg")
+        return false, "no-egg"
+    end
+
+    log(string.format("🎯 Forest egg @ %.1f,%.1f,%.1f", ppos.X, ppos.Y, ppos.Z))
+
+    local hrp = getHRP()
+    if hrp and dist(hrp.Position, ppos) > config.ARRIVE_DIST then
+        velocityMoveTo(ppos, 15)
+    end
+
+    local forestBefore = getSlotSet()
+    log("⚡ Steal Forest")
+
+    -- ⭐ Snapshot HP trước khi steal
+    local hum0 = getHum()
+    local startHealth = hum0 and hum0.Health or 100
+
+    for i = 1, 5 do
+        if not isRunning then break end
+
+        -- ⭐ FIX: Detect boss đánh NGAY LẬP TỨC
+        local hum = getHum()
+        local h2 = getHRP()
+        if hum and h2 then
+            local state = hum:GetState()
+            local speed = h2.AssemblyLinearVelocity.Magnitude
+            local velY = h2.AssemblyLinearVelocity.Y
+            local healthNow = hum.Health
+
+            -- ⭐ 1. HP drop = boss vừa đánh → tele NGAY
+            if healthNow < startHealth - (config.FOREST_HP_DROP or 0.01) then
+                log(string.format("💥 Boss đánh (HP %.1f→%.1f) → TELE NGAY",
+                    startHealth, healthNow))
+                return false, "hit-by-boss"
+            end
+
+            -- ⭐ 2. State xấu = vừa bị đánh → tele NGAY
+            if state == Enum.HumanoidStateType.Physics
+                or state == Enum.HumanoidStateType.Ragdoll
+                or state == Enum.HumanoidStateType.PlatformStanding
+                or state == Enum.HumanoidStateType.FallingDown then
+                log(string.format("💥 Boss đánh (state=%s) → TELE NGAY",
+                    tostring(state):gsub("Enum.HumanoidStateType%.", "")))
+                return false, "hit-by-boss"
+            end
+
+            -- ⭐ 3. Speed bất thường (threshold thấp) → tele NGAY
+            if speed > (config.FOREST_HIT_SPEED or 30)
+                or velY > (config.FOREST_HIT_VELY or 8) then
+                log(string.format("💥 Boss đánh (speed=%.1f Y=%.1f) → TELE NGAY",
+                    speed, velY))
+                return false, "hit-by-boss"
+            end
+        end
+
+        forceRunningState()
+        h2 = getHRP()
+        if h2 then
+            local p2 = findPromptSteal(h2.Position, config.FOREST_RADIUS)
+            if p2 then
+                local p2pos = getPromptPos(p2)
+                if p2pos and dist(h2.Position, p2pos) > config.PROMPT_NEAR then
+                    velocityMoveTo(p2pos, 3, nil, true)
+                end
+                firePromptOnce(p2)
+            end
+        end
+
+        -- ⭐ Check nhanh hơn: 0.5 → 0.15
+        task.wait(0.15)
+
+        local stolen, slotName = hasStolenSlot(forestBefore)
+        if stolen then
+            log("🎒 Forest OK (slot): " .. slotName)
+            stolenPrompts[prompt] = true
+            return true, "stolen"
+        end
+    end
+
+    task.wait(1)
+    if isCarryingEggStrict() then
+        log("🎒 Forest OK (carry verify)")
+        stolenPrompts[prompt] = true
+        return true, "stolen"
+    end
+
+    log("❌ Forest FAIL")
+    return false, "no-steal"
+end
+
 local function stealAtPos(targetPos, label, eggUid)
     log("═══════")
     log("STEAL TẠI " .. label)
@@ -1187,7 +1273,6 @@ local function stealAtPos(targetPos, label, eggUid)
         end
     end
 
-    -- ⭐ v10.6: Bay tới egg thay vì chạy bộ
     if d > config.ARRIVE_DIST and d < config.MAP_RADIUS then
         log(string.format("   🚀 Bay tới egg (%.1f studs)", d))
         velocityFlyTo(targetPos, 3, 600)
@@ -1248,86 +1333,7 @@ local function stealAtPos(targetPos, label, eggUid)
     return false
 end
 
--- ⭐ v10.6: stealAtForest — thoát NGAY khi boss đánh
-local function stealAtForest()
-    local prompt, ppos = findForestEggOnly()
-    if not prompt or not ppos then
-        log("⚠ Không có Forest egg")
-        return false, "no-egg"
-    end
-
-    log(string.format("🎯 Forest egg @ %.1f,%.1f,%.1f", ppos.X, ppos.Y, ppos.Z))
-
-    local hrp = getHRP()
-    if hrp and dist(hrp.Position, ppos) > config.ARRIVE_DIST then
-        velocityMoveTo(ppos, 15)
-    end
-
-    local forestBefore = getSlotSet()
-    log("⚡ Steal Forest")
-
-    for i = 1, 5 do
-        if not isRunning then break end
-
-        -- ⭐ Check boss đánh → thoát ngay
-        local hum = getHum()
-        local h2 = getHRP()
-        if hum and h2 then
-            local state = hum:GetState()
-            local speed = h2.AssemblyLinearVelocity.Magnitude
-            local velY = h2.AssemblyLinearVelocity.Y
-
-            if state == Enum.HumanoidStateType.Physics
-                or state == Enum.HumanoidStateType.Ragdoll
-                or state == Enum.HumanoidStateType.PlatformStanding
-                or state == Enum.HumanoidStateType.FallingDown then
-                log(string.format("💥 Boss đánh (state=%s) → thoát steal forest NGAY",
-                    tostring(state):gsub("Enum.HumanoidStateType%.", "")))
-                return false, "hit-by-boss"
-            end
-
-            if speed > (config.FOREST_HIT_SPEED or 60) or velY > (config.FOREST_HIT_VELY or 15) then
-                log(string.format("💥 Boss đánh (speed=%.1f Y=%.1f) → thoát steal forest NGAY",
-                    speed, velY))
-                return false, "hit-by-boss"
-            end
-        end
-
-        forceRunningState()
-        h2 = getHRP()
-        if h2 then
-            local p2 = findPromptSteal(h2.Position, config.FOREST_RADIUS)
-            if p2 then
-                local p2pos = getPromptPos(p2)
-                if p2pos and dist(h2.Position, p2pos) > config.PROMPT_NEAR then
-                    velocityMoveTo(p2pos, 3, nil, true)
-                end
-                firePromptOnce(p2)
-            end
-        end
-        task.wait(0.5)
-        local stolen, slotName = hasStolenSlot(forestBefore)
-        if stolen then
-            log("🎒 Forest OK (slot): " .. slotName)
-            stolenPrompts[prompt] = true
-            return true, "stolen"
-        end
-    end
-
-    task.wait(1)
-    if isCarryingEggStrict() then
-        log("🎒 Forest OK (carry verify)")
-        stolenPrompts[prompt] = true
-        return true, "stolen"
-    end
-
-    log("❌ Forest FAIL")
-    return false, "no-steal"
-end
-
--- ⭐ v10.6: pickNextEgg với fallback an toàn
 local function pickNextEgg()
-    -- Fallback nếu thiếu module
     if config.PRIORITY_INCOME and not AssetEarnings then
         log("⚠ Priority Income BẬT nhưng AssetEarnings nil → fallback TARGETS")
         return findEggInTargets()
@@ -1455,7 +1461,7 @@ local function pickNextEgg()
     end
 end
 
--- ⭐⭐⭐ MAIN LOOP v10.6
+-- ⭐⭐⭐ MAIN LOOP v10.6.1
 local function mainLoop()
     while isRunning do
         local cycleT0 = os.clock()
@@ -1464,6 +1470,7 @@ local function mainLoop()
 
         local gotKB = false
         local skipCycle = false
+        local forestReason = nil
 
         -- ═══ BƯỚC 1: FOREST ═══
         log("▶ [1/6] Chạy ra Forest...")
@@ -1477,10 +1484,11 @@ local function mainLoop()
         -- ═══ BƯỚC 2: STEAL FOREST ═══
         if not skipCycle then
             log("▶ [2/6] Steal Forest egg...")
-            local forestOk, forestReason = stealAtForest()
+            local forestOk
+            forestOk, forestReason = stealAtForest()
 
             if forestReason == "hit-by-boss" then
-                log("💥 Bị boss đánh ở Forest → coi như bait xong → đi rebuild")
+                log("💥 Boss đánh ở Forest → vào REBUILD ngay (không bait)")
                 gotKB = true
             elseif not forestOk then
                 log("⚠ Forest fail → về home")
@@ -1501,7 +1509,7 @@ local function mainLoop()
 
         -- ═══ BƯỚC 4-6 ═══
         if not skipCycle and gotKB then
-            -- BƯỚC 4: REBUILD
+            -- BƯỚC 4: REBUILD (luôn rebuild, kể cả boss đánh ở forest)
             log("▶ [4/6] REBUILD sau knockback...")
             local beforePos = getHRP() and getHRP().Position
             if beforePos then
@@ -1677,7 +1685,6 @@ end)
 
 -- ══════════ API ══════════
 function M.start()
-    -- Kill thread cũ
     if mainThread then
         pcall(function() task.cancel(mainThread) end)
         mainThread = nil
@@ -1696,7 +1703,6 @@ function M.start()
     lastStolenUid = nil
     lastStolenPos = nil
 
-    -- Reset state
     pcall(function()
         local hrp = getHRP()
         if hrp then
@@ -1708,10 +1714,10 @@ function M.start()
     task.wait(0.2)
 
     isRunning = true
-    log("▶ START v10.6")
+    log("▶ START v10.6.1")
     log(string.format("   Home: %.2f,%.2f,%.2f", config.HOME_POS.X, config.HOME_POS.Y, config.HOME_POS.Z))
-    log(string.format("   Forest speed: %d | Warmup: %.1fs/%.1fs | Tele hold: %.1fs",
-        config.FOREST_RUN_SPEED, config.FOREST_WARMUP, config.BAIT_WARMUP, config.TELE_HOLD))
+    log(string.format("   Forest speed: %d | Hit threshold: speed>%d velY>%d HPdrop>%.2f",
+        config.FOREST_RUN_SPEED, config.FOREST_HIT_SPEED, config.FOREST_HIT_VELY, config.FOREST_HP_DROP))
     log(string.format("   Big Egg: %s | Priority Income: %s",
         config.BIG_EGG_MODE and "ON" or "OFF",
         config.PRIORITY_INCOME and "ON" or "OFF"))
@@ -1845,8 +1851,8 @@ function M.setFlyHomeSpeed(n)
     log("🏃 Fly home speed: " .. config.FLY_HOME_SPEED)
 end
 
-function M.setRecoveryRadius(n) log("📍 Không dùng v10.6") end
-function M.setMaxRecovery(n) log("📍 Không dùng v10.6") end
+function M.setRecoveryRadius(n) log("📍 Không dùng v10.6.1") end
+function M.setMaxRecovery(n) log("📍 Không dùng v10.6.1") end
 
 function M.setHomeTimeout(n)
     config.HOME_TIMEOUT = n or 30
@@ -1863,7 +1869,7 @@ function M.setSlowSpeed(n)
     log("🐢 Forest run speed: " .. config.FOREST_RUN_SPEED)
 end
 
-function M.setWarmupTime(n) log("⏱ Không dùng v10.6") end
+function M.setWarmupTime(n) log("⏱ Không dùng v10.6.1") end
 
 function M.setChatWait(n)
     config.CHAT_WAIT = n or 1.0
@@ -1875,8 +1881,8 @@ function M.setCycleWait(n)
     log("⏱ Cycle wait: " .. config.WAIT_BETWEEN .. "s")
 end
 
-function M.setMaxEggsPerCycle(n) log("📊 Không dùng v10.6") end
-function M.setTeleToForest(enabled) log("ℹ Không dùng v10.6") end
+function M.setMaxEggsPerCycle(n) log("📊 Không dùng v10.6.1") end
+function M.setTeleToForest(enabled) log("ℹ Không dùng v10.6.1") end
 
 function M.setMaxRetry(n)
     config.MAX_RETRY = n or 3
@@ -1947,12 +1953,27 @@ function M.setBigEggMinScale(n)
     config.BIG_EGG_MIN_SCALE = n or 0
     log(string.format("📏 Big egg min scale: %.2f", config.BIG_EGG_MIN_SCALE))
 end
-
 function M.getBigEggThresholds()
     return {
         minSize = config.BIG_EGG_MIN_SIZE or 0,
         minScale = config.BIG_EGG_MIN_SCALE or 0,
     }
+end
+
+-- ⭐ API mới cho threshold forest
+function M.setForestHitSpeed(n)
+    config.FOREST_HIT_SPEED = n or 30
+    log("💥 Forest hit speed threshold: " .. config.FOREST_HIT_SPEED)
+end
+
+function M.setForestHitVely(n)
+    config.FOREST_HIT_VELY = n or 8
+    log("💥 Forest hit velY threshold: " .. config.FOREST_HIT_VELY)
+end
+
+function M.setForestHpDrop(n)
+    config.FOREST_HP_DROP = n or 0.01
+    log("💥 Forest HP drop threshold: " .. config.FOREST_HP_DROP)
 end
 
 return M
