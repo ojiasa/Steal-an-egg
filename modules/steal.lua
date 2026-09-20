@@ -1,15 +1,13 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v10.6.3
+-- STEAL MODULE v10.6.6
 -- Flow: Home → Forest → Steal forest → (Boss đánh?) → REBUILD
---       → TELE egg → Steal → Về home → Check
--- v10.6.3 FIX:
---   - Forest boss đánh → TELE NGAY (watchdog check mỗi frame)
---   - Về home đứng yên (CFrame, không giật)
---   - Tele giữ trên cao, KHÔNG rớt xuống
---   - Tele xong giữ nguyên trên cao steal luôn
---   - Retry tele nếu fail (không về home sớm)
---   - Bay tới egg giữ Y hiện tại
---   - Giữ rebuild (tránh game back về home)
+--       → TELE egg → Steal (5 nhấn nhanh) → Về home → Check
+-- v10.6.6 FIX:
+--   - Tele dùng FLY giữ trên cao (không freeze CFrame, không rớt)
+--   - Forest check boss INLINE (không task.spawn, tele NGAY khi vừa chạm)
+--   - Về home bay velocity thẳng, không giật
+--   - Steal fire 5 lần cực nhanh (0.01s/lần)
+--   - Steal xong ở trên cao, bay về luôn
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -81,17 +79,19 @@ local config = {
     CHAT_WAIT      = 1.0,
     EGG_VERIFY_R   = 40,
 
+    -- ⭐ v10.6.6: Steal spam
+    STEAL_BURST_COUNT = 5,     -- 5 lần fire
+    STEAL_BURST_DELAY = 0.01,  -- 0.01s giữa các lần
+
     CYCLE_TIMEOUT  = 120,
     WAIT_BETWEEN   = 0.7,
 
-    -- ⭐ Bait boss
     KB_SPEED_PHYSICS  = 50,
     KB_SPEED_VELOCITY = 80,
     KB_VELY_MIN       = 20,
     KB_SHIFT_MIN      = 30,
     KB_ROTATE_MIN     = 90,
 
-    -- ⭐ v10.6.3: Forest boss detect (chỉ văng, không mất HP)
     FOREST_HIT_SPEED  = 20,
     FOREST_HIT_VELY   = 5,
     FOREST_HP_DROP    = 0.01,
@@ -318,25 +318,14 @@ local function isEggStillOnMap(uid, originalPos)
         if ok and type(fd) == "table" and type(fd.Records) == "table" then
             local eggData = fd.Records[uid]
             if not eggData then
-                log("   ↳ Không có trong Records → ĐÃ STEAL OK")
                 return false, "not-in-records"
             end
-
             local state = tostring(eggData.State or ""):lower()
-            log("   ↳ Egg state: " .. state)
-
             if state == "collected" or state == "stored" or state == "owned"
                 or state == "sold" then
                 return false, "collected"
             end
-
             if eggData.BoundsCFrame then
-                local pos = eggData.BoundsCFrame.Position
-                if originalPos then
-                    local d = (pos - originalPos).Magnitude
-                    log(string.format("   ↳ Vị trí: %.1f,%.1f,%.1f (cách gốc %.1f)",
-                        pos.X, pos.Y, pos.Z, d))
-                end
                 return true, "in-records"
             end
         end
@@ -353,7 +342,6 @@ local function isEggStillOnMap(uid, originalPos)
                     if ppos then
                         local d = (ppos - originalPos).Magnitude
                         if d < 100 then
-                            log(string.format("   ↳ Prompt Steal gần vị trí gốc (%.1f)", d))
                             return true, "prompt-near"
                         end
                     end
@@ -361,8 +349,6 @@ local function isEggStillOnMap(uid, originalPos)
             end
         end
     end
-
-    log("   ↳ Không tìm thấy dấu vết → coi như đã steal")
     return false, "not-found"
 end
 
@@ -374,63 +360,37 @@ local function findBiggestEgg()
         return nil, nil, nil, nil, nil
     end
 
-    local totalEggs, skippedCarry, skippedHome, skippedSize, skippedScale, skippedNoMap = 0, 0, 0, 0, 0, 0
-    for _ in pairs(fd.Records) do totalEggs = totalEggs + 1 end
-    log("═══════ BIG EGG SCAN ═══════")
-    log(string.format("🥚 Tổng egg trong Records: %d", totalEggs))
-    log(string.format("📏 Ngưỡng: minSize=%.2f | minScale=%.2f",
-        config.BIG_EGG_MIN_SIZE or 0, config.BIG_EGG_MIN_SCALE or 0))
-
     for uid, eggData in pairs(fd.Records) do
-        if stolenEggUids[uid] then
-        else
+        if not stolenEggUids[uid] then
             local cf = eggData.BoundsCFrame
             if cf then
                 local pos = cf.Position
                 local dHome = dist(pos, config.HOME_POS)
-
-                if dHome <= 100 then
-                    skippedHome = skippedHome + 1
-                else
+                if dHome > 100 then
                     local st = tostring(eggData.State or ""):lower()
                     local isCarry = st == "carried" or st == "carry" or st == "carrying"
                         or st == "held" or st == "picked" or st == "pickedup"
                         or st == "inventory" or st == "stored"
-
-                    if isCarry then
-                        skippedCarry = skippedCarry + 1
-                    else
+                    if not isCarry then
                         local bs = eggData.BoundsSize
                         local avgSize = bs and ((bs.X + bs.Y + bs.Z) / 3)
                             or (3.5 * (eggData.AssetScale or 1))
                         local scale = eggData.AssetScale or 1
-
-                        local minSize = config.BIG_EGG_MIN_SIZE or 0
-                        local minScale = config.BIG_EGG_MIN_SCALE or 0
-
-                        if avgSize < minSize then
-                            skippedSize = skippedSize + 1
-                        elseif scale < minScale then
-                            skippedScale = skippedScale + 1
-                        else
+                        if avgSize >= (config.BIG_EGG_MIN_SIZE or 0)
+                            and scale >= (config.BIG_EGG_MIN_SCALE or 0) then
                             local nearestMap, nearestDist = nil, 99999
                             for _, m in ipairs(ALL_MAPS) do
                                 local d = dist(pos, m.pos)
                                 if d < nearestDist then nearestMap = m; nearestDist = d end
                             end
-
                             if nearestMap then
                                 table.insert(candidates, {
                                     uid = uid, pos = pos, scale = scale,
                                     avgSize = avgSize, map = nearestMap,
                                     category = eggData.AssetCategory,
                                     mutation = eggData.BaseMutation,
-                                    state = st,
                                     dFromHome = dHome,
-                                    mapDist = nearestDist,
                                 })
-                            else
-                                skippedNoMap = skippedNoMap + 1
                             end
                         end
                     end
@@ -439,13 +399,7 @@ local function findBiggestEgg()
         end
     end
 
-    log(string.format("📊 Kết quả scan: total=%d | add=%d | skip(carry=%d, home=%d, size=%d, scale=%d, nomap=%d)",
-        totalEggs, #candidates, skippedCarry, skippedHome, skippedSize, skippedScale, skippedNoMap))
-
-    if #candidates == 0 then
-        log("⚠ KHÔNG có egg nào đạt điều kiện")
-        return nil, nil, nil, nil, nil
-    end
+    if #candidates == 0 then return nil, nil, nil, nil, nil end
 
     table.sort(candidates, function(a, b)
         if math.abs(a.avgSize - b.avgSize) > 0.5 then
@@ -457,20 +411,9 @@ local function findBiggestEgg()
         return a.dFromHome < b.dFromHome
     end)
 
-    log(string.format("═══════ TOP %d ═══════", math.min(10, #candidates)))
-    for i = 1, math.min(10, #candidates) do
-        local c = candidates[i]
-        local mut = c.mutation and (" [" .. c.mutation .. "]") or ""
-        log(string.format("  [%d] %s%s @ %s | size=%.2f | scale=%.2f | dHome=%.0f",
-            i, c.category, mut, c.map.name, c.avgSize, c.scale, c.dFromHome))
-    end
-
-    log("═══════ VERIFY ═══════")
     for i = 1, #candidates do
         local c = candidates[i]
-        local exists = verifyEggExists(c.pos, 80)
-
-        if exists then
+        if verifyEggExists(c.pos, 80) then
             local prompt = nil
             local bestDist = 30
             for _, v in ipairs(W:GetDescendants()) do
@@ -487,26 +430,14 @@ local function findBiggestEgg()
                     end
                 end
             end
-
             if prompt then
-                log(string.format("🎯 CHỌN #%d: %s @ %s | size=%.2f scale=%.2f",
-                    i, c.category, c.map.name, c.avgSize, c.scale))
                 return prompt, c.pos, c.scale, c.map, c.uid
-            else
-                log(string.format("⚠ [#%d] Có egg nhưng không có prompt → thử tiếp", i))
             end
         else
-            local stillInRecords = fd.Records[c.uid] ~= nil
-            if not stillInRecords and c.uid then
-                stolenEggUids[c.uid] = true
-                log(string.format("❌ [#%d] Egg biến mất khỏi Records → đánh dấu", i))
-            else
-                log(string.format("⚠ [#%d] Verify fail nhưng egg vẫn trong Records → KHÔNG đánh dấu", i))
-            end
+            if c.uid then stolenEggUids[c.uid] = true end
         end
     end
 
-    log("❌ Hết danh sách")
     return nil, nil, nil, nil, nil
 end
 
@@ -571,7 +502,6 @@ local function findHighestIncomeEgg()
                     end
                 end
             end
-            log(string.format("✅ Chọn: %s = $%.2f/s", c.category, c.income))
             return prompt, c.pos, c.income, c.map, c.uid
         else
             if c.uid then stolenEggUids[c.uid] = true end
@@ -582,10 +512,8 @@ end
 
 local function findEggInTargets()
     if not config.TARGETS or #config.TARGETS == 0 then
-        log("   ⚠ TARGETS rỗng → fallback BIG EGG")
         return findBiggestEgg()
     end
-
     local hrp = getHRP()
     if not hrp then return nil, nil, nil, nil, nil end
     local candidates = {}
@@ -615,7 +543,6 @@ local function findEggInTargets()
         end
     end
     if #candidates == 0 then
-        log("   ⚠ Không có egg trong TARGETS → fallback BIG EGG")
         return findBiggestEgg()
     end
     if config.PREFER_FAR then
@@ -701,28 +628,6 @@ local function rebuildCharacterFull()
     end)
 
     pcall(function()
-        local isR15 = (newHum.RigType == Enum.HumanoidRigType.R15)
-        local anim = newHum:FindFirstChildOfClass("Animator")
-        if not anim then return end
-        local ids = isR15 and {
-            "rbxassetid://507766666","rbxassetid://507766951","rbxassetid://507777826",
-            "rbxassetid://507767714","rbxassetid://507765000","rbxassetid://507767968",
-            "rbxassetid://507765644","rbxassetid://507784897","rbxassetid://507785072",
-        } or {
-            "rbxassetid://180435571","rbxassetid://180435792","rbxassetid://180426354",
-            "rbxassetid://125750702","rbxassetid://180436148","rbxassetid://180436334",
-            "rbxassetid://182393478",
-        }
-        for _, id in ipairs(ids) do
-            pcall(function()
-                local a = Instance.new("Animation")
-                a.AnimationId = id
-                anim:LoadAnimation(a)
-            end)
-        end
-    end)
-
-    pcall(function()
         local old = c:FindFirstChild("Animate")
         if old then old:Destroy() end
         task.wait(0.05)
@@ -734,15 +639,6 @@ local function rebuildCharacterFull()
                 new.Parent = c
                 new.Disabled = false
                 return
-            end
-        end
-        local ps = P:FindFirstChild("PlayerScripts")
-        if ps then
-            local tpl = ps:FindFirstChild("Animate")
-            if tpl then
-                local new = tpl:Clone()
-                new.Parent = c
-                new.Disabled = false
             end
         end
     end)
@@ -772,17 +668,13 @@ local function rebuildCharacterFull()
     return true
 end
 
--- ⭐ v10.6.3: TELE giữ trên cao, KHÔNG rớt xuống
+-- ⭐ v10.6.6: TELE dùng FLY giữ trên cao (không rớt)
 local function teleToMapStable(targetPos)
-    log("📍 TELE (giữ trên cao, không rớt)")
+    log("📍 TELE + FLY giữ trên cao")
 
     local airPos = targetPos + Vector3.new(0, 8, 0)
 
     for attempt = 1, 4 do
-        local p0 = getHRP() and getHRP().Position
-        if p0 then log(string.format("   [tele #%d] Bắt đầu: (%.1f, %.1f, %.1f)",
-            attempt, p0.X, p0.Y, p0.Z)) end
-
         local hrp = getHRP()
         if hrp then pcall(function()
             hrp.AssemblyLinearVelocity = Vector3.zero
@@ -790,7 +682,8 @@ local function teleToMapStable(targetPos)
         end) end
         task.wait(0.05)
 
-        for i = 1, 10 do
+        -- Set CFrame 8 lần
+        for i = 1, 8 do
             if not isRunning then return false end
             local r = getHRP()
             if r then pcall(function()
@@ -801,18 +694,29 @@ local function teleToMapStable(targetPos)
             task.wait(0.02)
         end
 
-        freezeAt(airPos, 0.5)
+        -- ⭐ FLY giữ trên cao 0.6s (CFrame + velocity zero liên tục)
+        local t0 = os.clock()
+        while os.clock() - t0 < 0.6 do
+            if not isRunning then return false end
+            local r = getHRP()
+            if not r then break end
+            keepHealth()
+            pcall(function()
+                r.CFrame = CFrame.new(airPos)
+                r.AssemblyLinearVelocity = Vector3.zero
+                r.AssemblyAngularVelocity = Vector3.zero
+            end)
+            task.wait(0.01)
+        end
 
         local rCheck = getHRP()
-        if not rCheck then
-            task.wait(0.2)
-        else
+        if rCheck then
             local dCheck = dist(rCheck.Position, airPos)
             local dY = math.abs(rCheck.Position.Y - airPos.Y)
-            log(string.format("   [tele #%d] Verify: d=%.1f dY=%.1f Y=%.1f",
+            log(string.format("   [tele #%d] d=%.1f dY=%.1f Y=%.1f",
                 attempt, dCheck, dY, rCheck.Position.Y))
 
-            if dCheck < 30 and dY < 20 then
+            if dCheck < 30 and dY < 15 then
                 log("   ✅ Ổn định trên cao")
                 local r2 = getHRP()
                 if r2 then pcall(function()
@@ -828,28 +732,43 @@ local function teleToMapStable(targetPos)
         end
     end
 
-    log("   ❌ Tele fail 4 lần")
+    log("   ❌ Tele fail")
     return false
 end
 
-local function firePromptOnce(prompt)
+-- ⭐ v10.6.6: Fire prompt 5 lần cực nhanh
+local function firePromptBurst(prompt, count, delay)
+    count = count or 5
+    delay = delay or 0.01
     if not prompt or not prompt.Parent then return false end
+
     pcall(function()
         prompt.Enabled = true
         prompt.HoldDuration = 0
         prompt.MaxActivationDistance = 999
         prompt.RequiresLineOfSight = false
     end)
-    if type(fireproximityprompt) == "function" then pcall(fireproximityprompt, prompt) end
-    pcall(function()
-        prompt:InputHoldBegin(); task.wait(0.02); prompt:InputHoldEnd()
-    end)
-    pcall(function()
-        prompt.PromptButtonHoldBegan:Fire()
-        task.wait(0.02)
-        prompt.PromptButtonHoldEnded:Fire()
-        prompt.Triggered:Fire(P)
-    end)
+
+    for i = 1, count do
+        if not isRunning then break end
+        pcall(function()
+            if type(fireproximityprompt) == "function" then
+                fireproximityprompt(prompt)
+            end
+        end)
+        pcall(function()
+            prompt:InputHoldBegin()
+            task.wait(0.005)
+            prompt:InputHoldEnd()
+        end)
+        pcall(function()
+            prompt.PromptButtonHoldBegan:Fire()
+            task.wait(0.005)
+            prompt.PromptButtonHoldEnded:Fire()
+            prompt.Triggered:Fire(P)
+        end)
+        task.wait(delay)
+    end
     return true
 end
 
@@ -961,11 +880,7 @@ local function runToForest()
             local dir = config.FOREST_POS - hrp.Position
             if dir.Magnitude > 0.1 then
                 local nrm = dir.Unit
-                hrp.AssemblyLinearVelocity = Vector3.new(
-                    nrm.X * speed,
-                    0,
-                    nrm.Z * speed
-                )
+                hrp.AssemblyLinearVelocity = Vector3.new(nrm.X * speed, 0, nrm.Z * speed)
             end
         end)
 
@@ -981,7 +896,6 @@ local function runToForest()
             end
         end
         lastPos = hrp.Position
-
         task.wait(0.01)
     end
 
@@ -992,17 +906,14 @@ local function runToForest()
 
     log(string.format("   ⏸ Đứng yên %.1fs...", config.FOREST_WARMUP or 0.3))
     freezeAt(nil, config.FOREST_WARMUP or 0.3)
-
     return true
 end
 
--- ⭐ v10.6.4: Bay thẳng về home từ trên cao, không hạ xuống, không giật
+-- ⭐ v10.6.6: Về home bay velocity thẳng, không giật
 local function goHome()
-    log("🏃 BAY THẲNG VỀ HOME (từ độ cao hiện tại)")
+    log("🏃 BAY VỀ HOME (velocity 3D, không giật)")
     local startTime = os.clock()
 
-    -- ⭐ Bay velocity thẳng về home, giữ Y hiện tại
-    -- Không hạ xuống, không freeze liên tục → không giật
     local t1 = os.clock()
     while os.clock() - t1 < 25 do
         if not isRunning then return false end
@@ -1010,14 +921,12 @@ local function goHome()
         if not hum or not r then break end
         keepHealth(); forceRunningState()
 
-        -- Nếu tụt Y thấp quá → force tele
         if r.Position.Y < 10 then
             log("🚨 Y < 10 → force tele home")
             forceTeleHome()
             break
         end
 
-        -- Khoảng cách 3D tới home
         local dx = config.HOME_POS.X - r.Position.X
         local dy = config.HOME_POS.Y - r.Position.Y
         local dz = config.HOME_POS.Z - r.Position.Z
@@ -1029,12 +938,9 @@ local function goHome()
         end
 
         pcall(function()
-            -- ⭐ Bay thẳng 3D về home (bao gồm cả Y)
-            -- Nhưng KHÔNG set velocity Y xuống quá nhanh để tránh giật
             local dir = config.HOME_POS - r.Position
             if dir.Magnitude > 0 then
                 local nrm = dir.Unit
-                -- Y velocity giới hạn để không "đập" xuống
                 local vy = math.clamp(nrm.Y * (config.FLY_HOME_SPEED or 500), -150, 150)
                 r.AssemblyLinearVelocity = Vector3.new(
                     nrm.X * (config.FLY_HOME_SPEED or 500),
@@ -1046,25 +952,21 @@ local function goHome()
         task.wait(0.01)
     end
 
-    -- ⭐ Dừng hẳn velocity (không freeze CFrame liên tục → không giật)
+    -- Dừng velocity
     local rStop = getHRP()
-    if rStop then
-        pcall(function()
-            rStop.AssemblyLinearVelocity = Vector3.zero
-            rStop.AssemblyAngularVelocity = Vector3.zero
-        end)
-    end
+    if rStop then pcall(function()
+        rStop.AssemblyLinearVelocity = Vector3.zero
+        rStop.AssemblyAngularVelocity = Vector3.zero
+    end) end
     task.wait(0.1)
 
-    -- ⭐ Snap CFrame 1 lần duy nhất về home (không lặp → không giật)
+    -- Snap CFrame 1 lần
     local rSnap = getHRP()
-    if rSnap then
-        pcall(function()
-            rSnap.CFrame = CFrame.new(config.HOME_POS)
-            rSnap.AssemblyLinearVelocity = Vector3.zero
-            rSnap.AssemblyAngularVelocity = Vector3.zero
-        end)
-    end
+    if rSnap then pcall(function()
+        rSnap.CFrame = CFrame.new(config.HOME_POS)
+        rSnap.AssemblyLinearVelocity = Vector3.zero
+        rSnap.AssemblyAngularVelocity = Vector3.zero
+    end) end
     task.wait(0.2)
 
     log("🔨 Rebuild nhân vật tại home...")
@@ -1087,28 +989,17 @@ local function baitBoss(timeout)
     timeout = timeout or config.BAIT_TIMEOUT
     log("🎯 Bait boss...")
 
-    log(string.format("   ⏸ Warmup %.1fs...", config.BAIT_WARMUP or 0.3))
     freezeAt(nil, config.BAIT_WARMUP or 0.3)
-
     forceRunningState()
     task.wait(0.3)
 
     local hum0, hrp0 = getHum(), getHRP()
-    if not hum0 or not hrp0 then
-        log("   ❌ Không có Humanoid/HRP")
-        return false
-    end
+    if not hum0 or not hrp0 then return false end
     local startHealth = hum0.Health
     local startPos = hrp0.Position
     local startCFrame = hrp0.CFrame
 
-    log("   ⏳ Detect knockback")
-    log(string.format("   📍 Start: pos=(%.1f,%.1f,%.1f) health=%.1f",
-        startPos.X, startPos.Y, startPos.Z, startHealth))
-
     local t0 = os.clock()
-    local lastLog = 0
-
     while isRunning and os.clock() - t0 < timeout do
         local hum, hrp = getHum(), getHRP()
         if not hum or not hrp then break end
@@ -1117,49 +1008,31 @@ local function baitBoss(timeout)
         local vel = hrp.AssemblyLinearVelocity
         local speed = vel.Magnitude
         local state = hum:GetState()
-        local elapsed = os.clock() - t0
-
-        if elapsed - lastLog >= 0.5 then
-            lastLog = elapsed
-            log(string.format("   [bait %.1fs] state=%s | speed=%.1f Y=%.1f",
-                elapsed, tostring(state):gsub("Enum.HumanoidStateType%.", ""),
-                speed, vel.Y))
-        end
 
         if state == Enum.HumanoidStateType.Physics and speed > (config.KB_SPEED_PHYSICS or 50) then
-            log(string.format("💥 PHYSICS speed=%.1f", speed)); return true
+            return true
         end
         if speed > (config.KB_SPEED_VELOCITY or 80) and vel.Y > (config.KB_VELY_MIN or 20) then
-            log(string.format("💥 VELOCITY speed=%.1f Y=%.1f", speed, vel.Y)); return true
+            return true
         end
         if state == Enum.HumanoidStateType.PlatformStanding
             or state == Enum.HumanoidStateType.FallingDown
             or state == Enum.HumanoidStateType.Ragdoll then
-            log(string.format("💥 STATE xấu: %s", tostring(state))); return true
+            return true
         end
         if hum.Health < startHealth - (config.KB_HEALTH_DROP or 0.1) then
-            log(string.format("💥 HEALTH %.1f→%.1f", startHealth, hum.Health)); return true
+            return true
         end
-
         local pd = (hrp.Position - startPos).Magnitude
-        if pd > (config.KB_SHIFT_MIN or 30) then
-            log(string.format("💥 SHIFT %.1f", pd)); return true
-        end
-
-        local dot = math.clamp(startCFrame.LookVector:Dot(hrp.CFrame.LookVector), -1, 1)
-        local angleDiff = math.deg(math.acos(dot))
-        if angleDiff > (config.KB_ROTATE_MIN or 90) then
-            log(string.format("💥 ROTATE %.1f°", angleDiff)); return true
-        end
+        if pd > (config.KB_SHIFT_MIN or 30) then return true end
 
         pcall(function() hum:MoveTo(hrp.Position) end)
         task.wait(0.01)
     end
-    log("⚠ Hết " .. timeout .. "s — không detect knockback")
     return false
 end
 
--- ⭐ v10.6.4: Boss đánh → tele NGAY, không đợi văng
+-- ⭐ v10.6.6: Check boss INLINE, tele NGAY
 local function stealAtForest()
     local prompt, ppos = findForestEggOnly()
     if not prompt or not ppos then
@@ -1174,57 +1047,46 @@ local function stealAtForest()
         velocityMoveTo(ppos, 15)
     end
 
-    -- ⭐ QUAN TRỌNG: Reset velocity = 0 trước khi vào watchdog
-    -- Tránh watchdog bắt nhầm velocity dư từ velocityMoveTo
+    -- Reset velocity về 0
     local hReset = getHRP()
-    if hReset then
-        pcall(function()
-            hReset.AssemblyLinearVelocity = Vector3.zero
-            hReset.AssemblyAngularVelocity = Vector3.zero
-        end)
-    end
-    task.wait(0.15)  -- đợi 1 nhịp cho velocity về 0
+    if hReset then pcall(function()
+        hReset.AssemblyLinearVelocity = Vector3.zero
+        hReset.AssemblyAngularVelocity = Vector3.zero
+    end) end
+    task.wait(0.2)
 
     local forestBefore = getSlotSet()
-    log("⚡ Steal Forest")
+    log("⚡ Steal Forest (check INLINE)")
 
-    local hitByBoss = false
-    local stealDone = false
-    local startTime = os.clock()
+    local loopStart = os.clock()
 
-    -- ⭐ Watchdog KHÔNG warmup, check từ frame đầu, ngưỡng cao hơn để tránh false positive
-    local watchdog = task.spawn(function()
-        while isRunning and not stealDone and not hitByBoss do
-            local h = getHRP()
-            local hum = getHum()
-            if h and hum then
-                local vel = h.AssemblyLinearVelocity
-                local speed = vel.Magnitude
-                local velY = vel.Y
-                local state = hum:GetState()
+    for i = 1, 8 do
+        if not isRunning then break end
 
-                -- ⭐ Chỉ detect SAU 0.1s (để velocity dư tan hết)
-                if os.clock() - startTime > 0.1 then
-                    if speed > (config.FOREST_HIT_SPEED or 20)
-                        or velY > (config.FOREST_HIT_VELY or 5)
-                        or state == Enum.HumanoidStateType.Physics
-                        or state == Enum.HumanoidStateType.Ragdoll
-                        or state == Enum.HumanoidStateType.PlatformStanding
-                        or state == Enum.HumanoidStateType.FallingDown then
-                        log(string.format("💥 Boss đánh (speed=%.1f Y=%.1f state=%s) → TELE NGAY",
-                            speed, velY, tostring(state):gsub("Enum.HumanoidStateType%.", "")))
-                        hitByBoss = true
-                        return
-                    end
+        -- CHECK BOSS ĐÁNH
+        local hum = getHum()
+        local hCheck = getHRP()
+        if hum and hCheck then
+            local vel = hCheck.AssemblyLinearVelocity
+            local speed = vel.Magnitude
+            local velY = vel.Y
+            local state = hum:GetState()
+
+            if os.clock() - loopStart > 0.15 then
+                if speed > (config.FOREST_HIT_SPEED or 20)
+                    or velY > (config.FOREST_HIT_VELY or 5)
+                    or state == Enum.HumanoidStateType.Physics
+                    or state == Enum.HumanoidStateType.Ragdoll
+                    or state == Enum.HumanoidStateType.PlatformStanding
+                    or state == Enum.HumanoidStateType.FallingDown then
+                    log(string.format("💥 Boss đánh NGAY (speed=%.1f Y=%.1f state=%s) → TELE",
+                        speed, velY, tostring(state):gsub("Enum.HumanoidStateType%.", "")))
+                    return false, "hit-by-boss"
                 end
             end
-            task.wait()  -- ⭐ check mỗi frame (không sleep)
         end
-    end)
 
-    for i = 1, 5 do
-        if not isRunning or hitByBoss then break end
-
+        -- Fire prompt
         forceRunningState()
         local h2 = getHRP()
         if h2 then
@@ -1232,8 +1094,6 @@ local function stealAtForest()
             if p2 then
                 local p2pos = getPromptPos(p2)
                 if p2pos and dist(h2.Position, p2pos) > config.PROMPT_NEAR then
-                    -- ⭐ Không velocityMoveTo nữa (tránh velocity dư)
-                    -- Chỉ set CFrame nếu cần
                     pcall(function()
                         h2.CFrame = CFrame.new(p2pos + Vector3.new(0, 3, 0))
                         h2.AssemblyLinearVelocity = Vector3.zero
@@ -1241,27 +1101,41 @@ local function stealAtForest()
                     end)
                     task.wait(0.05)
                 end
-                firePromptOnce(p2)
+                firePromptBurst(p2, 3, 0.01)
             end
         end
 
-        task.wait(0.1)
+        task.wait()
+
+        -- CHECK LẠI SAU FIRE
+        local hum2 = getHum()
+        local hCheck2 = getHRP()
+        if hum2 and hCheck2 then
+            local speed2 = hCheck2.AssemblyLinearVelocity.Magnitude
+            local velY2 = hCheck2.AssemblyLinearVelocity.Y
+            local state2 = hum2:GetState()
+            if os.clock() - loopStart > 0.15 then
+                if speed2 > (config.FOREST_HIT_SPEED or 20)
+                    or velY2 > (config.FOREST_HIT_VELY or 5)
+                    or state2 == Enum.HumanoidStateType.Physics
+                    or state2 == Enum.HumanoidStateType.Ragdoll
+                    or state2 == Enum.HumanoidStateType.PlatformStanding
+                    or state2 == Enum.HumanoidStateType.FallingDown then
+                    log(string.format("💥 Boss đánh SAU FIRE (speed=%.1f Y=%.1f) → TELE NGAY",
+                        speed2, velY2))
+                    return false, "hit-by-boss"
+                end
+            end
+        end
 
         local stolen, slotName = hasStolenSlot(forestBefore)
         if stolen then
             log("🎒 Forest OK (slot): " .. slotName)
             stolenPrompts[prompt] = true
-            stealDone = true
-            if watchdog then pcall(function() task.cancel(watchdog) end) end
             return true, "stolen"
         end
-    end
 
-    stealDone = true
-    if watchdog then pcall(function() task.cancel(watchdog) end) end
-
-    if hitByBoss then
-        return false, "hit-by-boss"
+        task.wait(0.1)
     end
 
     task.wait(0.5)
@@ -1275,7 +1149,7 @@ local function stealAtForest()
     return false, "no-steal"
 end
 
--- ⭐ v10.6.4: Steal trên cao, không hạ xuống
+-- ⭐ v10.6.6: Steal tại egg, fire 5 lần cực nhanh
 local function stealAtPos(targetPos, label, eggUid)
     log("═══════")
     log("STEAL TẠI " .. label)
@@ -1296,9 +1170,9 @@ local function stealAtPos(targetPos, label, eggUid)
         if d > 200 then return false end
     end
 
-    -- ⭐ Bay ngang tới egg, GIỮ Y HIỆN TẠI (trên cao)
+    -- Bay ngang tới egg, GIỮ Y
     if d > config.PROMPT_NEAR then
-        log(string.format("   🚀 Bay ngang tới egg (%.1f studs, giữ Y=%.1f)", d, hrp.Position.Y))
+        log(string.format("   🚀 Bay ngang tới egg (%.1f, giữ Y=%.1f)", d, hrp.Position.Y))
         local curY = hrp.Position.Y
         local airTarget = Vector3.new(targetPos.X, curY, targetPos.Z)
         velocityFlyTo(airTarget, 3, 600)
@@ -1324,8 +1198,7 @@ local function stealAtPos(targetPos, label, eggUid)
         if not p2pos then break end
         local dToPrompt = dist(h2.Position, p2pos)
         if dToPrompt > config.PROMPT_NEAR then
-            log(string.format("🏃 Bay ngang tới prompt (%.1f, giữ Y=%.1f)", dToPrompt, h2.Position.Y))
-            -- ⭐ Bay ngang giữ Y hiện tại
+            log(string.format("🏃 Bay ngang tới prompt (%.1f, giữ Y)", dToPrompt))
             local curY = h2.Position.Y
             local airTarget = Vector3.new(p2pos.X, curY, p2pos.Z)
             velocityFlyTo(airTarget, 2, 600)
@@ -1333,23 +1206,26 @@ local function stealAtPos(targetPos, label, eggUid)
             if not p2 then break end
         end
 
-        firePromptOnce(p2)
+        -- ⭐ FIRE 5 LẦN CỰC NHANH (0.01s giữa các lần)
+        log(string.format("🔫 Fire burst x%d", config.STEAL_BURST_COUNT or 5))
+        firePromptBurst(p2, config.STEAL_BURST_COUNT or 5, config.STEAL_BURST_DELAY or 0.01)
 
+        -- Verify
         local verifyStart = os.clock()
         local stolen = false
         local stolenName = nil
         while os.clock() - verifyStart < config.STEAL_TIMEOUT do
-            task.wait(0.15)
+            task.wait(0.1)
             local s, sn = hasStolenSlot(slotsBefore)
             if s then stolen = true; stolenName = sn; break end
             if isCarryingEggStrict() then
-                task.wait(0.2)
+                task.wait(0.15)
                 if isCarryingEggStrict() then stolen = true; stolenName = "carry"; break end
             end
         end
 
         if stolen then
-            log(string.format("✅ ĐÃ STEAL (fire %d, %s) — Y=%.1f (giữ trên cao)",
+            log(string.format("✅ ĐÃ STEAL (vòng %d, %s) — giữ Y=%.1f",
                 i, stolenName, h2.Position.Y))
             if eggUid then lastStolenUid = eggUid end
             lastStolenPos = targetPos
@@ -1361,29 +1237,20 @@ local function stealAtPos(targetPos, label, eggUid)
     return false
 end
 
-
 local function pickNextEgg()
     if config.PRIORITY_INCOME and not AssetEarnings then
-        log("⚠ Priority Income BẬT nhưng AssetEarnings nil → fallback TARGETS")
         return findEggInTargets()
     end
     if config.BIG_EGG_MODE and not EggState then
-        log("⚠ Big Egg BẬT nhưng EggState nil → fallback TARGETS")
         return findEggInTargets()
     end
 
     if config.PRIORITY_INCOME and config.BIG_EGG_MODE then
-        log("🎯🎯 DUAL MODE")
-        local minIncome = config.DUAL_MIN_INCOME or 30000000
-        local minSize = config.DUAL_MIN_SIZE or 4.0
-        log(string.format("   Điều kiện: income >= $%.0fM/s VÀ size >= %.1f",
-            minIncome / 1e6, minSize))
-
         if not EggState or not AssetEarnings then
-            log("   ⚠ EggState/AssetEarnings nil → fallback TARGETS")
             return findEggInTargets()
         end
-
+        local minIncome = config.DUAL_MIN_INCOME or 30000000
+        local minSize = config.DUAL_MIN_SIZE or 4.0
         local ok, fd = pcall(EggState.ReadFieldEggs)
         if ok and type(fd) == "table" and type(fd.Records) == "table" then
             local best = nil
@@ -1429,10 +1296,7 @@ local function pickNextEgg()
                     end
                 end
             end
-
             if best then
-                log(string.format("✅ DUAL: %s @ %s = $%.2fM/s, size %.2f",
-                    best.category, best.map.name, best.income / 1e6, best.size))
                 local prompt = nil
                 local bestDist = 20
                 for _, v in ipairs(W:GetDescendants()) do
@@ -1454,43 +1318,27 @@ local function pickNextEgg()
                 else
                     if best.uid then stolenEggUids[best.uid] = true end
                 end
-            else
-                log("   ⚠ Không egg nào đạt → fallback big egg")
             end
         end
-
-        log("🥚 Fallback: BIG EGG")
         local p, pos, s, m, u = findBiggestEgg()
-        if not pos then
-            log("   ⚠ Big egg fail → fallback TARGETS")
-            return findEggInTargets()
-        end
+        if not pos then return findEggInTargets() end
         return p, pos, s, m, u
     end
 
     if config.BIG_EGG_MODE then
-        log("🥚 Mode: BIG EGG")
         local p, pos, s, m, u = findBiggestEgg()
-        if not pos then
-            log("   ⚠ Không có egg → fallback TARGETS")
-            return findEggInTargets()
-        end
+        if not pos then return findEggInTargets() end
         return p, pos, s, m, u
     elseif config.PRIORITY_INCOME then
-        log("💰 Mode: PRIORITY INCOME")
         local p, pos, s, m, u = findHighestIncomeEgg()
-        if not pos then
-            log("   ⚠ Không có egg → fallback TARGETS")
-            return findEggInTargets()
-        end
+        if not pos then return findEggInTargets() end
         return p, pos, s, m, u
     else
-        log("🎯 Mode: TARGETS")
         return findEggInTargets()
     end
 end
 
--- ⭐⭐⭐ MAIN LOOP v10.6.3
+-- ⭐⭐⭐ MAIN LOOP v10.6.6
 local function mainLoop()
     while isRunning do
         local cycleT0 = os.clock()
@@ -1499,25 +1347,22 @@ local function mainLoop()
 
         local gotKB = false
         local skipCycle = false
-        local forestReason = nil
 
-        -- ═══ BƯỚC 1: FOREST ═══
+        -- BƯỚC 1: FOREST
         log("▶ [1/6] Chạy ra Forest...")
         local okForest = runToForest()
         if not okForest then
-            log("❌ Không tới Forest → chờ 2s")
             task.wait(2)
             skipCycle = true
         end
 
-        -- ═══ BƯỚC 2: STEAL FOREST ═══
+        -- BƯỚC 2: STEAL FOREST
         if not skipCycle then
             log("▶ [2/6] Steal Forest egg...")
-            local forestOk
-            forestOk, forestReason = stealAtForest()
+            local forestOk, forestReason = stealAtForest()
 
             if forestReason == "hit-by-boss" then
-                log("💥 Boss đánh ở Forest → vào REBUILD ngay (không bait)")
+                log("💥 Boss đánh ở Forest → REBUILD ngay")
                 gotKB = true
             elseif not forestOk then
                 log("⚠ Forest fail → về home")
@@ -1525,7 +1370,7 @@ local function mainLoop()
                 task.wait(config.WAIT_BETWEEN)
                 skipCycle = true
             else
-                log("▶ [3/6] Bait boss, đợi bị đánh...")
+                log("▶ [3/6] Bait boss...")
                 gotKB = baitBoss(config.BAIT_TIMEOUT)
                 if not gotKB then
                     log("⚠ Không bị knockback → về home")
@@ -1536,37 +1381,22 @@ local function mainLoop()
             end
         end
 
-        -- ═══ BƯỚC 4-6 ═══
+        -- BƯỚC 4-6
         if not skipCycle and gotKB then
-            -- BƯỚC 4: REBUILD
-            log("▶ [4/6] REBUILD sau knockback...")
-            local beforePos = getHRP() and getHRP().Position
-            if beforePos then
-                log(string.format("   📍 Trước rebuild: (%.1f, %.1f, %.1f)",
-                    beforePos.X, beforePos.Y, beforePos.Z))
-            end
-
+            log("▶ [4/6] REBUILD...")
             rebuildCharacterFull()
             task.wait(0.2)
 
             local afterPos = getHRP() and getHRP().Position
-            if afterPos then
-                log(string.format("   📍 Sau rebuild:  (%.1f, %.1f, %.1f)",
-                    afterPos.X, afterPos.Y, afterPos.Z))
-                if beforePos then
-                    log(string.format("   📏 Dịch chuyển: %.1f studs",
-                        dist(beforePos, afterPos)))
+            if afterPos then pcall(function()
+                local r = getHRP()
+                if r then
+                    r.AssemblyLinearVelocity = Vector3.zero
+                    r.AssemblyAngularVelocity = Vector3.zero
                 end
-                pcall(function()
-                    local r = getHRP()
-                    if r then
-                        r.AssemblyLinearVelocity = Vector3.zero
-                        r.AssemblyAngularVelocity = Vector3.zero
-                    end
-                end)
-            end
+            end) end
 
-            -- BƯỚC 5: PICK EGG + TELE + STEAL
+            -- BƯỚC 5: PICK + TELE + STEAL
             log("▶ [5/6] Pick egg + tele + steal...")
             local eggPrompt, eggPos, eggData, eggMap, eggUid = pickNextEgg()
 
@@ -1575,39 +1405,15 @@ local function mainLoop()
                 goHome()
                 task.wait(config.WAIT_BETWEEN)
             else
-                log(string.format("   🎯 Egg: %s @ %s",
-                    eggMap and eggMap.name or "?", tostring(eggUid)))
-                log(string.format("   📍 Egg pos: (%.1f, %.1f, %.1f)",
-                    eggPos.X, eggPos.Y, eggPos.Z))
-                log(string.format("   📏 Cách home: %.0f studs",
-                    dist(eggPos, config.HOME_POS)))
-                log(string.format("   📏 Cách player: %.0f studs",
-                    dist(eggPos, (getHRP() and getHRP().Position) or Vector3.zero)))
-
                 local targetPos = eggPos + Vector3.new(0, 3, 0)
-                log(string.format("   📍 Target pos: (%.1f, %.1f, %.1f)",
-                    targetPos.X, targetPos.Y, targetPos.Z))
 
-                log("   🚀 Bắt đầu tele...")
-                local tTele = os.clock()
+                log("   🚀 Tele...")
                 local teleOk = teleToMapStable(targetPos)
-                log(string.format("   ⏱ Tele mất: %.2fs | Kết quả: %s",
-                    os.clock() - tTele, teleOk and "✅" or "❌"))
 
-                -- ⭐ Retry tele lần 2 nếu fail
                 if not teleOk then
-                    log("   🔄 Tele fail → thử lại sau 0.5s")
+                    log("   🔄 Retry tele...")
                     task.wait(0.5)
                     teleOk = teleToMapStable(targetPos)
-                    log(string.format("   ⏱ Tele retry: %s", teleOk and "✅" or "❌"))
-                end
-
-                local afterTele = getHRP() and getHRP().Position
-                if afterTele then
-                    log(string.format("   📍 Sau tele: (%.1f, %.1f, %.1f)",
-                        afterTele.X, afterTele.Y, afterTele.Z))
-                    log(string.format("   📏 Cách egg: %.1f studs",
-                        dist(afterTele, eggPos)))
                 end
 
                 task.wait(config.TELE_STABILIZE or 0.2)
@@ -1615,68 +1421,44 @@ local function mainLoop()
                 local beforeSteal = getHRP() and getHRP().Position
                 if beforeSteal then
                     local dEgg = dist(beforeSteal, eggPos)
-                    log(string.format("   🔍 Trước steal: cách egg %.1f studs", dEgg))
                     if dEgg > 300 then
-                        log("   🚨 Xa egg → tele lại lần cuối!")
                         teleToMapStable(targetPos)
                         task.wait(0.3)
                     end
                 end
 
-                log("   🎒 Bắt đầu steal...")
-                local tSteal = os.clock()
+                log("   🎒 Steal (burst x5)...")
                 local stolen = stealAtPos(eggPos, eggMap.name, eggUid)
-                log(string.format("   ⏱ Steal mất: %.2fs | Kết quả: %s",
-                    os.clock() - tSteal, stolen and "✅ OK" or "❌ FAIL"))
 
                 if stolen then
                     log("▶ [6/6] Steal OK → về home...")
                     deliveryFailed = false
-                    local tHome = os.clock()
                     goHome()
-                    log(string.format("   ⏱ Về home mất: %.2fs", os.clock() - tHome))
-
                     task.wait(config.CHAT_WAIT)
 
                     if lastStolenUid then
-                        log("   🔍 Check egg còn trên map không...")
-                        local stillOnMap, reason = isEggStillOnMap(lastStolenUid, lastStolenPos)
-                        if stillOnMap then
-                            log("   🔄 Egg CÒN trên map → KHÔNG đánh dấu")
-                        else
-                            log("   ✅ Egg KHÔNG còn → đánh dấu")
+                        local stillOnMap = isEggStillOnMap(lastStolenUid, lastStolenPos)
+                        if not stillOnMap then
                             stolenEggUids[lastStolenUid] = true
                         end
                         lastStolenUid = nil
                         lastStolenPos = nil
                     end
-
-                    log("🎉 CYCLE XONG")
                 else
-                    log("▶ [6/6] Steal FAIL → thử lại...")
+                    log("▶ [6/6] Steal FAIL → retry...")
                     task.wait(0.3)
 
                     local hrpCheck = getHRP()
                     if hrpCheck and dist(hrpCheck.Position, eggPos) < 200 then
-                        log("   📍 Vẫn ở map → retry steal")
                         stolen = stealAtPos(eggPos, eggMap.name, eggUid)
                     else
-                        log("   🚨 Đã văng khỏi map → tele lại")
                         teleToMapStable(targetPos)
                         task.wait(0.3)
                         stolen = stealAtPos(eggPos, eggMap.name, eggUid)
                     end
 
-                    if stolen then
-                        log("   ✅ Retry OK → về home")
-                        deliveryFailed = false
-                        goHome()
-                    else
-                        log("   ❌ Retry FAIL → về home")
-                        goHome()
-                    end
+                    goHome()
                 end
-
                 task.wait(config.CHAT_WAIT)
             end
         end
@@ -1702,7 +1484,7 @@ end
 task.spawn(function()
     pcall(function()
         local chatEvents = RS:WaitForChild("DefaultSystemChatEvents", 5)
-            or RS:WaitForChild("DefaultSystemChatEvents", 5)
+            or RS:WaitForChild("DefaultChatSystemChatEvents", 5)
         if not chatEvents then return end
         local onMsg = chatEvents:WaitForChild("OnMessageDoneFiltering", 5)
         if not onMsg then return end
@@ -1713,7 +1495,6 @@ task.spawn(function()
                 or msg:find("returned to its nest", 1, true)
                 or msg:find("egg was returned", 1, true) then
                 deliveryFailed = true
-                log("❌ Chat: Delivery failed")
             end
         end)
     end)
@@ -1750,13 +1531,11 @@ function M.start()
     task.wait(0.2)
 
     isRunning = true
-    log("▶ START v10.6.3")
-    log(string.format("   Home: %.2f,%.2f,%.2f", config.HOME_POS.X, config.HOME_POS.Y, config.HOME_POS.Z))
-    log(string.format("   Forest speed: %d | Hit threshold: speed>%d velY>%d",
-        config.FOREST_RUN_SPEED, config.FOREST_HIT_SPEED, config.FOREST_HIT_VELY))
-    log(string.format("   Big Egg: %s | Priority Income: %s",
-        config.BIG_EGG_MODE and "ON" or "OFF",
-        config.PRIORITY_INCOME and "ON" or "OFF"))
+    log("▶ START v10.6.6")
+    log(string.format("   Steal burst: x%d @ %.3fs",
+        config.STEAL_BURST_COUNT, config.STEAL_BURST_DELAY))
+    log(string.format("   Forest hit threshold: speed>%d velY>%d",
+        config.FOREST_HIT_SPEED, config.FOREST_HIT_VELY))
 
     mainThread = task.spawn(mainLoop)
 end
@@ -1778,85 +1557,45 @@ function M.stop()
 end
 
 function M.isRunning() return isRunning end
-
-function M.setTargets(list)
-    if type(list) ~= "table" then return end
-    config.TARGETS = list
-end
-
-function M.setTarget(name, pos)
-    config.TARGETS = { { name = name, pos = pos } }
-end
+function M.setTargets(list) if type(list) == "table" then config.TARGETS = list end end
+function M.setTarget(name, pos) config.TARGETS = { { name = name, pos = pos } } end
 
 function M.setPriorityIncome(enabled)
     config.PRIORITY_INCOME = enabled and true or false
-    log("💰 Priority Income: " .. (config.PRIORITY_INCOME and "BẬT" or "TẮT"))
     if not config.PRIORITY_INCOME then
-        stolenEggUids = {}
-        stolenPrompts = {}
-        log("   🔄 Reset stolenEggUids")
+        stolenEggUids = {}; stolenPrompts = {}
     end
     return config.PRIORITY_INCOME
 end
 
 function M.setBigEggMode(enabled)
     config.BIG_EGG_MODE = enabled and true or false
-    log("🥚 Big Egg mode: " .. (config.BIG_EGG_MODE and "BẬT" or "TẮT"))
     if not config.BIG_EGG_MODE then
-        stolenEggUids = {}
-        stolenPrompts = {}
-        log("   🔄 Reset stolenEggUids")
+        stolenEggUids = {}; stolenPrompts = {}
     end
     return config.BIG_EGG_MODE
 end
 
-function M.setPriorityThreshold(amount)
-    config.PRIORITY_THRESHOLD = amount or 1000000
-    log("💰 Threshold: $" .. (config.PRIORITY_THRESHOLD / 1e6) .. "M/s")
-end
-
+function M.setPriorityThreshold(amount) config.PRIORITY_THRESHOLD = amount or 1000000 end
 function M.setHome(p) if p then config.HOME_POS = p end end
 function M.setForest(p) if p then config.FOREST_POS = p end end
-
-function M.setForestRunSpeed(n)
-    config.FOREST_RUN_SPEED = n or 250
-    log("🏃 Forest run speed: " .. config.FOREST_RUN_SPEED)
-end
-
-function M.setBaitTimeout(n)
-    config.BAIT_TIMEOUT = n or 15
-    log("🎯 Bait timeout: " .. config.BAIT_TIMEOUT)
-end
-
-function M.setForestWarmup(n)
-    config.FOREST_WARMUP = n or 0.3
-    log("⏸ Forest warmup: " .. config.FOREST_WARMUP .. "s")
-end
-
-function M.setBaitWarmup(n)
-    config.BAIT_WARMUP = n or 0.3
-    log("⏸ Bait warmup: " .. config.BAIT_WARMUP .. "s")
-end
-
-function M.setTeleHold(n)
-    config.TELE_HOLD = n or 0.3
-    log("🔒 Tele hold: " .. config.TELE_HOLD .. "s")
-end
+function M.setForestRunSpeed(n) config.FOREST_RUN_SPEED = n or 250 end
+function M.setBaitTimeout(n) config.BAIT_TIMEOUT = n or 15 end
+function M.setForestWarmup(n) config.FOREST_WARMUP = n or 0.3 end
+function M.setBaitWarmup(n) config.BAIT_WARMUP = n or 0.3 end
+function M.setTeleHold(n) config.TELE_HOLD = n or 0.3 end
 
 function M.getConfig() return config end
 function M.getAllMaps() return ALL_MAPS end
 function M.isCarrying() return isCarryingEgg() end
-function M.clearStolenUids() stolenEggUids = {}; stolenPrompts = {}; log("🔄 Clear UIDs") end
+function M.clearStolenUids() stolenEggUids = {}; stolenPrompts = {} end
 function M.isEggStillOnMap(uid, pos) return isEggStillOnMap(uid, pos) end
 function M.isPriorityIncome() return config.PRIORITY_INCOME end
 
 function M.togglePriorityIncome()
     config.PRIORITY_INCOME = not config.PRIORITY_INCOME
-    log("💰 Priority Income: " .. (config.PRIORITY_INCOME and "BẬT" or "TẮT"))
     if not config.PRIORITY_INCOME then
-        stolenEggUids = {}
-        stolenPrompts = {}
-        log("   🔄 Reset stolenEggUids")
+        stolenEggUids = {}; stolenPrompts = {}
     end
     return config.PRIORITY_INCOME
 end
@@ -1865,98 +1604,38 @@ function M.isBigEggMode() return config.BIG_EGG_MODE end
 
 function M.toggleBigEggMode()
     config.BIG_EGG_MODE = not config.BIG_EGG_MODE
-    log("🥚 Big Egg mode: " .. (config.BIG_EGG_MODE and "BẬT" or "TẮT"))
     if not config.BIG_EGG_MODE then
-        stolenEggUids = {}
-        stolenPrompts = {}
-        log("   🔄 Reset stolenEggUids")
+        stolenEggUids = {}; stolenPrompts = {}
     end
     return config.BIG_EGG_MODE
 end
 
 function M.getPriorityThreshold() return config.PRIORITY_THRESHOLD end
-function M.clearIncomeCache() log("🔄 Income cache cleared") end
+function M.clearIncomeCache() end
+function M.setHomeFlyY(n) config.HOME_FLY_ABSOLUTE_Y = n or 100 end
+function M.setFlyHomeSpeed(n) config.FLY_HOME_SPEED = n or 500 end
+function M.setHomeTimeout(n) config.HOME_TIMEOUT = n or 30 end
+function M.setPromptNear(n) config.PROMPT_NEAR = n or 12 end
+function M.setSlowSpeed(n) config.FOREST_RUN_SPEED = n or 150 end
+function M.setChatWait(n) config.CHAT_WAIT = n or 1.0 end
+function M.setCycleWait(n) config.WAIT_BETWEEN = n or 0.7 end
+function M.setMaxRetry(n) config.MAX_RETRY = n or 3 end
 
-function M.setHomeFlyY(n)
-    config.HOME_FLY_ABSOLUTE_Y = n or 100
-    log("📏 Home fly Y: " .. config.HOME_FLY_ABSOLUTE_Y)
-end
-
-function M.setFlyHomeSpeed(n)
-    config.FLY_HOME_SPEED = n or 500
-    log("🏃 Fly home speed: " .. config.FLY_HOME_SPEED)
-end
-
-function M.setRecoveryRadius(n) log("📍 Không dùng v10.6.3") end
-function M.setMaxRecovery(n) log("📍 Không dùng v10.6.3") end
-
-function M.setHomeTimeout(n)
-    config.HOME_TIMEOUT = n or 30
-    log("⏱ Home timeout: " .. config.HOME_TIMEOUT .. "s")
-end
-
-function M.setPromptNear(n)
-    config.PROMPT_NEAR = n or 12
-    log("📏 Prompt near: " .. config.PROMPT_NEAR .. " studs")
-end
-
-function M.setSlowSpeed(n)
-    config.FOREST_RUN_SPEED = n or 150
-    log("🐢 Forest run speed: " .. config.FOREST_RUN_SPEED)
-end
-
-function M.setWarmupTime(n) log("⏱ Không dùng v10.6.3") end
-
-function M.setChatWait(n)
-    config.CHAT_WAIT = n or 1.0
-    log("💬 Chat wait: " .. config.CHAT_WAIT .. "s")
-end
-
-function M.setCycleWait(n)
-    config.WAIT_BETWEEN = n or 0.7
-    log("⏱ Cycle wait: " .. config.WAIT_BETWEEN .. "s")
-end
-
-function M.setMaxEggsPerCycle(n) log("📊 Không dùng v10.6.3") end
-function M.setTeleToForest(enabled) log("ℹ Không dùng v10.6.3") end
-
-function M.setMaxRetry(n)
-    config.MAX_RETRY = n or 3
-    log("🔄 Max retry: " .. config.MAX_RETRY)
-end
-
-function M.setDualMinIncome(n)
-    config.DUAL_MIN_INCOME = n or 30000000
-    log(string.format("💰 Dual min income: $%.0fM/s", config.DUAL_MIN_INCOME / 1e6))
-end
-
-function M.setDualMinSize(n)
-    config.DUAL_MIN_SIZE = n or 4.0
-    log(string.format("📏 Dual min size: %.2f", config.DUAL_MIN_SIZE))
-end
+function M.setDualMinIncome(n) config.DUAL_MIN_INCOME = n or 30000000 end
+function M.setDualMinSize(n) config.DUAL_MIN_SIZE = n or 4.0 end
 
 function M.setDualMode(minIncome, minSize)
     config.DUAL_MIN_INCOME = minIncome or 30000000
     config.DUAL_MIN_SIZE = minSize or 4.0
-    log(string.format("🎯🎯 Dual: $%.0fM/s + size %.1f",
-        config.DUAL_MIN_INCOME / 1e6, config.DUAL_MIN_SIZE))
 end
 
-function M.isDualMode()
-    return config.PRIORITY_INCOME and config.BIG_EGG_MODE
-end
-
-function M.getCurrentTarget()
-    return lastStolenUid and { uid = lastStolenUid, pos = lastStolenPos } or nil
-end
+function M.isDualMode() return config.PRIORITY_INCOME and config.BIG_EGG_MODE end
+function M.getCurrentTarget() return lastStolenUid and { uid = lastStolenUid, pos = lastStolenPos } or nil end
 
 function M.clearCurrentTarget()
     lastStolenUid = nil
     lastStolenPos = nil
-    log("🔓 Clear current target")
 end
-
-function M.setAutoStart(enabled) log("ℹ Auto start: " .. (enabled and "BẬT" or "TẮT")) end
 
 function M.getStolenCount()
     local c = 0
@@ -1980,35 +1659,17 @@ function M.getStatus()
     }
 end
 
-function M.setBigEggMinSize(n)
-    config.BIG_EGG_MIN_SIZE = n or 0
-    log(string.format("📏 Big egg min size: %.2f", config.BIG_EGG_MIN_SIZE))
-end
+function M.setBigEggMinSize(n) config.BIG_EGG_MIN_SIZE = n or 0 end
+function M.setBigEggMinScale(n) config.BIG_EGG_MIN_SCALE = n or 0 end
+function M.getBigEggThresholds() return { minSize = config.BIG_EGG_MIN_SIZE or 0, minScale = config.BIG_EGG_MIN_SCALE or 0 } end
+function M.setForestHitSpeed(n) config.FOREST_HIT_SPEED = n or 20 end
+function M.setForestHitVely(n) config.FOREST_HIT_VELY = n or 5 end
+function M.setForestHpDrop(n) config.FOREST_HP_DROP = n or 0.01 end
 
-function M.setBigEggMinScale(n)
-    config.BIG_EGG_MIN_SCALE = n or 0
-    log(string.format("📏 Big egg min scale: %.2f", config.BIG_EGG_MIN_SCALE))
-end
-function M.getBigEggThresholds()
-    return {
-        minSize = config.BIG_EGG_MIN_SIZE or 0,
-        minScale = config.BIG_EGG_MIN_SCALE or 0,
-    }
-end
-
-function M.setForestHitSpeed(n)
-    config.FOREST_HIT_SPEED = n or 20
-    log("💥 Forest hit speed threshold: " .. config.FOREST_HIT_SPEED)
-end
-
-function M.setForestHitVely(n)
-    config.FOREST_HIT_VELY = n or 5
-    log("💥 Forest hit velY threshold: " .. config.FOREST_HIT_VELY)
-end
-
-function M.setForestHpDrop(n)
-    config.FOREST_HP_DROP = n or 0.01
-    log("💥 Forest HP drop threshold: " .. config.FOREST_HP_DROP)
+-- ⭐ v10.6.6: API steal burst
+function M.setStealBurst(count, delay)
+    config.STEAL_BURST_COUNT = count or 5
+    config.STEAL_BURST_DELAY = delay or 0.01
 end
 
 return M
