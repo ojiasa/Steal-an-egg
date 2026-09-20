@@ -909,11 +909,34 @@ local function runToForest()
     return true
 end
 
--- ⭐ v10.6.6: Về home bay velocity thẳng, không giật
+-- ⭐ v10.6.8: Bay về home, giữ Y cao (không tụt xuống đất)
 local function goHome()
-    log("🏃 BAY VỀ HOME (velocity 3D, không giật)")
+    log("🏃 BAY VỀ HOME (giữ Y cao)")
     local startTime = os.clock()
 
+    -- ⭐ Y tối thiểu để bay (không tụt xuống đất)
+    local MIN_FLY_Y = 80
+    local FLY_Y = config.HOME_FLY_ABSOLUTE_Y or 100
+
+    -- ⭐ Nếu Y hiện tại thấp → kéo lên cao trước
+    local hrp0 = getHRP()
+    if hrp0 and hrp0.Position.Y < MIN_FLY_Y then
+        log(string.format("   ⬆ Y thấp (%.1f) → kéo lên %.1f", hrp0.Position.Y, FLY_Y))
+        local tUp = os.clock()
+        while os.clock() - tUp < 2 do
+            if not isRunning then return false end
+            local r = getHRP()
+            if not r then break end
+            if r.Position.Y >= FLY_Y - 5 then break end
+            pcall(function()
+                r.AssemblyLinearVelocity = Vector3.new(0, 200, 0)
+                r.AssemblyAngularVelocity = Vector3.zero
+            end)
+            task.wait(0.01)
+        end
+    end
+
+    -- ⭐ Bay velocity thẳng về home, GIỮ Y >= MIN_FLY_Y
     local t1 = os.clock()
     while os.clock() - t1 < 25 do
         if not isRunning then return false end
@@ -921,18 +944,8 @@ local function goHome()
         if not hum or not r then break end
         keepHealth(); forceRunningState()
 
-        if r.Position.Y < 10 then
-            log("🚨 Y < 10 → force tele home")
-            forceTeleHome()
-            break
-        end
-
-        local dx = config.HOME_POS.X - r.Position.X
-        local dy = config.HOME_POS.Y - r.Position.Y
-        local dz = config.HOME_POS.Z - r.Position.Z
-        local d3 = math.sqrt(dx*dx + dy*dy + dz*dz)
-
-        if d3 < 8 then
+        local d3 = dist(r.Position, config.HOME_POS)
+        if d3 < 10 then
             log(string.format("📍 Đến home (d=%.1f)", d3))
             break
         end
@@ -941,35 +954,63 @@ local function goHome()
             local dir = config.HOME_POS - r.Position
             if dir.Magnitude > 0 then
                 local nrm = dir.Unit
-                local vy = math.clamp(nrm.Y * (config.FLY_HOME_SPEED or 500), -150, 150)
+
+                -- ⭐ Y velocity: giữ trên cao, không tụt
+                local vy
+                if r.Position.Y < MIN_FLY_Y then
+                    vy = 200  -- kéo lên mạnh
+                elseif r.Position.Y > FLY_Y + 50 then
+                    vy = -100 -- hạ xuống nhẹ
+                else
+                    -- Giữ Y ổn định quanh FLY_Y
+                    vy = math.clamp((FLY_Y - r.Position.Y) * 3, -100, 200)
+                end
+
+                -- Bay ngang với speed cao
+                local horizSpeed = config.FLY_HOME_SPEED or 500
+                local horiz = Vector3.new(nrm.X, 0, nrm.Z)
+                if horiz.Magnitude > 0 then
+                    horiz = horiz.Unit
+                end
+
                 r.AssemblyLinearVelocity = Vector3.new(
-                    nrm.X * (config.FLY_HOME_SPEED or 500),
+                    horiz.X * horizSpeed,
                     vy,
-                    nrm.Z * (config.FLY_HOME_SPEED or 500)
+                    horiz.Z * horizSpeed
                 )
             end
         end)
         task.wait(0.01)
     end
 
-    -- Dừng velocity
+    -- Hạ xuống home
+    log("⬇ Hạ xuống home")
+    local t2 = os.clock()
+    while os.clock() - t2 < 3 do
+        if not isRunning then break end
+        local r = getHRP()
+        if not r then break end
+        local dY = config.HOME_POS.Y - r.Position.Y
+        local dXZ = math.sqrt((r.Position.X - config.HOME_POS.X)^2 + (r.Position.Z - config.HOME_POS.Z)^2)
+        if math.abs(dY) < 2 and dXZ < 5 then break end
+
+        pcall(function()
+            r.AssemblyLinearVelocity = Vector3.new(0, math.clamp(dY * 5, -200, 200), 0)
+            r.AssemblyAngularVelocity = Vector3.zero
+        end)
+        task.wait(0.02)
+    end
+
+    -- Snap + dừng
     local rStop = getHRP()
     if rStop then pcall(function()
+        rStop.CFrame = CFrame.new(config.HOME_POS)
         rStop.AssemblyLinearVelocity = Vector3.zero
         rStop.AssemblyAngularVelocity = Vector3.zero
     end) end
-    task.wait(0.1)
+    task.wait(0.3)
 
-    -- Snap CFrame 1 lần
-    local rSnap = getHRP()
-    if rSnap then pcall(function()
-        rSnap.CFrame = CFrame.new(config.HOME_POS)
-        rSnap.AssemblyLinearVelocity = Vector3.zero
-        rSnap.AssemblyAngularVelocity = Vector3.zero
-    end) end
-    task.wait(0.2)
-
-    log("🔨 Rebuild nhân vật tại home...")
+    log("🔨 Rebuild...")
     rebuildCharacterFull()
     task.wait(0.3)
 
@@ -979,7 +1020,6 @@ local function goHome()
         rEnd.AssemblyLinearVelocity = Vector3.zero
         rEnd.AssemblyAngularVelocity = Vector3.zero
     end) end
-    forceRunningState()
 
     log(string.format("✅ Về home + rebuild (%.2fs)", os.clock() - startTime))
     return true
@@ -1032,124 +1072,7 @@ local function baitBoss(timeout)
     return false
 end
 
--- ⭐ v10.6.6: Check boss INLINE, tele NGAY
-local function stealAtForest()
-    local prompt, ppos = findForestEggOnly()
-    if not prompt or not ppos then
-        log("⚠ Không có Forest egg")
-        return false, "no-egg"
-    end
-
-    log(string.format("🎯 Forest egg @ %.1f,%.1f,%.1f", ppos.X, ppos.Y, ppos.Z))
-
-    local hrp = getHRP()
-    if hrp and dist(hrp.Position, ppos) > config.ARRIVE_DIST then
-        velocityMoveTo(ppos, 15)
-    end
-
-    -- Reset velocity về 0
-    local hReset = getHRP()
-    if hReset then pcall(function()
-        hReset.AssemblyLinearVelocity = Vector3.zero
-        hReset.AssemblyAngularVelocity = Vector3.zero
-    end) end
-    task.wait(0.2)
-
-    local forestBefore = getSlotSet()
-    log("⚡ Steal Forest (check INLINE)")
-
-    local loopStart = os.clock()
-
-    for i = 1, 8 do
-        if not isRunning then break end
-
-        -- CHECK BOSS ĐÁNH
-        local hum = getHum()
-        local hCheck = getHRP()
-        if hum and hCheck then
-            local vel = hCheck.AssemblyLinearVelocity
-            local speed = vel.Magnitude
-            local velY = vel.Y
-            local state = hum:GetState()
-
-            if os.clock() - loopStart > 0.15 then
-                if speed > (config.FOREST_HIT_SPEED or 20)
-                    or velY > (config.FOREST_HIT_VELY or 5)
-                    or state == Enum.HumanoidStateType.Physics
-                    or state == Enum.HumanoidStateType.Ragdoll
-                    or state == Enum.HumanoidStateType.PlatformStanding
-                    or state == Enum.HumanoidStateType.FallingDown then
-                    log(string.format("💥 Boss đánh NGAY (speed=%.1f Y=%.1f state=%s) → TELE",
-                        speed, velY, tostring(state):gsub("Enum.HumanoidStateType%.", "")))
-                    return false, "hit-by-boss"
-                end
-            end
-        end
-
-        -- Fire prompt
-        forceRunningState()
-        local h2 = getHRP()
-        if h2 then
-            local p2 = findPromptSteal(h2.Position, config.FOREST_RADIUS)
-            if p2 then
-                local p2pos = getPromptPos(p2)
-                if p2pos and dist(h2.Position, p2pos) > config.PROMPT_NEAR then
-                    pcall(function()
-                        h2.CFrame = CFrame.new(p2pos + Vector3.new(0, 3, 0))
-                        h2.AssemblyLinearVelocity = Vector3.zero
-                        h2.AssemblyAngularVelocity = Vector3.zero
-                    end)
-                    task.wait(0.05)
-                end
-                firePromptBurst(p2, 3, 0.01)
-            end
-        end
-
-        task.wait()
-
-        -- CHECK LẠI SAU FIRE
-        local hum2 = getHum()
-        local hCheck2 = getHRP()
-        if hum2 and hCheck2 then
-            local speed2 = hCheck2.AssemblyLinearVelocity.Magnitude
-            local velY2 = hCheck2.AssemblyLinearVelocity.Y
-            local state2 = hum2:GetState()
-            if os.clock() - loopStart > 0.15 then
-                if speed2 > (config.FOREST_HIT_SPEED or 20)
-                    or velY2 > (config.FOREST_HIT_VELY or 5)
-                    or state2 == Enum.HumanoidStateType.Physics
-                    or state2 == Enum.HumanoidStateType.Ragdoll
-                    or state2 == Enum.HumanoidStateType.PlatformStanding
-                    or state2 == Enum.HumanoidStateType.FallingDown then
-                    log(string.format("💥 Boss đánh SAU FIRE (speed=%.1f Y=%.1f) → TELE NGAY",
-                        speed2, velY2))
-                    return false, "hit-by-boss"
-                end
-            end
-        end
-
-        local stolen, slotName = hasStolenSlot(forestBefore)
-        if stolen then
-            log("🎒 Forest OK (slot): " .. slotName)
-            stolenPrompts[prompt] = true
-            return true, "stolen"
-        end
-
-        task.wait(0.1)
-    end
-
-    task.wait(0.5)
-    if isCarryingEggStrict() then
-        log("🎒 Forest OK (carry verify)")
-        stolenPrompts[prompt] = true
-        return true, "stolen"
-    end
-
-    log("❌ Forest FAIL")
-    return false, "no-steal"
-end
-
--- ⭐ v10.6.6: Steal tại egg, fire 5 lần cực nhanh
+-- ⭐ v10.6.8: Steal giữ FLY trên cao liên tục
 local function stealAtPos(targetPos, label, eggUid)
     log("═══════")
     log("STEAL TẠI " .. label)
@@ -1158,23 +1081,17 @@ local function stealAtPos(targetPos, label, eggUid)
     if not hrp then return false end
 
     local d = dist(hrp.Position, targetPos)
-    log(string.format("   📏 Khoảng cách tới egg: %.1f", d))
-
     if d > 200 then
-        log("   🚨 Ở quá xa egg → tele lại")
         local ok = teleToMapStable(targetPos)
         if not ok then return false end
         hrp = getHRP()
         if not hrp then return false end
-        d = dist(hrp.Position, targetPos)
-        if d > 200 then return false end
     end
 
-    -- Bay ngang tới egg, GIỮ Y
-    if d > config.PROMPT_NEAR then
-        log(string.format("   🚀 Bay ngang tới egg (%.1f, giữ Y=%.1f)", d, hrp.Position.Y))
-        local curY = hrp.Position.Y
-        local airTarget = Vector3.new(targetPos.X, curY, targetPos.Z)
+    -- ⭐ Lấy Y hiện tại (trên cao), bay ngang tới egg
+    local holdY = hrp.Position.Y
+    local airTarget = Vector3.new(targetPos.X, holdY, targetPos.Z)
+    if dist(hrp.Position, airTarget) > config.PROMPT_NEAR then
         velocityFlyTo(airTarget, 3, 600)
     end
 
@@ -1188,6 +1105,13 @@ local function stealAtPos(targetPos, label, eggUid)
         local h2 = getHRP()
         if not h2 then break end
 
+        -- ⭐ FLY giữ trên cao (Y = holdY)
+        pcall(function()
+            h2.CFrame = CFrame.new(Vector3.new(h2.Position.X, holdY, h2.Position.Z))
+            h2.AssemblyLinearVelocity = Vector3.zero
+            h2.AssemblyAngularVelocity = Vector3.zero
+        end)
+
         local p2 = findPromptSteal(h2.Position, 150)
         if not p2 then
             log("⚠ Không có prompt gần")
@@ -1198,24 +1122,36 @@ local function stealAtPos(targetPos, label, eggUid)
         if not p2pos then break end
         local dToPrompt = dist(h2.Position, p2pos)
         if dToPrompt > config.PROMPT_NEAR then
-            log(string.format("🏃 Bay ngang tới prompt (%.1f, giữ Y)", dToPrompt))
-            local curY = h2.Position.Y
-            local airTarget = Vector3.new(p2pos.X, curY, p2pos.Z)
-            velocityFlyTo(airTarget, 2, 600)
-            p2 = findPromptSteal(h2.Position, 150)
+            -- ⭐ Bay ngang giữ Y
+            local airP = Vector3.new(p2pos.X, holdY, p2pos.Z)
+            velocityFlyTo(airP, 2, 600)
+            local h3 = getHRP()
+            if h3 then pcall(function()
+                h3.CFrame = CFrame.new(Vector3.new(h3.Position.X, holdY, h3.Position.Z))
+                h3.AssemblyLinearVelocity = Vector3.zero
+                h3.AssemblyAngularVelocity = Vector3.zero
+            end) end
+            p2 = findPromptSteal(getHRP() and getHRP().Position or Vector3.zero, 150)
             if not p2 then break end
         end
 
-        -- ⭐ FIRE 5 LẦN CỰC NHANH (0.01s giữa các lần)
-        log(string.format("🔫 Fire burst x%d", config.STEAL_BURST_COUNT or 5))
+        -- Fire burst 5 lần
         firePromptBurst(p2, config.STEAL_BURST_COUNT or 5, config.STEAL_BURST_DELAY or 0.01)
 
-        -- Verify
+        -- ⭐ Verify + FLY giữ trên cao mỗi frame
         local verifyStart = os.clock()
         local stolen = false
         local stolenName = nil
         while os.clock() - verifyStart < config.STEAL_TIMEOUT do
-            task.wait(0.1)
+            -- FLY giữ Y
+            local h4 = getHRP()
+            if h4 then pcall(function()
+                h4.CFrame = CFrame.new(Vector3.new(h4.Position.X, holdY, h4.Position.Z))
+                h4.AssemblyLinearVelocity = Vector3.zero
+                h4.AssemblyAngularVelocity = Vector3.zero
+            end) end
+
+            task.wait(0.05)
             local s, sn = hasStolenSlot(slotsBefore)
             if s then stolen = true; stolenName = sn; break end
             if isCarryingEggStrict() then
@@ -1225,8 +1161,7 @@ local function stealAtPos(targetPos, label, eggUid)
         end
 
         if stolen then
-            log(string.format("✅ ĐÃ STEAL (vòng %d, %s) — giữ Y=%.1f",
-                i, stolenName, h2.Position.Y))
+            log(string.format("✅ ĐÃ STEAL (vòng %d, %s) — Y=%.1f", i, stolenName, holdY))
             if eggUid then lastStolenUid = eggUid end
             lastStolenPos = targetPos
             return true
