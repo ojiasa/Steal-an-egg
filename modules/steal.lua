@@ -1,12 +1,14 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v10.6.8
+-- STEAL MODULE v10.6.9
 -- Flow: Home → Forest → Steal forest → (Boss đánh?) → REBUILD
---       → TELE egg → Steal (5 nhấn nhanh) → Về home → Check
--- v10.6.8 FIX:
---   - Thêm lại stealAtForest (bị mất ở v10.6.6 → không steal forest)
---   - Steal Forest check boss INLINE (tele NGAY khi vừa chạm)
---   - Bay về home bằng velocity + giữ Y cao (không chạy bộ)
---   - Tele + Steal giữ FLY trên cao liên tục (không rớt)
+--       → TELE egg → Steal (5 nhấn nhanh) → Về home → Đứng yên 1s → Lặp
+-- v10.6.9 FIX:
+--   - Về home DỪNG HẲN velocity + freeze CFrame (không bay loạn)
+--   - Sau goHome chờ 1s đứng yên mới cycle tiếp
+--   - stealAtForest đã có (fix từ v10.6.8)
+--   - Forest check boss INLINE, tele NGAY
+--   - Tele FLY giữ trên cao, không rớt
+--   - Steal FLY giữ trên cao, không rớt
 --   - Fire prompt burst x5 cực nhanh
 -- ═══════════════════════════════════════════════════════════════
 
@@ -51,6 +53,9 @@ local config = {
     FLY_HOME_SPEED      = 500,
     DROP_SPEED          = 250,
     HOME_TIMEOUT        = 30,
+
+    -- ⭐ v10.6.9: chờ 1s tại home
+    HOME_REST_TIME      = 1.0,
 
     FOREST_RUN_SPEED    = 250,
     FOREST_RUN_TIMEOUT  = 60,
@@ -161,6 +166,15 @@ local function freezeAt(position, duration)
         end)
         task.wait(0.02)
     end
+end
+
+-- ⭐ v10.6.9: Dừng hẳn velocity
+local function hardStop()
+    local r = getHRP()
+    if r then pcall(function()
+        r.AssemblyLinearVelocity = Vector3.zero
+        r.AssemblyAngularVelocity = Vector3.zero
+    end) end
 end
 
 local function forceTeleHome()
@@ -667,18 +681,14 @@ local function rebuildCharacterFull()
     return true
 end
 
--- ⭐ v10.6.8: TELE dùng FLY giữ trên cao (không rớt)
+-- ⭐ TELE dùng FLY giữ trên cao
 local function teleToMapStable(targetPos)
     log("📍 TELE + FLY giữ trên cao")
 
     local airPos = targetPos + Vector3.new(0, 8, 0)
 
     for attempt = 1, 4 do
-        local hrp = getHRP()
-        if hrp then pcall(function()
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
-        end) end
+        hardStop()
         task.wait(0.05)
 
         for i = 1, 8 do
@@ -692,7 +702,6 @@ local function teleToMapStable(targetPos)
             task.wait(0.02)
         end
 
-        -- FLY giữ trên cao 0.6s
         local t0 = os.clock()
         while os.clock() - t0 < 0.6 do
             if not isRunning then return false end
@@ -734,7 +743,7 @@ local function teleToMapStable(targetPos)
     return false
 end
 
--- ⭐ Fire prompt burst x5 cực nhanh
+-- ⭐ Fire prompt burst x5
 local function firePromptBurst(prompt, count, delay)
     count = count or 5
     delay = delay or 0.01
@@ -770,7 +779,6 @@ local function firePromptBurst(prompt, count, delay)
     return true
 end
 
--- ⭐ Fire prompt 1 lần (dùng cho drop)
 local function firePromptOnce(prompt)
     if not prompt or not prompt.Parent then return false end
     pcall(function()
@@ -929,9 +937,9 @@ local function runToForest()
     return true
 end
 
--- ⭐ v10.6.8: Bay về home, giữ Y cao (không tụt xuống đất)
+-- ⭐ v10.6.9: Về home DỪNG HẲN + đứng yên
 local function goHome()
-    log("🏃 BAY VỀ HOME (giữ Y cao)")
+    log("🏃 BAY VỀ HOME (dừng hẳn sau khi về)")
     local startTime = os.clock()
 
     local MIN_FLY_Y = 80
@@ -955,7 +963,7 @@ local function goHome()
         end
     end
 
-    -- Bay velocity thẳng về home, GIỮ Y >= MIN_FLY_Y
+    -- Bay velocity thẳng về home
     local t1 = os.clock()
     while os.clock() - t1 < 25 do
         if not isRunning then return false end
@@ -1016,18 +1024,15 @@ local function goHome()
         task.wait(0.02)
     end
 
-    local rStop = getHRP()
-    if rStop then pcall(function()
-        rStop.CFrame = CFrame.new(config.HOME_POS)
-        rStop.AssemblyLinearVelocity = Vector3.zero
-        rStop.AssemblyAngularVelocity = Vector3.zero
-    end) end
-    task.wait(0.3)
+    -- ⭐ v10.6.9: DỪNG HẲN
+    hardStop()
+    freezeAt(config.HOME_POS, 0.4)
 
     log("🔨 Rebuild...")
     rebuildCharacterFull()
     task.wait(0.3)
 
+    -- ⭐ v10.6.9: Sau rebuild DỪNG HẲN + freeze
     local rEnd = getHRP()
     if rEnd then pcall(function()
         rEnd.CFrame = CFrame.new(config.HOME_POS)
@@ -1035,7 +1040,13 @@ local function goHome()
         rEnd.AssemblyAngularVelocity = Vector3.zero
     end) end
 
-    log(string.format("✅ Về home + rebuild (%.2fs)", os.clock() - startTime))
+    freezeAt(config.HOME_POS, 0.5)
+
+    -- ⭐ Đảm bảo velocity = 0 lần cuối
+    hardStop()
+    task.wait(0.1)
+
+    log(string.format("✅ Về home + rebuild + đứng yên (%.2fs)", os.clock() - startTime))
     return true
 end
 
@@ -1086,7 +1097,7 @@ local function baitBoss(timeout)
     return false
 end
 
--- ⭐ v10.6.8: Steal Forest — check boss INLINE, tele NGAY
+-- ⭐ Steal Forest — check boss INLINE, tele NGAY
 local function stealAtForest()
     local prompt, ppos = findForestEggOnly()
     if not prompt or not ppos then
@@ -1101,12 +1112,7 @@ local function stealAtForest()
         velocityMoveTo(ppos, 15)
     end
 
-    -- Reset velocity
-    local hReset = getHRP()
-    if hReset then pcall(function()
-        hReset.AssemblyLinearVelocity = Vector3.zero
-        hReset.AssemblyAngularVelocity = Vector3.zero
-    end) end
+    hardStop()
     task.wait(0.2)
 
     local forestBefore = getSlotSet()
@@ -1203,7 +1209,7 @@ local function stealAtForest()
     return false, "no-steal"
 end
 
--- ⭐ v10.6.8: Steal giữ FLY trên cao liên tục
+-- ⭐ Steal giữ FLY trên cao liên tục
 local function stealAtPos(targetPos, label, eggUid)
     log("═══════")
     log("STEAL TẠI " .. label)
@@ -1219,7 +1225,6 @@ local function stealAtPos(targetPos, label, eggUid)
         if not hrp then return false end
     end
 
-    -- Lấy Y hiện tại (trên cao), bay ngang tới egg
     local holdY = hrp.Position.Y
     local airTarget = Vector3.new(targetPos.X, holdY, targetPos.Z)
     if dist(hrp.Position, airTarget) > config.PROMPT_NEAR then
@@ -1236,7 +1241,6 @@ local function stealAtPos(targetPos, label, eggUid)
         local h2 = getHRP()
         if not h2 then break end
 
-        -- FLY giữ trên cao (Y = holdY)
         pcall(function()
             h2.CFrame = CFrame.new(Vector3.new(h2.Position.X, holdY, h2.Position.Z))
             h2.AssemblyLinearVelocity = Vector3.zero
@@ -1253,7 +1257,6 @@ local function stealAtPos(targetPos, label, eggUid)
         if not p2pos then break end
         local dToPrompt = dist(h2.Position, p2pos)
         if dToPrompt > config.PROMPT_NEAR then
-            -- Bay ngang giữ Y
             local airP = Vector3.new(p2pos.X, holdY, p2pos.Z)
             velocityFlyTo(airP, 2, 600)
             local h3 = getHRP()
@@ -1268,7 +1271,6 @@ local function stealAtPos(targetPos, label, eggUid)
 
         firePromptBurst(p2, config.STEAL_BURST_COUNT or 5, config.STEAL_BURST_DELAY or 0.01)
 
-        -- Verify + FLY giữ trên cao mỗi frame
         local verifyStart = os.clock()
         local stolen = false
         local stolenName = nil
@@ -1402,7 +1404,7 @@ local function pickNextEgg()
     end
 end
 
--- ⭐⭐⭐ MAIN LOOP v10.6.8
+-- ⭐⭐⭐ MAIN LOOP v10.6.9
 local function mainLoop()
     while isRunning do
         local cycleT0 = os.clock()
@@ -1431,7 +1433,7 @@ local function mainLoop()
             elseif not forestOk then
                 log("⚠ Forest fail → về home")
                 goHome()
-                task.wait(config.WAIT_BETWEEN)
+                task.wait(config.HOME_REST_TIME or 1.0)  -- ⭐ 1s đứng yên
                 skipCycle = true
             else
                 log("▶ [3/6] Bait boss...")
@@ -1439,7 +1441,7 @@ local function mainLoop()
                 if not gotKB then
                     log("⚠ Không bị knockback → về home")
                     goHome()
-                    task.wait(config.WAIT_BETWEEN)
+                    task.wait(config.HOME_REST_TIME or 1.0)  -- ⭐ 1s
                     skipCycle = true
                 end
             end
@@ -1451,14 +1453,7 @@ local function mainLoop()
             rebuildCharacterFull()
             task.wait(0.2)
 
-            local afterPos = getHRP() and getHRP().Position
-            if afterPos then pcall(function()
-                local r = getHRP()
-                if r then
-                    r.AssemblyLinearVelocity = Vector3.zero
-                    r.AssemblyAngularVelocity = Vector3.zero
-                end
-            end) end
+            hardStop()
 
             -- BƯỚC 5: PICK + TELE + STEAL
             log("▶ [5/6] Pick egg + tele + steal...")
@@ -1467,7 +1462,7 @@ local function mainLoop()
             if not eggPos then
                 log("⚠ Không có egg → về home")
                 goHome()
-                task.wait(config.WAIT_BETWEEN)
+                task.wait(config.HOME_REST_TIME or 1.0)  -- ⭐ 1s
             else
                 local targetPos = eggPos + Vector3.new(0, 3, 0)
 
@@ -1498,6 +1493,7 @@ local function mainLoop()
                     log("▶ [6/6] Steal OK → về home...")
                     deliveryFailed = false
                     goHome()
+                    task.wait(config.HOME_REST_TIME or 1.0)  -- ⭐ 1s đứng yên
                     task.wait(config.CHAT_WAIT)
 
                     if lastStolenUid then
@@ -1522,6 +1518,7 @@ local function mainLoop()
                     end
 
                     goHome()
+                    task.wait(config.HOME_REST_TIME or 1.0)  -- ⭐ 1s
                 end
                 task.wait(config.CHAT_WAIT)
             end
@@ -1529,7 +1526,7 @@ local function mainLoop()
 
         log(string.format("⏱ Cycle tổng: %.2fs", os.clock() - cycleT0))
         if not isRunning then break end
-        task.wait(0.3)
+        task.wait(config.HOME_REST_TIME or 1.0)  -- ⭐ 1s đứng yên trước cycle mới
     end
 end
 
@@ -1585,21 +1582,16 @@ function M.start()
     lastStolenPos = nil
 
     pcall(function()
-        local hrp = getHRP()
-        if hrp then
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
-        end
+        hardStop()
         forceRunningState()
     end)
     task.wait(0.2)
 
     isRunning = true
-    log("▶ START v10.6.8")
+    log("▶ START v10.6.9")
+    log(string.format("   Home rest time: %.1fs", config.HOME_REST_TIME or 1.0))
     log(string.format("   Steal burst: x%d @ %.3fs",
         config.STEAL_BURST_COUNT, config.STEAL_BURST_DELAY))
-    log(string.format("   Forest hit threshold: speed>%d velY>%d",
-        config.FOREST_HIT_SPEED, config.FOREST_HIT_VELY))
 
     mainThread = task.spawn(mainLoop)
 end
@@ -1610,13 +1602,7 @@ function M.stop()
         pcall(function() task.cancel(mainThread) end)
         mainThread = nil
     end
-    pcall(function()
-        local hrp = getHRP()
-        if hrp then
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
-        end
-    end)
+    hardStop()
     log("■ STOP")
 end
 
@@ -1648,6 +1634,12 @@ function M.setBaitTimeout(n) config.BAIT_TIMEOUT = n or 15 end
 function M.setForestWarmup(n) config.FOREST_WARMUP = n or 0.3 end
 function M.setBaitWarmup(n) config.BAIT_WARMUP = n or 0.3 end
 function M.setTeleHold(n) config.TELE_HOLD = n or 0.3 end
+
+-- ⭐ v10.6.9: API chỉnh thời gian nghỉ tại home
+function M.setHomeRestTime(n)
+    config.HOME_REST_TIME = n or 1.0
+    log("⏸ Home rest time: " .. config.HOME_REST_TIME .. "s")
+end
 
 function M.getConfig() return config end
 function M.getAllMaps() return ALL_MAPS end
@@ -1720,6 +1712,7 @@ function M.getStatus()
         stolenCount = M.getStolenCount(),
         lastStolenUid = lastStolenUid,
         forestRunSpeed = config.FOREST_RUN_SPEED,
+        homeRestTime = config.HOME_REST_TIME,
     }
 end
 
