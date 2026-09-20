@@ -1,12 +1,15 @@
 -- ═══════════════════════════════════════════════════════════════
--- STEAL MODULE v10.6.1
+-- STEAL MODULE v10.6.3
 -- Flow: Home → Forest → Steal forest → (Boss đánh?) → REBUILD
 --       → TELE egg → Steal → Về home → Check
--- v10.6.1: FIX
---   - Forest boss đánh → TELE NGAY (không đợi văng ra xa)
---     + Detect HP drop + state + speed threshold thấp (30/8)
---     + Check loop 0.15s thay vì 0.5s
---   - Giữ nguyên rebuild (tránh game back về home)
+-- v10.6.3 FIX:
+--   - Forest boss đánh → TELE NGAY (watchdog check mỗi frame)
+--   - Về home đứng yên (CFrame, không giật)
+--   - Tele giữ trên cao, KHÔNG rớt xuống
+--   - Tele xong giữ nguyên trên cao steal luôn
+--   - Retry tele nếu fail (không về home sớm)
+--   - Bay tới egg giữ Y hiện tại
+--   - Giữ rebuild (tránh game back về home)
 -- ═══════════════════════════════════════════════════════════════
 
 local P                  = game:GetService("Players").LocalPlayer
@@ -81,17 +84,17 @@ local config = {
     CYCLE_TIMEOUT  = 120,
     WAIT_BETWEEN   = 0.7,
 
-    -- ⭐ Threshold bait boss
+    -- ⭐ Bait boss
     KB_SPEED_PHYSICS  = 50,
     KB_SPEED_VELOCITY = 80,
     KB_VELY_MIN       = 20,
     KB_SHIFT_MIN      = 30,
     KB_ROTATE_MIN     = 90,
 
-    -- ⭐ v10.6.1: Threshold steal forest — detect boss đánh NGAY
-    FOREST_HIT_SPEED  = 30,     -- 60 → 30
-    FOREST_HIT_VELY   = 8,      -- 15 → 8
-    FOREST_HP_DROP    = 0.01,   -- mới: HP drop = boss vừa đánh
+    -- ⭐ v10.6.3: Forest boss detect (chỉ văng, không mất HP)
+    FOREST_HIT_SPEED  = 20,
+    FOREST_HIT_VELY   = 5,
+    FOREST_HP_DROP    = 0.01,
 }
 
 local isRunning      = false
@@ -224,7 +227,6 @@ pcall(function()
     end
 end)
 
--- ⭐ Cache prompt scan
 local promptCache = { time = 0, data = {} }
 local function findPromptSteal(pos, radius)
     radius = radius or config.MAP_RADIUS
@@ -770,11 +772,13 @@ local function rebuildCharacterFull()
     return true
 end
 
--- ══════════ TELE ══════════
+-- ⭐ v10.6.3: TELE giữ trên cao, KHÔNG rớt xuống
 local function teleToMapStable(targetPos)
-    log("📍 TELE")
+    log("📍 TELE (giữ trên cao, không rớt)")
 
-    for attempt = 1, 3 do
+    local airPos = targetPos + Vector3.new(0, 8, 0)
+
+    for attempt = 1, 4 do
         local p0 = getHRP() and getHRP().Position
         if p0 then log(string.format("   [tele #%d] Bắt đầu: (%.1f, %.1f, %.1f)",
             attempt, p0.X, p0.Y, p0.Z)) end
@@ -786,72 +790,45 @@ local function teleToMapStable(targetPos)
         end) end
         task.wait(0.05)
 
-        local safePos = targetPos + Vector3.new(0, 8, 0)
-        for i = 1, 6 do
+        for i = 1, 10 do
             if not isRunning then return false end
             local r = getHRP()
             if r then pcall(function()
-                r.CFrame = CFrame.new(safePos)
+                r.CFrame = CFrame.new(airPos)
                 r.AssemblyLinearVelocity = Vector3.zero
                 r.AssemblyAngularVelocity = Vector3.zero
             end) end
-            task.wait(0.03)
+            task.wait(0.02)
         end
 
-        freezeAt(safePos, 0.3)
+        freezeAt(airPos, 0.5)
 
         local rCheck = getHRP()
-        if rCheck then
-            local dCheck = dist(rCheck.Position, safePos)
-            log(string.format("   [tele #%d] Verify: d=%.1f", attempt, dCheck))
-            if dCheck > 50 then
-                log("   🚨 Văng → thử lại")
-                task.wait(0.2)
+        if not rCheck then
+            task.wait(0.2)
+        else
+            local dCheck = dist(rCheck.Position, airPos)
+            local dY = math.abs(rCheck.Position.Y - airPos.Y)
+            log(string.format("   [tele #%d] Verify: d=%.1f dY=%.1f Y=%.1f",
+                attempt, dCheck, dY, rCheck.Position.Y))
+
+            if dCheck < 30 and dY < 20 then
+                log("   ✅ Ổn định trên cao")
+                local r2 = getHRP()
+                if r2 then pcall(function()
+                    r2.CFrame = CFrame.new(airPos)
+                    r2.AssemblyLinearVelocity = Vector3.zero
+                    r2.AssemblyAngularVelocity = Vector3.zero
+                end) end
+                return true
             else
-                local t0 = os.clock()
-                while os.clock() - t0 < 2.5 do
-                    if not isRunning then return false end
-                    local h, r = getHum(), getHRP()
-                    if not h or not r then break end
-                    keepHealth(); forceRunningState()
-                    local d = dist(r.Position, targetPos)
-                    if d < 5 then break end
-                    pcall(function()
-                        local dir = targetPos - r.Position
-                        local horiz = Vector3.new(dir.X, 0, dir.Z)
-                        if horiz.Magnitude > 0.1 then
-                            local nrm = horiz.Unit
-                            r.AssemblyLinearVelocity = Vector3.new(
-                                nrm.X * math.min(50, horiz.Magnitude * 3),
-                                -40,
-                                nrm.Z * math.min(50, horiz.Magnitude * 3)
-                            )
-                        else
-                            r.AssemblyLinearVelocity = Vector3.new(0, -40, 0)
-                        end
-                    end)
-                    task.wait(0.02)
-                end
-
-                freezeAt(targetPos, config.TELE_HOLD or 0.3)
-
-                local rFinal = getHRP()
-                if rFinal then
-                    local dFinal = dist(rFinal.Position, targetPos)
-                    log(string.format("   [tele #%d] Kết quả: d target=%.1f", attempt, dFinal))
-                    if dFinal < 100 then
-                        log("   ✅ Ổn định")
-                        return true
-                    else
-                        log("   ⚠ Vẫn xa → tele lại")
-                        task.wait(0.3)
-                    end
-                end
+                log("   🚨 Văng/rớt → thử lại")
+                task.wait(0.2)
             end
         end
     end
 
-    log("   ❌ Tele fail 3 lần")
+    log("   ❌ Tele fail 4 lần")
     return false
 end
 
@@ -1019,11 +996,12 @@ local function runToForest()
     return true
 end
 
+-- ⭐ v10.6.3: Về home mượt, không giật
 local function goHome()
-    log("🏃 BAY VỀ HOME")
+    log("🏃 BAY VỀ HOME (không giật)")
     local startTime = os.clock()
-    local flyY = config.HOME_FLY_ABSOLUTE_Y or 100
 
+    -- ⭐ Bay ngang về home, giữ Y hiện tại
     local t1 = os.clock()
     while os.clock() - t1 < 20 do
         if not isRunning then return false end
@@ -1040,25 +1018,59 @@ local function goHome()
         local dx = config.HOME_POS.X - r.Position.X
         local dz = config.HOME_POS.Z - r.Position.Z
         local hd = math.sqrt(dx*dx + dz*dz)
-        if hd < 30 then
-            log("📍 Đến gần home → rớt xuống")
+        if hd < 15 then
+            log("📍 Đến gần home")
             break
         end
 
         pcall(function()
-            local targetAir = Vector3.new(config.HOME_POS.X, flyY, config.HOME_POS.Z)
+            -- ⭐ Bay ngang: giữ Y hiện tại, chỉ đổi X/Z
+            local targetAir = Vector3.new(config.HOME_POS.X, r.Position.Y, config.HOME_POS.Z)
             local dir = targetAir - r.Position
             if dir.Magnitude > 0 then
-                r.AssemblyLinearVelocity = dir.Unit * (config.FLY_HOME_SPEED or 500)
+                local nrm = dir.Unit
+                r.AssemblyLinearVelocity = Vector3.new(
+                    nrm.X * (config.FLY_HOME_SPEED or 500),
+                    0,
+                    nrm.Z * (config.FLY_HOME_SPEED or 500)
+                )
             end
         end)
         task.wait(0.01)
     end
 
-    log("⬇ Rớt xuống home")
-    velocityFlyTo(config.HOME_POS, 8, config.DROP_SPEED or 250)
+    -- ⭐ Hạ xuống home bằng CFrame (không dùng velocity → không giật)
+    log("⬇ Hạ xuống home (CFrame mượt)")
+    local t2 = os.clock()
+    while os.clock() - t2 < 3 do
+        if not isRunning then break end
+        local r = getHRP()
+        if not r then break end
+        keepHealth(); forceRunningState()
 
-    freezeAt(config.HOME_POS, 0.4)
+        local cur = r.Position
+        local dY = config.HOME_POS.Y - cur.Y
+        if math.abs(dY) < 1 then
+            pcall(function()
+                r.CFrame = CFrame.new(config.HOME_POS)
+                r.AssemblyLinearVelocity = Vector3.zero
+                r.AssemblyAngularVelocity = Vector3.zero
+            end)
+            break
+        end
+
+        -- ⭐ Di chuyển mỗi frame 1 ít bằng CFrame
+        local step = math.clamp(dY, -30, 30)
+        pcall(function()
+            r.CFrame = CFrame.new(Vector3.new(cur.X, cur.Y + step, cur.Z))
+            r.AssemblyLinearVelocity = Vector3.zero
+            r.AssemblyAngularVelocity = Vector3.zero
+        end)
+        task.wait(0.02)
+    end
+
+    -- ⭐ Freeze cứng tại home
+    freezeAt(config.HOME_POS, 0.5)
 
     log("🔨 Rebuild nhân vật tại home...")
     rebuildCharacterFull()
@@ -1151,7 +1163,7 @@ local function baitBoss(timeout)
     return false
 end
 
--- ⭐ v10.6.1: Detect boss đánh ở forest NGAY LẬP TỨC
+-- ⭐ v10.6.3: Watchdog check mỗi frame
 local function stealAtForest()
     local prompt, ppos = findForestEggOnly()
     if not prompt or not ppos then
@@ -1169,50 +1181,42 @@ local function stealAtForest()
     local forestBefore = getSlotSet()
     log("⚡ Steal Forest")
 
-    -- ⭐ Snapshot HP trước khi steal
-    local hum0 = getHum()
-    local startHealth = hum0 and hum0.Health or 100
+    local hitByBoss = false
+    local stealDone = false
+
+    -- ⭐ Watchdog check velocity MỖI FRAME
+    local watchdog = task.spawn(function()
+        task.wait(0.3)
+        while isRunning and not stealDone and not hitByBoss do
+            local h = getHRP()
+            local hum = getHum()
+            if h and hum then
+                local vel = h.AssemblyLinearVelocity
+                local speed = vel.Magnitude
+                local velY = vel.Y
+                local state = hum:GetState()
+
+                if speed > (config.FOREST_HIT_SPEED or 20)
+                    or velY > (config.FOREST_HIT_VELY or 5)
+                    or state == Enum.HumanoidStateType.Physics
+                    or state == Enum.HumanoidStateType.Ragdoll
+                    or state == Enum.HumanoidStateType.PlatformStanding
+                    or state == Enum.HumanoidStateType.FallingDown then
+                    log(string.format("💥 Boss đánh (speed=%.1f Y=%.1f state=%s) → TELE NGAY",
+                        speed, velY, tostring(state):gsub("Enum.HumanoidStateType%.", "")))
+                    hitByBoss = true
+                    return
+                end
+            end
+            task.wait(0.01)
+        end
+    end)
 
     for i = 1, 5 do
-        if not isRunning then break end
-
-        -- ⭐ FIX: Detect boss đánh NGAY LẬP TỨC
-        local hum = getHum()
-        local h2 = getHRP()
-        if hum and h2 then
-            local state = hum:GetState()
-            local speed = h2.AssemblyLinearVelocity.Magnitude
-            local velY = h2.AssemblyLinearVelocity.Y
-            local healthNow = hum.Health
-
-            -- ⭐ 1. HP drop = boss vừa đánh → tele NGAY
-            if healthNow < startHealth - (config.FOREST_HP_DROP or 0.01) then
-                log(string.format("💥 Boss đánh (HP %.1f→%.1f) → TELE NGAY",
-                    startHealth, healthNow))
-                return false, "hit-by-boss"
-            end
-
-            -- ⭐ 2. State xấu = vừa bị đánh → tele NGAY
-            if state == Enum.HumanoidStateType.Physics
-                or state == Enum.HumanoidStateType.Ragdoll
-                or state == Enum.HumanoidStateType.PlatformStanding
-                or state == Enum.HumanoidStateType.FallingDown then
-                log(string.format("💥 Boss đánh (state=%s) → TELE NGAY",
-                    tostring(state):gsub("Enum.HumanoidStateType%.", "")))
-                return false, "hit-by-boss"
-            end
-
-            -- ⭐ 3. Speed bất thường (threshold thấp) → tele NGAY
-            if speed > (config.FOREST_HIT_SPEED or 30)
-                or velY > (config.FOREST_HIT_VELY or 8) then
-                log(string.format("💥 Boss đánh (speed=%.1f Y=%.1f) → TELE NGAY",
-                    speed, velY))
-                return false, "hit-by-boss"
-            end
-        end
+        if not isRunning or hitByBoss then break end
 
         forceRunningState()
-        h2 = getHRP()
+        local h2 = getHRP()
         if h2 then
             local p2 = findPromptSteal(h2.Position, config.FOREST_RADIUS)
             if p2 then
@@ -1224,15 +1228,23 @@ local function stealAtForest()
             end
         end
 
-        -- ⭐ Check nhanh hơn: 0.5 → 0.15
-        task.wait(0.15)
+        task.wait(0.2)
 
         local stolen, slotName = hasStolenSlot(forestBefore)
         if stolen then
             log("🎒 Forest OK (slot): " .. slotName)
             stolenPrompts[prompt] = true
+            stealDone = true
+            if watchdog then pcall(function() task.cancel(watchdog) end) end
             return true, "stolen"
         end
+    end
+
+    stealDone = true
+    if watchdog then pcall(function() task.cancel(watchdog) end) end
+
+    if hitByBoss then
+        return false, "hit-by-boss"
     end
 
     task.wait(1)
@@ -1246,6 +1258,7 @@ local function stealAtForest()
     return false, "no-steal"
 end
 
+-- ⭐ v10.6.3: Bay ngang giữ Y, không rớt
 local function stealAtPos(targetPos, label, eggUid)
     log("═══════")
     log("STEAL TẠI " .. label)
@@ -1257,25 +1270,21 @@ local function stealAtPos(targetPos, label, eggUid)
     log(string.format("   📏 Khoảng cách tới egg: %.1f", d))
 
     if d > 200 then
-        log("   🚨 Ở quá xa egg → tele lại trước khi steal")
+        log("   🚨 Ở quá xa egg → tele lại")
         local ok = teleToMapStable(targetPos)
-        if not ok then
-            log("   ❌ Tele lại fail → bỏ")
-            return false
-        end
+        if not ok then return false end
         hrp = getHRP()
         if not hrp then return false end
         d = dist(hrp.Position, targetPos)
-        log(string.format("   Sau tele lại: %.1f", d))
-        if d > 200 then
-            log("   ❌ Vẫn xa → bỏ")
-            return false
-        end
+        if d > 200 then return false end
     end
 
-    if d > config.ARRIVE_DIST and d < config.MAP_RADIUS then
-        log(string.format("   🚀 Bay tới egg (%.1f studs)", d))
-        velocityFlyTo(targetPos, 3, 600)
+    -- ⭐ Bay ngang tới egg, GIỮ Y HIỆN TẠI
+    if d > config.PROMPT_NEAR then
+        log(string.format("   🚀 Bay ngang tới egg (%.1f studs, giữ Y)", d))
+        local curY = hrp.Position.Y
+        local airTarget = Vector3.new(targetPos.X, curY, targetPos.Z)
+        velocityFlyTo(airTarget, 3, 600)
     end
 
     local slotsBefore, countBefore = getSlotSet()
@@ -1298,8 +1307,10 @@ local function stealAtPos(targetPos, label, eggUid)
         if not p2pos then break end
         local dToPrompt = dist(h2.Position, p2pos)
         if dToPrompt > config.PROMPT_NEAR then
-            log(string.format("🏃 Move tới prompt (%.1f)", dToPrompt))
-            velocityMoveTo(p2pos, 3, nil, true)
+            log(string.format("🏃 Bay ngang tới prompt (%.1f)", dToPrompt))
+            local curY = h2.Position.Y
+            local airTarget = Vector3.new(p2pos.X, curY, p2pos.Z)
+            velocityFlyTo(airTarget, 2, 600)
             p2 = findPromptSteal(h2.Position, 150)
             if not p2 then break end
         end
@@ -1321,9 +1332,7 @@ local function stealAtPos(targetPos, label, eggUid)
 
         if stolen then
             log(string.format("✅ ĐÃ STEAL (fire %d, %s)", i, stolenName))
-            if eggUid then
-                lastStolenUid = eggUid
-            end
+            if eggUid then lastStolenUid = eggUid end
             lastStolenPos = targetPos
             return true
         end
@@ -1461,7 +1470,7 @@ local function pickNextEgg()
     end
 end
 
--- ⭐⭐⭐ MAIN LOOP v10.6.1
+-- ⭐⭐⭐ MAIN LOOP v10.6.3
 local function mainLoop()
     while isRunning do
         local cycleT0 = os.clock()
@@ -1509,7 +1518,7 @@ local function mainLoop()
 
         -- ═══ BƯỚC 4-6 ═══
         if not skipCycle and gotKB then
-            -- BƯỚC 4: REBUILD (luôn rebuild, kể cả boss đánh ở forest)
+            -- BƯỚC 4: REBUILD
             log("▶ [4/6] REBUILD sau knockback...")
             local beforePos = getHRP() and getHRP().Position
             if beforePos then
@@ -1560,10 +1569,18 @@ local function mainLoop()
                     targetPos.X, targetPos.Y, targetPos.Z))
 
                 log("   🚀 Bắt đầu tele...")
-                local teleStartPos = getHRP() and getHRP().Position
                 local tTele = os.clock()
-                teleToMapStable(targetPos)
-                log(string.format("   ⏱ Tele mất: %.2fs", os.clock() - tTele))
+                local teleOk = teleToMapStable(targetPos)
+                log(string.format("   ⏱ Tele mất: %.2fs | Kết quả: %s",
+                    os.clock() - tTele, teleOk and "✅" or "❌"))
+
+                -- ⭐ Retry tele lần 2 nếu fail
+                if not teleOk then
+                    log("   🔄 Tele fail → thử lại sau 0.5s")
+                    task.wait(0.5)
+                    teleOk = teleToMapStable(targetPos)
+                    log(string.format("   ⏱ Tele retry: %s", teleOk and "✅" or "❌"))
+                end
 
                 local afterTele = getHRP() and getHRP().Position
                 if afterTele then
@@ -1579,8 +1596,8 @@ local function mainLoop()
                 if beforeSteal then
                     local dEgg = dist(beforeSteal, eggPos)
                     log(string.format("   🔍 Trước steal: cách egg %.1f studs", dEgg))
-                    if dEgg > 150 then
-                        log("   🚨 Xa egg → tele lại!")
+                    if dEgg > 300 then
+                        log("   🚨 Xa egg → tele lại lần cuối!")
                         teleToMapStable(targetPos)
                         task.wait(0.3)
                     end
@@ -1592,7 +1609,6 @@ local function mainLoop()
                 log(string.format("   ⏱ Steal mất: %.2fs | Kết quả: %s",
                     os.clock() - tSteal, stolen and "✅ OK" or "❌ FAIL"))
 
-                -- BƯỚC 6: VỀ HOME
                 if stolen then
                     log("▶ [6/6] Steal OK → về home...")
                     deliveryFailed = false
@@ -1666,7 +1682,7 @@ end
 task.spawn(function()
     pcall(function()
         local chatEvents = RS:WaitForChild("DefaultSystemChatEvents", 5)
-            or RS:WaitForChild("DefaultChatSystemChatEvents", 5)
+            or RS:WaitForChild("DefaultSystemChatEvents", 5)
         if not chatEvents then return end
         local onMsg = chatEvents:WaitForChild("OnMessageDoneFiltering", 5)
         if not onMsg then return end
@@ -1714,10 +1730,10 @@ function M.start()
     task.wait(0.2)
 
     isRunning = true
-    log("▶ START v10.6.1")
+    log("▶ START v10.6.3")
     log(string.format("   Home: %.2f,%.2f,%.2f", config.HOME_POS.X, config.HOME_POS.Y, config.HOME_POS.Z))
-    log(string.format("   Forest speed: %d | Hit threshold: speed>%d velY>%d HPdrop>%.2f",
-        config.FOREST_RUN_SPEED, config.FOREST_HIT_SPEED, config.FOREST_HIT_VELY, config.FOREST_HP_DROP))
+    log(string.format("   Forest speed: %d | Hit threshold: speed>%d velY>%d",
+        config.FOREST_RUN_SPEED, config.FOREST_HIT_SPEED, config.FOREST_HIT_VELY))
     log(string.format("   Big Egg: %s | Priority Income: %s",
         config.BIG_EGG_MODE and "ON" or "OFF",
         config.PRIORITY_INCOME and "ON" or "OFF"))
@@ -1851,8 +1867,8 @@ function M.setFlyHomeSpeed(n)
     log("🏃 Fly home speed: " .. config.FLY_HOME_SPEED)
 end
 
-function M.setRecoveryRadius(n) log("📍 Không dùng v10.6.1") end
-function M.setMaxRecovery(n) log("📍 Không dùng v10.6.1") end
+function M.setRecoveryRadius(n) log("📍 Không dùng v10.6.3") end
+function M.setMaxRecovery(n) log("📍 Không dùng v10.6.3") end
 
 function M.setHomeTimeout(n)
     config.HOME_TIMEOUT = n or 30
@@ -1869,7 +1885,7 @@ function M.setSlowSpeed(n)
     log("🐢 Forest run speed: " .. config.FOREST_RUN_SPEED)
 end
 
-function M.setWarmupTime(n) log("⏱ Không dùng v10.6.1") end
+function M.setWarmupTime(n) log("⏱ Không dùng v10.6.3") end
 
 function M.setChatWait(n)
     config.CHAT_WAIT = n or 1.0
@@ -1881,8 +1897,8 @@ function M.setCycleWait(n)
     log("⏱ Cycle wait: " .. config.WAIT_BETWEEN .. "s")
 end
 
-function M.setMaxEggsPerCycle(n) log("📊 Không dùng v10.6.1") end
-function M.setTeleToForest(enabled) log("ℹ Không dùng v10.6.1") end
+function M.setMaxEggsPerCycle(n) log("📊 Không dùng v10.6.3") end
+function M.setTeleToForest(enabled) log("ℹ Không dùng v10.6.3") end
 
 function M.setMaxRetry(n)
     config.MAX_RETRY = n or 3
@@ -1960,14 +1976,13 @@ function M.getBigEggThresholds()
     }
 end
 
--- ⭐ API mới cho threshold forest
 function M.setForestHitSpeed(n)
-    config.FOREST_HIT_SPEED = n or 30
+    config.FOREST_HIT_SPEED = n or 20
     log("💥 Forest hit speed threshold: " .. config.FOREST_HIT_SPEED)
 end
 
 function M.setForestHitVely(n)
-    config.FOREST_HIT_VELY = n or 8
+    config.FOREST_HIT_VELY = n or 5
     log("💥 Forest hit velY threshold: " .. config.FOREST_HIT_VELY)
 end
 
