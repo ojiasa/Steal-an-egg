@@ -996,42 +996,49 @@ local function runToForest()
     return true
 end
 
--- ⭐ v10.6.3: Về home mượt, không giật
+-- ⭐ v10.6.4: Bay thẳng về home từ trên cao, không hạ xuống, không giật
 local function goHome()
-    log("🏃 BAY VỀ HOME (không giật)")
+    log("🏃 BAY THẲNG VỀ HOME (từ độ cao hiện tại)")
     local startTime = os.clock()
 
-    -- ⭐ Bay ngang về home, giữ Y hiện tại
+    -- ⭐ Bay velocity thẳng về home, giữ Y hiện tại
+    -- Không hạ xuống, không freeze liên tục → không giật
     local t1 = os.clock()
-    while os.clock() - t1 < 20 do
+    while os.clock() - t1 < 25 do
         if not isRunning then return false end
         local hum, r = getHum(), getHRP()
         if not hum or not r then break end
         keepHealth(); forceRunningState()
 
+        -- Nếu tụt Y thấp quá → force tele
         if r.Position.Y < 10 then
             log("🚨 Y < 10 → force tele home")
             forceTeleHome()
             break
         end
 
+        -- Khoảng cách 3D tới home
         local dx = config.HOME_POS.X - r.Position.X
+        local dy = config.HOME_POS.Y - r.Position.Y
         local dz = config.HOME_POS.Z - r.Position.Z
-        local hd = math.sqrt(dx*dx + dz*dz)
-        if hd < 15 then
-            log("📍 Đến gần home")
+        local d3 = math.sqrt(dx*dx + dy*dy + dz*dz)
+
+        if d3 < 8 then
+            log(string.format("📍 Đến home (d=%.1f)", d3))
             break
         end
 
         pcall(function()
-            -- ⭐ Bay ngang: giữ Y hiện tại, chỉ đổi X/Z
-            local targetAir = Vector3.new(config.HOME_POS.X, r.Position.Y, config.HOME_POS.Z)
-            local dir = targetAir - r.Position
+            -- ⭐ Bay thẳng 3D về home (bao gồm cả Y)
+            -- Nhưng KHÔNG set velocity Y xuống quá nhanh để tránh giật
+            local dir = config.HOME_POS - r.Position
             if dir.Magnitude > 0 then
                 local nrm = dir.Unit
+                -- Y velocity giới hạn để không "đập" xuống
+                local vy = math.clamp(nrm.Y * (config.FLY_HOME_SPEED or 500), -150, 150)
                 r.AssemblyLinearVelocity = Vector3.new(
                     nrm.X * (config.FLY_HOME_SPEED or 500),
-                    0,
+                    vy,
                     nrm.Z * (config.FLY_HOME_SPEED or 500)
                 )
             end
@@ -1039,45 +1046,34 @@ local function goHome()
         task.wait(0.01)
     end
 
-    -- ⭐ Hạ xuống home bằng CFrame (không dùng velocity → không giật)
-    log("⬇ Hạ xuống home (CFrame mượt)")
-    local t2 = os.clock()
-    while os.clock() - t2 < 3 do
-        if not isRunning then break end
-        local r = getHRP()
-        if not r then break end
-        keepHealth(); forceRunningState()
-
-        local cur = r.Position
-        local dY = config.HOME_POS.Y - cur.Y
-        if math.abs(dY) < 1 then
-            pcall(function()
-                r.CFrame = CFrame.new(config.HOME_POS)
-                r.AssemblyLinearVelocity = Vector3.zero
-                r.AssemblyAngularVelocity = Vector3.zero
-            end)
-            break
-        end
-
-        -- ⭐ Di chuyển mỗi frame 1 ít bằng CFrame
-        local step = math.clamp(dY, -30, 30)
+    -- ⭐ Dừng hẳn velocity (không freeze CFrame liên tục → không giật)
+    local rStop = getHRP()
+    if rStop then
         pcall(function()
-            r.CFrame = CFrame.new(Vector3.new(cur.X, cur.Y + step, cur.Z))
-            r.AssemblyLinearVelocity = Vector3.zero
-            r.AssemblyAngularVelocity = Vector3.zero
+            rStop.AssemblyLinearVelocity = Vector3.zero
+            rStop.AssemblyAngularVelocity = Vector3.zero
         end)
-        task.wait(0.02)
     end
+    task.wait(0.1)
 
-    -- ⭐ Freeze cứng tại home
-    freezeAt(config.HOME_POS, 0.5)
+    -- ⭐ Snap CFrame 1 lần duy nhất về home (không lặp → không giật)
+    local rSnap = getHRP()
+    if rSnap then
+        pcall(function()
+            rSnap.CFrame = CFrame.new(config.HOME_POS)
+            rSnap.AssemblyLinearVelocity = Vector3.zero
+            rSnap.AssemblyAngularVelocity = Vector3.zero
+        end)
+    end
+    task.wait(0.2)
 
     log("🔨 Rebuild nhân vật tại home...")
     rebuildCharacterFull()
-    freezeAt(config.HOME_POS, 0.3)
+    task.wait(0.3)
 
     local rEnd = getHRP()
     if rEnd then pcall(function()
+        rEnd.CFrame = CFrame.new(config.HOME_POS)
         rEnd.AssemblyLinearVelocity = Vector3.zero
         rEnd.AssemblyAngularVelocity = Vector3.zero
     end) end
@@ -1163,7 +1159,7 @@ local function baitBoss(timeout)
     return false
 end
 
--- ⭐ v10.6.3: Watchdog check mỗi frame
+-- ⭐ v10.6.4: Boss đánh → tele NGAY, không đợi văng
 local function stealAtForest()
     local prompt, ppos = findForestEggOnly()
     if not prompt or not ppos then
@@ -1178,15 +1174,26 @@ local function stealAtForest()
         velocityMoveTo(ppos, 15)
     end
 
+    -- ⭐ QUAN TRỌNG: Reset velocity = 0 trước khi vào watchdog
+    -- Tránh watchdog bắt nhầm velocity dư từ velocityMoveTo
+    local hReset = getHRP()
+    if hReset then
+        pcall(function()
+            hReset.AssemblyLinearVelocity = Vector3.zero
+            hReset.AssemblyAngularVelocity = Vector3.zero
+        end)
+    end
+    task.wait(0.15)  -- đợi 1 nhịp cho velocity về 0
+
     local forestBefore = getSlotSet()
     log("⚡ Steal Forest")
 
     local hitByBoss = false
     local stealDone = false
+    local startTime = os.clock()
 
-    -- ⭐ Watchdog check velocity MỖI FRAME
+    -- ⭐ Watchdog KHÔNG warmup, check từ frame đầu, ngưỡng cao hơn để tránh false positive
     local watchdog = task.spawn(function()
-        task.wait(0.3)
         while isRunning and not stealDone and not hitByBoss do
             local h = getHRP()
             local hum = getHum()
@@ -1196,19 +1203,22 @@ local function stealAtForest()
                 local velY = vel.Y
                 local state = hum:GetState()
 
-                if speed > (config.FOREST_HIT_SPEED or 20)
-                    or velY > (config.FOREST_HIT_VELY or 5)
-                    or state == Enum.HumanoidStateType.Physics
-                    or state == Enum.HumanoidStateType.Ragdoll
-                    or state == Enum.HumanoidStateType.PlatformStanding
-                    or state == Enum.HumanoidStateType.FallingDown then
-                    log(string.format("💥 Boss đánh (speed=%.1f Y=%.1f state=%s) → TELE NGAY",
-                        speed, velY, tostring(state):gsub("Enum.HumanoidStateType%.", "")))
-                    hitByBoss = true
-                    return
+                -- ⭐ Chỉ detect SAU 0.1s (để velocity dư tan hết)
+                if os.clock() - startTime > 0.1 then
+                    if speed > (config.FOREST_HIT_SPEED or 20)
+                        or velY > (config.FOREST_HIT_VELY or 5)
+                        or state == Enum.HumanoidStateType.Physics
+                        or state == Enum.HumanoidStateType.Ragdoll
+                        or state == Enum.HumanoidStateType.PlatformStanding
+                        or state == Enum.HumanoidStateType.FallingDown then
+                        log(string.format("💥 Boss đánh (speed=%.1f Y=%.1f state=%s) → TELE NGAY",
+                            speed, velY, tostring(state):gsub("Enum.HumanoidStateType%.", "")))
+                        hitByBoss = true
+                        return
+                    end
                 end
             end
-            task.wait(0.01)
+            task.wait()  -- ⭐ check mỗi frame (không sleep)
         end
     end)
 
@@ -1222,13 +1232,20 @@ local function stealAtForest()
             if p2 then
                 local p2pos = getPromptPos(p2)
                 if p2pos and dist(h2.Position, p2pos) > config.PROMPT_NEAR then
-                    velocityMoveTo(p2pos, 3, nil, true)
+                    -- ⭐ Không velocityMoveTo nữa (tránh velocity dư)
+                    -- Chỉ set CFrame nếu cần
+                    pcall(function()
+                        h2.CFrame = CFrame.new(p2pos + Vector3.new(0, 3, 0))
+                        h2.AssemblyLinearVelocity = Vector3.zero
+                        h2.AssemblyAngularVelocity = Vector3.zero
+                    end)
+                    task.wait(0.05)
                 end
                 firePromptOnce(p2)
             end
         end
 
-        task.wait(0.2)
+        task.wait(0.1)
 
         local stolen, slotName = hasStolenSlot(forestBefore)
         if stolen then
@@ -1247,7 +1264,7 @@ local function stealAtForest()
         return false, "hit-by-boss"
     end
 
-    task.wait(1)
+    task.wait(0.5)
     if isCarryingEggStrict() then
         log("🎒 Forest OK (carry verify)")
         stolenPrompts[prompt] = true
@@ -1258,7 +1275,7 @@ local function stealAtForest()
     return false, "no-steal"
 end
 
--- ⭐ v10.6.3: Bay ngang giữ Y, không rớt
+-- ⭐ v10.6.4: Steal trên cao, không hạ xuống
 local function stealAtPos(targetPos, label, eggUid)
     log("═══════")
     log("STEAL TẠI " .. label)
@@ -1279,9 +1296,9 @@ local function stealAtPos(targetPos, label, eggUid)
         if d > 200 then return false end
     end
 
-    -- ⭐ Bay ngang tới egg, GIỮ Y HIỆN TẠI
+    -- ⭐ Bay ngang tới egg, GIỮ Y HIỆN TẠI (trên cao)
     if d > config.PROMPT_NEAR then
-        log(string.format("   🚀 Bay ngang tới egg (%.1f studs, giữ Y)", d))
+        log(string.format("   🚀 Bay ngang tới egg (%.1f studs, giữ Y=%.1f)", d, hrp.Position.Y))
         local curY = hrp.Position.Y
         local airTarget = Vector3.new(targetPos.X, curY, targetPos.Z)
         velocityFlyTo(airTarget, 3, 600)
@@ -1307,7 +1324,8 @@ local function stealAtPos(targetPos, label, eggUid)
         if not p2pos then break end
         local dToPrompt = dist(h2.Position, p2pos)
         if dToPrompt > config.PROMPT_NEAR then
-            log(string.format("🏃 Bay ngang tới prompt (%.1f)", dToPrompt))
+            log(string.format("🏃 Bay ngang tới prompt (%.1f, giữ Y=%.1f)", dToPrompt, h2.Position.Y))
+            -- ⭐ Bay ngang giữ Y hiện tại
             local curY = h2.Position.Y
             local airTarget = Vector3.new(p2pos.X, curY, p2pos.Z)
             velocityFlyTo(airTarget, 2, 600)
@@ -1331,7 +1349,8 @@ local function stealAtPos(targetPos, label, eggUid)
         end
 
         if stolen then
-            log(string.format("✅ ĐÃ STEAL (fire %d, %s)", i, stolenName))
+            log(string.format("✅ ĐÃ STEAL (fire %d, %s) — Y=%.1f (giữ trên cao)",
+                i, stolenName, h2.Position.Y))
             if eggUid then lastStolenUid = eggUid end
             lastStolenPos = targetPos
             return true
@@ -1341,6 +1360,7 @@ local function stealAtPos(targetPos, label, eggUid)
     log("⚠ Không steal được")
     return false
 end
+
 
 local function pickNextEgg()
     if config.PRIORITY_INCOME and not AssetEarnings then
